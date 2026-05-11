@@ -2,7 +2,7 @@
 
 Kubernetes manifests, Helm values, and host-level system configs for my home lab — a single-node k3s cluster running on `gandalf` (a ThinkCentre on Ubuntu Server 26.04 LTS).
 
-This repo is the source of truth. The working copy lives at `~/homelab/` on `gandalf` and tracks `main`.
+This repo is the source of truth. The working copy lives at `~/git/nickvigilante/homelab/` on `gandalf` and tracks `main`.
 
 ## Layout
 
