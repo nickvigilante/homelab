@@ -9,6 +9,7 @@ Storj S3 bucket. Single repository, multiple tagged snapshots per source.
 |--------|--------------|-----|-------|
 | `/opt/jellyfin/config` | `/backup/jellyfin` | `jellyfin-config` | Jellyfin SQLite DB + settings |
 | `/opt/pihole/etc-pihole` | `/backup/pihole` | `pihole-config` | Pi-hole settings + `gravity.db`; `pihole-FTL.db*` excluded |
+| `/opt/uptime-kuma/data` | `/backup/uptime-kuma` | `uptime-kuma-data` | Uptime Kuma SQLite DB + monitor config |
 
 Add a path by editing `backup-cronjob.yaml`: add a hostPath volume, a
 readOnly volumeMount, and a `restic backup --tag <tag> /backup/<dir>` line.
@@ -57,14 +58,33 @@ the bucket actually shrinks.
    # Expect: "created restic repository … at s3:…"
    ```
 
-5. **Install the schedule**:
+5. **(Optional) Wire heartbeats to Uptime Kuma.** Both CronJobs read a
+   second Secret named `uptime-kuma-push-urls` and ping a push monitor on
+   success/failure. URLs use cluster-internal DNS so they work even when
+   Pi-hole is down (and `uptime.home` doesn't resolve from inside pods).
+   Skip this if you don't run Uptime Kuma — `envFrom` on a missing Secret
+   makes the pod fail to start, so either deploy the Secret or strip the
+   `envFrom` line for `uptime-kuma-push-urls` from both CronJobs.
+
+   ```bash
+   # Get push URLs from Uptime Kuma → create two `Push` monitors named
+   # `restic-backup` and `restic-forget`. Heartbeat Intervals: 90000s
+   # (25h) and 691200s (8d) respectively to match the cron schedules.
+   # Copy the API URL from each monitor (it ends in /api/push/<token>).
+
+   kubectl -n backup create secret generic uptime-kuma-push-urls \
+     --from-literal=UPTIME_KUMA_PUSH_BACKUP_URL='http://uptime-kuma.monitoring.svc.cluster.local:3001/api/push/<token-backup>' \
+     --from-literal=UPTIME_KUMA_PUSH_FORGET_URL='http://uptime-kuma.monitoring.svc.cluster.local:3001/api/push/<token-forget>'
+   ```
+
+6. **Install the schedule**:
 
    ```bash
    kubectl apply -f backup-cronjob.yaml
    kubectl apply -f forget-cronjob.yaml
    ```
 
-6. **Smoke test** — run the backup once on demand, don't wait until 3am:
+7. **Smoke test** — run the backup once on demand, don't wait until 3am:
 
    ```bash
    kubectl -n backup create job --from=cronjob/restic-backup test-backup-$(date +%s)

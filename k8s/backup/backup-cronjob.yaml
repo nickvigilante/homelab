@@ -4,6 +4,12 @@
 # Sources backed up:
 #   - /opt/jellyfin/config       (Jellyfin DB + settings)
 #   - /opt/pihole/etc-pihole     (Pi-hole config + gravity DB; FTL query DB excluded)
+#   - /opt/uptime-kuma/data      (Uptime Kuma SQLite DB + monitor config)
+#
+# Heartbeat: pings the `restic-backup` push monitor in Uptime Kuma on
+# success and on failure (via trap). If the job dies before reaching
+# either branch, the monitor goes DOWN on its own when the heartbeat
+# interval expires — same signal, slower.
 #
 # Schedule: 03:00 every day. Adjust via `spec.schedule` if 3am isn't quiet.
 #
@@ -36,6 +42,10 @@ spec:
                 - -c
                 - |
                   set -euo pipefail
+                  push() {
+                    wget -q -O- "${UPTIME_KUMA_PUSH_BACKUP_URL}?status=${1:-up}&msg=${2:-OK}" >/dev/null 2>&1 || true
+                  }
+                  trap 'push down failed' ERR
                   echo "=== Jellyfin config ==="
                   restic backup \
                     --host gandalf \
@@ -49,17 +59,29 @@ spec:
                     --exclude='pihole-FTL.db*' \
                     /backup/pihole
                   echo
+                  echo "=== Uptime Kuma data ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag uptime-kuma-data \
+                    /backup/uptime-kuma
+                  echo
                   echo "=== Snapshot summary ==="
                   restic snapshots --compact
+                  push up OK
               envFrom:
                 - secretRef:
                     name: restic-credentials
+                - secretRef:
+                    name: uptime-kuma-push-urls
               volumeMounts:
                 - name: jellyfin-config
                   mountPath: /backup/jellyfin
                   readOnly: true
                 - name: pihole-config
                   mountPath: /backup/pihole
+                  readOnly: true
+                - name: uptime-kuma-data
+                  mountPath: /backup/uptime-kuma
                   readOnly: true
           volumes:
             - name: jellyfin-config
@@ -69,4 +91,8 @@ spec:
             - name: pihole-config
               hostPath:
                 path: /opt/pihole/etc-pihole
+                type: Directory
+            - name: uptime-kuma-data
+              hostPath:
+                path: /opt/uptime-kuma/data
                 type: Directory

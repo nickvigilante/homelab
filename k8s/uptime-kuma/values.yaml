@@ -1,0 +1,50 @@
+image:
+  # Let the chart's appVersion pin the image tag — easier to bump via chart upgrade.
+  tag: ""
+
+# StatefulSet would be overkill for a single-replica monitoring app with a
+# pre-bound PV. Default (Deployment) is fine.
+useDeploy: true
+
+service:
+  type: ClusterIP
+  port: 3001
+
+# Pin to gandalf — the PV is hostPath-bound to /opt/uptime-kuma/data here.
+nodeSelector:
+  kubernetes.io/hostname: gandalf
+
+volume:
+  enabled: true
+  existingClaim: uptime-kuma-data
+
+# Modest budget — Uptime Kuma is light. Add a request so the scheduler can
+# place it predictably; no limit so the occasional notification storm isn't
+# OOM-killed.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+podEnv:
+  - name: TZ
+    value: America/New_York
+  # Trust the X-Forwarded-* headers from Traefik so the audit log records
+  # the real client IP, not the ingress controller's ClusterIP.
+  - name: UPTIME_KUMA_BEHIND_PROXY
+    value: "1"
+
+ingress:
+  enabled: true
+  className: traefik
+  # Chart's default ingress annotations target nginx and break Traefik
+  # parsing. Replace with the Traefik entrypoint + websocket middleware
+  # (Kuma's UI uses Socket.IO; Traefik handles upgrade headers fine but
+  # the entrypoint must be explicit).
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+  hosts:
+    - host: uptime.home
+      paths:
+        - path: /
+          pathType: Prefix
