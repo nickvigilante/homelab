@@ -1,0 +1,53 @@
+# Weekly retention + prune. Keeps the repo from growing without bound.
+#
+# Retention policy (per host+tag combination, automatically scoped):
+#   - 7 daily snapshots
+#   - 4 weekly snapshots
+#   - 6 monthly snapshots
+#   - 2 yearly snapshots
+#
+# Schedule: Sunday 04:00 (one hour after Sunday's backup runs).
+# `--prune` rewrites the repo to actually free space from forgotten snapshots.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restic-forget
+  namespace: backup
+spec:
+  schedule: "0 4 * * 0"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/hostname: gandalf
+          containers:
+            - name: restic
+              image: restic/restic:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  restic forget \
+                    --group-by host,tags \
+                    --keep-daily 7 \
+                    --keep-weekly 4 \
+                    --keep-monthly 6 \
+                    --keep-yearly 2 \
+                    --prune
+                  echo
+                  echo "=== Post-prune snapshots ==="
+                  restic snapshots --compact
+                  echo
+                  echo "=== Repo stats ==="
+                  restic stats --mode raw-data
+              envFrom:
+                - secretRef:
+                    name: restic-credentials

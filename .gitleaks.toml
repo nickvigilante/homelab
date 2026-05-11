@@ -8,3 +8,10 @@
 
 [extend]
 useDefault = true
+
+[allowlist]
+  description = "Documented placeholder strings (REPLACE_WITH_*) are obvious template stubs, not real secrets."
+  regexTarget = "match"
+  regexes = [
+    '''REPLACE_WITH_[A-Z0-9_]+''',
+  ]
