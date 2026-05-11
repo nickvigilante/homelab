@@ -1,0 +1,31 @@
+# One-shot Job: initializes the restic repository at $RESTIC_REPOSITORY.
+# Run exactly once per repository. The repo's password is set on init from
+# $RESTIC_PASSWORD; from then on every backup needs the same password.
+#
+# Apply: kubectl apply -f init-job.yaml
+# Wait:  kubectl -n backup wait --for=condition=complete job/restic-init --timeout=120s
+# Logs:  kubectl -n backup logs job/restic-init
+#
+# The Job is auto-deleted 24h after completion via ttlSecondsAfterFinished.
+# If init fails (e.g. repo already exists), inspect logs and either reuse
+# the existing repo (delete this Job and skip) or pick a different prefix.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restic-init
+  namespace: backup
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      containers:
+        - name: restic
+          image: restic/restic:latest
+          args: ["init"]
+          envFrom:
+            - secretRef:
+                name: restic-credentials

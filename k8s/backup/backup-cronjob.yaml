@@ -1,0 +1,72 @@
+# Daily backup CronJob. Reads source dirs via hostPath (read-only) and
+# pushes deduplicated snapshots to the restic repo on Storj.
+#
+# Sources backed up:
+#   - /opt/jellyfin/config       (Jellyfin DB + settings)
+#   - /opt/pihole/etc-pihole     (Pi-hole config + gravity DB; FTL query DB excluded)
+#
+# Schedule: 03:00 every day. Adjust via `spec.schedule` if 3am isn't quiet.
+#
+# Manual trigger (e.g. to test):
+#   kubectl -n backup create job --from=cronjob/restic-backup test-backup-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restic-backup
+  namespace: backup
+spec:
+  schedule: "0 3 * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/hostname: gandalf
+          containers:
+            - name: restic
+              image: restic/restic:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  echo "=== Jellyfin config ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag jellyfin-config \
+                    /backup/jellyfin
+                  echo
+                  echo "=== Pi-hole config ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag pihole-config \
+                    --exclude='pihole-FTL.db*' \
+                    /backup/pihole
+                  echo
+                  echo "=== Snapshot summary ==="
+                  restic snapshots --compact
+              envFrom:
+                - secretRef:
+                    name: restic-credentials
+              volumeMounts:
+                - name: jellyfin-config
+                  mountPath: /backup/jellyfin
+                  readOnly: true
+                - name: pihole-config
+                  mountPath: /backup/pihole
+                  readOnly: true
+          volumes:
+            - name: jellyfin-config
+              hostPath:
+                path: /opt/jellyfin/config
+                type: Directory
+            - name: pihole-config
+              hostPath:
+                path: /opt/pihole/etc-pihole
+                type: Directory

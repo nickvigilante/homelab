@@ -11,6 +11,7 @@ This repo is the source of truth. The working copy lives at `~/git/nickvigilante
 | `system/` | Host-level systemd units and config templates (currently: rclone Storj mount for the media bucket) |
 | `k8s/jellyfin/` | Jellyfin (`jellyfin/jellyfin` Helm chart) — values.yaml + PV/PVC for config persistence |
 | `k8s/pihole/` | Pi-hole (`mojo2600/pihole` Helm chart) — values.yaml + PV/PVC for `/etc/pihole` persistence |
+| `k8s/backup/` | Restic backup CronJob → Storj. See [`k8s/backup/README.md`](./k8s/backup/README.md) for setup + restore. |
 | `k8s/homeassistant/` | (planned) Home Assistant |
 
 ## How changes land in the cluster
