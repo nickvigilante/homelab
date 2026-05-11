@@ -8,6 +8,9 @@
 #
 # Schedule: Sunday 04:00 (one hour after Sunday's backup runs).
 # `--prune` rewrites the repo to actually free space from forgotten snapshots.
+#
+# Heartbeat: pings the `restic-forget` push monitor in Uptime Kuma on
+# success/failure via the same wrapper as the backup CronJob.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -35,6 +38,10 @@ spec:
                 - -c
                 - |
                   set -euo pipefail
+                  push() {
+                    wget -q -O- "${UPTIME_KUMA_PUSH_FORGET_URL}?status=${1:-up}&msg=${2:-OK}" >/dev/null 2>&1 || true
+                  }
+                  trap 'push down failed' ERR
                   restic forget \
                     --group-by host,tags \
                     --keep-daily 7 \
@@ -48,6 +55,9 @@ spec:
                   echo
                   echo "=== Repo stats ==="
                   restic stats --mode raw-data
+                  push up OK
               envFrom:
                 - secretRef:
                     name: restic-credentials
+                - secretRef:
+                    name: uptime-kuma-push-urls
