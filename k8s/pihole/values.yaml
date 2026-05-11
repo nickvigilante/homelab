@@ -1,0 +1,65 @@
+nodeSelector:
+  kubernetes.io/hostname: gandalf
+
+# Bind port 53 directly on the host (UDP+TCP) without hostNetwork.
+# Web traffic stays on the pod network and is fronted by Traefik ingress.
+hostNetwork: false
+dnsHostPort:
+  enabled: true
+  port: 53
+
+# DNS Service is unused externally (host:53 reaches Pi-hole via hostPort).
+# Keep it ClusterIP just so Pi-hole's own DNS lookups inside the cluster work.
+serviceDns:
+  type: ClusterIP
+
+# Web served via Traefik. Pi-hole only listens HTTP inside the pod;
+# Traefik terminates TLS with its default cert for https://pi.hole/.
+serviceWeb:
+  type: ClusterIP
+  http:
+    enabled: true
+    port: 80
+  https:
+    enabled: false
+
+# Admin password lives in a Kubernetes Secret the user creates by hand.
+# `adminPassword: ""` ensures no plaintext default is templated.
+admin:
+  enabled: true
+  existingSecret: pihole-admin
+  passwordKey: password
+adminPassword: ""
+
+# Reuse the manual PV+PVC mapped to /opt/pihole/etc-pihole on the host.
+# Migrated config (pihole.toml, gravity.db, pihole-FTL.db, etc.) lives there.
+persistentVolumeClaim:
+  enabled: true
+  existingClaim: pihole-config
+
+# Default upstreams — overridden once migrated pihole.toml takes effect.
+DNS1: "1.1.1.1"
+DNS2: "9.9.9.9"
+
+# v6 FTL listening mode + timezone
+extraEnvVars:
+  FTLCONF_dns_listeningMode: "all"
+  TZ: "America/New_York"
+
+# Ingress at pi.hole — Traefik serves both http and https (default cert on 443).
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+  path: /
+  pathType: Prefix
+  hosts:
+    - pi.hole
+
+# Pi-hole v6's FTL serves DNS records from pihole.toml's `dns.hosts` array
+# before dnsmasq's address= directives get a chance, so the chart's
+# customDnsEntries / additionalHostsEntries mechanism is effectively a no-op
+# for names FTL already has an opinion about (like the auto-generated pi.hole).
+# Records are managed via the web UI (Settings → Local DNS Records), which
+# persists to pihole.toml on the PV. Non-declarative but reliable on v6.

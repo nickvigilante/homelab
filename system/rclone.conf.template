@@ -1,0 +1,13 @@
+# rclone config template for Storj S3 gateway access.
+# Copy this file to /etc/rclone/rclone.conf (root-owned, mode 0600),
+# then replace the two placeholders with your real Storj S3 keys.
+#
+# This file does NOT contain secrets. Do not put real keys in this template;
+# put them only in the deployed copy at /etc/rclone/rclone.conf.
+
+[vigilantube]
+type = s3
+provider = Other
+endpoint = https://gateway.storjshare.io
+access_key_id = REPLACE_WITH_STORJ_S3_ACCESS_KEY
+secret_access_key = REPLACE_WITH_STORJ_S3_SECRET_KEY

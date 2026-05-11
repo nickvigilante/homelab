@@ -1,0 +1,28 @@
+[Unit]
+Description=rclone mount: vigilantube (Storj S3) -> /mnt/vigilantube
+Documentation=https://rclone.org/commands/rclone_mount/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStartPre=/bin/mkdir -p /mnt/vigilantube
+ExecStart=/home/linuxbrew/.linuxbrew/bin/rclone mount vigilantube:vigilantube /mnt/vigilantube \
+  --config=/etc/rclone/rclone.conf \
+  --cache-dir=/var/cache/rclone-vigilantube \
+  --read-only \
+  --allow-other \
+  --vfs-cache-mode=full \
+  --vfs-cache-max-size=20G \
+  --vfs-cache-max-age=72h \
+  --buffer-size=64M \
+  --dir-cache-time=1h \
+  --umask=022 \
+  --log-level=INFO
+ExecStop=/bin/fusermount3 -uz /mnt/vigilantube
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,57 @@
+image:
+  # Chart's appVersion (10.11.x) is current; let the chart pick it.
+  tag: ""
+
+deploymentStrategy:
+  # Recreate so the hostPath config dir is never held by two pods at once.
+  type: Recreate
+
+service:
+  type: ClusterIP
+  port: 8096
+
+# Pin to the ThinkCentre — /mnt/vigilantube (FUSE) and /opt/jellyfin/config live here.
+nodeSelector:
+  kubernetes.io/hostname: gandalf
+
+jellyfin:
+  env:
+    - name: TZ
+      value: America/New_York
+    # vigilan.tube is the canonical user-facing URL (resolves to gandalf's
+    # Tailscale IP via Pi-hole; reachable on every tailnet device).
+    - name: JELLYFIN_PublishedServerUrl
+      value: "http://vigilan.tube"
+
+persistence:
+  config:
+    enabled: true
+    # Reuses /opt/jellyfin/config from the raw-YAML deployment via a PV+PVC
+    # defined in pv-pvc.yaml. Preserves Jellyfin's DB, library config, etc.
+    existingClaim: jellyfin-config
+  media:
+    enabled: true
+    type: hostPath
+    hostPath: /mnt/vigilantube
+  cache:
+    # Cache is transcoding scratch space — emptyDir is fine, regenerated on demand.
+    enabled: false
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+  hosts:
+    - host: jellyfin.home
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: gandalf.tail395fc0.ts.net
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: vigilan.tube
+      paths:
+        - path: /
+          pathType: Prefix

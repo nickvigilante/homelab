@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Pre-commit hook: scan staged changes for secrets with gitleaks.
+#
+# Enable per-clone with:
+#   git config core.hooksPath .githooks
+#
+# To bypass (not recommended): git commit --no-verify
+
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "warning: gitleaks not installed; skipping pre-commit secret scan" >&2
+  echo "  install: brew install gitleaks" >&2
+  exit 0
+fi
+
+if ! gitleaks git --staged; then
+  echo ""
+  echo "Pre-commit blocked: gitleaks flagged potential secrets above."
+  echo "Review the findings, fix or allowlist (.gitleaksignore / .gitleaks.toml),"
+  echo "then re-stage and commit. Bypass only if you are certain: git commit --no-verify"
+  exit 1
+fi

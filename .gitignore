@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local secrets (never commit)
+.envrc
+.envrc.local
+.env
+.env.*
+*.pem
+*.key
+kubeconfig
+secrets/
+
+# Local-only Helm value overrides
+**/values-local.yaml
+**/values.local.yaml
+
+# Tooling caches / generated output
+_generated/
