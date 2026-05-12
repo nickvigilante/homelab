@@ -1,0 +1,41 @@
+# Helm values for the bitnami/postgresql chart that backs Coder.
+#
+# Why a separate Helm release: the official Coder chart does not bundle
+# postgres (unlike Authentik's chart which does). So we install postgres
+# standalone, then point Coder at it via CODER_PG_CONNECTION_URL.
+#
+# Release name MUST be `postgres` so the bitnami StatefulSet auto-names
+# its PVC `data-postgres-postgresql-0`, matching what's pre-created in
+# pv-pvc.yaml.
+
+auth:
+  username: coder
+  database: coder
+  # Read both the user password and the superuser password from the
+  # same Secret. Bitnami expects keys `password` (user) and
+  # `postgres-password` (superuser). Map them explicitly.
+  existingSecret: coder-secrets
+  secretKeys:
+    adminPasswordKey: postgres-superuser-password
+    userPasswordKey: postgres-password
+
+primary:
+  persistence:
+    enabled: true
+    storageClass: manual
+    existingClaim: data-postgres-postgresql-0
+  # Pin to gandalf — the PV is hostPath here.
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# kubelet creates hostPath dirs as root:root, but bitnami postgres runs
+# as uid 1001. Without this init container the pod CrashLoopBackOffs
+# with "cannot create directory ... Permission denied" on first start.
+volumePermissions:
+  enabled: true

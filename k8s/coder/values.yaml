@@ -1,0 +1,93 @@
+# Coder Helm values. Targets the official `coder-v2/coder` chart.
+#
+# Secret material (postgres URL, OIDC client secret) is NOT in this
+# file — it lives in the `coder-secrets` k8s Secret in namespace `coder`.
+# See README.md for the `kubectl create secret` invocation that sources
+# from Bitwarden.
+
+coder:
+  # Single-node k3s cluster + postgres PV is hostPath-bound to gandalf.
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+  # The Coder chart creates a ServiceAccount with permission to manage
+  # pods/PVCs/etc. in its own namespace. Workspace pods get scheduled
+  # into the same namespace by default. This matches the Kubernetes
+  # workspace template's expectations — leave defaults.
+  serviceAccount:
+    enableDeployments: true
+    workspacePerms: true
+
+  env:
+    # Connection string is fully assembled in the Secret so the password
+    # never appears in this values file or in plain env entries.
+    - name: CODER_PG_CONNECTION_URL
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: pg-connection-url
+
+    # The URL users hit to reach the Coder dashboard. Must match the
+    # ingress host or workspace agents will fail to connect.
+    - name: CODER_ACCESS_URL
+      value: http://coder.home
+
+    # Wildcard subdomain for port-forwarding from workspaces (e.g.,
+    # `8080--main--user.coder.home`). Disabled for now — enabling it
+    # needs a wildcard DNS record + matching ingress, which the home
+    # lab DNS setup doesn't have yet. Workspace SSH still works without
+    # this; only browser-based port forwarding is gated by it.
+    # - name: CODER_WILDCARD_ACCESS_URL
+    #   value: "*.coder.home"
+
+    # Disable telemetry. Coder phones home with anonymized usage stats
+    # by default; turn off for a home lab.
+    - name: CODER_TELEMETRY
+      value: "false"
+
+    # OIDC via Authentik. Local password auth stays enabled by default
+    # so you can fall back to the bootstrap owner account when
+    # Authentik is down — Coder is downstream of Authentik in the SPOF
+    # chain, keep the parachute.
+    - name: CODER_OIDC_ISSUER_URL
+      value: http://authentik.home/application/o/coder/
+    - name: CODER_OIDC_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: oidc-client-id
+    - name: CODER_OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: oidc-client-secret
+    # Empty string accepts any email domain. Tighten later if you add
+    # collaborators with different domains.
+    - name: CODER_OIDC_EMAIL_DOMAIN
+      value: ""
+    - name: CODER_OIDC_SIGN_IN_TEXT
+      value: Sign in with Authentik
+    # First user to log in via OIDC is auto-assigned owner. After that,
+    # role mapping is done in the Coder UI. The bootstrap owner created
+    # via local auth (see README) stays as the failsafe.
+    - name: CODER_OIDC_IGNORE_EMAIL_VERIFIED
+      value: "false"
+
+  service:
+    type: ClusterIP
+
+  ingress:
+    enable: true
+    className: traefik
+    host: coder.home
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web

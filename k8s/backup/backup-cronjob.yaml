@@ -6,6 +6,7 @@
 #   - /opt/pihole/etc-pihole     (Pi-hole config + gravity DB; FTL query DB excluded)
 #   - /opt/uptime-kuma/data      (Uptime Kuma SQLite DB + monitor config)
 #   - /opt/authentik/postgres    (Authentik PostgreSQL data; useless without AUTHENTIK_SECRET_KEY)
+#   - /opt/coder/postgres        (Coder PostgreSQL data; workspace home dirs are NOT backed up)
 #
 # Heartbeat: pings the `restic-backup` push monitor in Uptime Kuma on
 # success and on failure (via trap). If the job dies before reaching
@@ -72,6 +73,12 @@ spec:
                     --tag authentik-postgres \
                     /backup/authentik-postgres
                   echo
+                  echo "=== Coder postgres ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag coder-postgres \
+                    /backup/coder-postgres
+                  echo
                   echo "=== Snapshot summary ==="
                   restic snapshots --compact
                   push up OK
@@ -93,6 +100,9 @@ spec:
                 - name: authentik-postgres
                   mountPath: /backup/authentik-postgres
                   readOnly: true
+                - name: coder-postgres
+                  mountPath: /backup/coder-postgres
+                  readOnly: true
           volumes:
             - name: jellyfin-config
               hostPath:
@@ -110,3 +120,11 @@ spec:
               hostPath:
                 path: /opt/authentik/postgres
                 type: Directory
+            - name: coder-postgres
+              hostPath:
+                # DirectoryOrCreate so the daily backup doesn't fail
+                # while Coder is mid-deployment (the dir is created by
+                # the PV bind on first apply, but the CronJob change
+                # may land before postgres comes up).
+                path: /opt/coder/postgres
+                type: DirectoryOrCreate
