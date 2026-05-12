@@ -5,6 +5,7 @@
 #   - /opt/jellyfin/config       (Jellyfin DB + settings)
 #   - /opt/pihole/etc-pihole     (Pi-hole config + gravity DB; FTL query DB excluded)
 #   - /opt/uptime-kuma/data      (Uptime Kuma SQLite DB + monitor config)
+#   - /opt/authentik/postgres    (Authentik PostgreSQL data; useless without AUTHENTIK_SECRET_KEY)
 #
 # Heartbeat: pings the `restic-backup` push monitor in Uptime Kuma on
 # success and on failure (via trap). If the job dies before reaching
@@ -65,6 +66,12 @@ spec:
                     --tag uptime-kuma-data \
                     /backup/uptime-kuma
                   echo
+                  echo "=== Authentik postgres ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag authentik-postgres \
+                    /backup/authentik-postgres
+                  echo
                   echo "=== Snapshot summary ==="
                   restic snapshots --compact
                   push up OK
@@ -83,6 +90,9 @@ spec:
                 - name: uptime-kuma-data
                   mountPath: /backup/uptime-kuma
                   readOnly: true
+                - name: authentik-postgres
+                  mountPath: /backup/authentik-postgres
+                  readOnly: true
           volumes:
             - name: jellyfin-config
               hostPath:
@@ -95,4 +105,8 @@ spec:
             - name: uptime-kuma-data
               hostPath:
                 path: /opt/uptime-kuma/data
+                type: Directory
+            - name: authentik-postgres
+              hostPath:
+                path: /opt/authentik/postgres
                 type: Directory

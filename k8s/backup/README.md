@@ -10,6 +10,7 @@ Storj S3 bucket. Single repository, multiple tagged snapshots per source.
 | `/opt/jellyfin/config` | `/backup/jellyfin` | `jellyfin-config` | Jellyfin SQLite DB + settings |
 | `/opt/pihole/etc-pihole` | `/backup/pihole` | `pihole-config` | Pi-hole settings + `gravity.db`; `pihole-FTL.db*` excluded |
 | `/opt/uptime-kuma/data` | `/backup/uptime-kuma` | `uptime-kuma-data` | Uptime Kuma SQLite DB + monitor config |
+| `/opt/authentik/postgres` | `/backup/authentik-postgres` | `authentik-postgres` | Authentik PostgreSQL data dir; **useless without `AUTHENTIK_SECRET_KEY`** (stored in Bitwarden item `Homelab Authentik`) |
 
 Add a path by editing `backup-cronjob.yaml`: add a hostPath volume, a
 readOnly volumeMount, and a `restic backup --tag <tag> /backup/<dir>` line.

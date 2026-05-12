@@ -13,6 +13,7 @@ This repo is the source of truth. The working copy lives at `~/git/nickvigilante
 | `k8s/pihole/` | Pi-hole (`mojo2600/pihole` Helm chart) — values.yaml + PV/PVC for `/etc/pihole` persistence |
 | `k8s/backup/` | Restic backup CronJob → Storj. See [`k8s/backup/README.md`](./k8s/backup/README.md) for setup + restore. |
 | `k8s/uptime-kuma/` | Uptime Kuma (`dirsigler/uptime-kuma-helm` Helm chart) — status board + push-monitor sink for restic. See [`k8s/uptime-kuma/README.md`](./k8s/uptime-kuma/README.md). |
+| `k8s/authentik/` | Authentik (`authentik/authentik` Helm chart) — identity provider for future SSO across services. Bundled PostgreSQL. See [`k8s/authentik/README.md`](./k8s/authentik/README.md). |
 | `k8s/homeassistant/` | (planned) Home Assistant |
 
 ## How changes land in the cluster

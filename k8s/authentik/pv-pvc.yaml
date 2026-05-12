@@ -1,0 +1,46 @@
+# Persistent storage for Authentik's bundled PostgreSQL. The bitnami
+# postgresql sub-chart binds this PVC by name (via the StatefulSet's
+# volumeClaimTemplate match).
+#
+# Lose this PV → lose the Authentik database. Restic snapshots
+# `/opt/authentik/postgres` nightly under tag `authentik-postgres`.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: authentik-postgres-data
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/authentik/postgres
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - gandalf
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Bitnami postgresql StatefulSet builds the claim name from the chart's
+  # naming. With release name `authentik`, the auto-generated claim name
+  # would be `data-authentik-postgresql-0`. Pre-creating it with that
+  # exact name lets the StatefulSet adopt the bound PV.
+  name: data-authentik-postgresql-0
+  namespace: auth
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 8Gi
+  volumeName: authentik-postgres-data
