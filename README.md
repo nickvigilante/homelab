@@ -15,6 +15,7 @@ This repo is the source of truth. The working copy lives at `~/git/nickvigilante
 | `k8s/uptime-kuma/` | Uptime Kuma (`dirsigler/uptime-kuma-helm` Helm chart) — status board + push-monitor sink for restic. See [`k8s/uptime-kuma/README.md`](./k8s/uptime-kuma/README.md). |
 | `k8s/authentik/` | Authentik (`authentik/authentik` Helm chart) — identity provider for future SSO across services. Bundled PostgreSQL. See [`k8s/authentik/README.md`](./k8s/authentik/README.md). |
 | `k8s/homeassistant/` | (planned) Home Assistant |
+| `ansible/` | Host-level config for future Pi workers (Stage 2). One playbook today — `provision-pi.yml` — that joins a fresh Pi as a k3s agent + Tailscale node. See [`ansible/README.md`](./ansible/README.md). |
 
 ## How changes land in the cluster
 

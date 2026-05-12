@@ -1,0 +1,172 @@
+# Provision a Raspberry Pi as a k3s agent + Tailscale node.
+#
+# Usage:
+#   # Initial run on a fresh Pi (still has the default `pi` user):
+#   ansible-playbook provision-pi.yml \
+#     --limit pi5 \
+#     --extra-vars 'ansible_user=pi' \
+#     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)" \
+#     --ask-pass --ask-become-pass
+#
+#   # Subsequent runs (after the `nickv` user exists):
+#   ansible-playbook provision-pi.yml --limit pi5 \
+#     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)"
+#
+# `tailscale_authkey` is a one-time pre-authorized key. Generate at
+# https://login.tailscale.com/admin/settings/keys with:
+#   - Reusable: no
+#   - Ephemeral: no
+#   - Pre-approved: yes
+#   - Tags: tag:homelab
+# This avoids the manual "approve device in admin UI" step.
+
+- name: Read k3s node-token from the control plane
+  hosts: cluster_servers
+  gather_facts: false
+  tasks:
+    - name: Slurp /var/lib/rancher/k3s/server/node-token
+      become: true
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_slurped
+
+    - name: Stash the token for downstream plays
+      ansible.builtin.set_fact:
+        k3s_token: "{{ k3s_token_slurped.content | b64decode | trim }}"
+        cacheable: false
+
+- name: Provision Pi as k3s agent + Tailscale node
+  hosts: cluster_agents
+  become: true
+
+  vars:
+    # Injected by the play above via hostvars lookup. Fails fast if
+    # the prior play didn't run (e.g., wrong --limit).
+    k3s_token: "{{ hostvars['gandalf']['k3s_token'] }}"
+
+    # Pre-flight check: the operator must pass tailscale_authkey via
+    # --extra-vars. Defaulting to empty so the assert below fires
+    # with a clear message instead of an opaque tailscale CLI error.
+    tailscale_authkey: ""
+
+  pre_tasks:
+    - name: Require tailscale_authkey
+      ansible.builtin.assert:
+        that:
+          - tailscale_authkey | length > 0
+        fail_msg: >
+          Set tailscale_authkey via --extra-vars. Generate a one-time
+          pre-authorized key tagged tag:homelab at
+          https://login.tailscale.com/admin/settings/keys.
+
+  tasks:
+    # ---- Base system ----------------------------------------------------
+
+    - name: Set hostname to the inventory name
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Ensure /etc/hosts has the new hostname
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s'
+        line: "127.0.1.1 {{ inventory_hostname }}"
+        state: present
+
+    - name: Set timezone to America/New_York
+      community.general.timezone:
+        name: America/New_York
+
+    - name: Install baseline packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - htop
+          - jq
+          - vim
+          - unattended-upgrades
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Reuses the same unattended-upgrades drop-in shipped for gandalf.
+    # See ../system/52unattended-upgrades-local.conf for the source.
+    - name: Install auto-reboot drop-in for unattended-upgrades
+      ansible.builtin.copy:
+        src: ../system/52unattended-upgrades-local.conf
+        dest: /etc/apt/apt.conf.d/52unattended-upgrades-local.conf
+        owner: root
+        group: root
+        mode: "0644"
+
+    # ---- Tailscale ------------------------------------------------------
+
+    - name: Add Tailscale apt signing key
+      ansible.builtin.get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        mode: "0644"
+
+    - name: Add Tailscale apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/tailscale.list
+        content: |
+          deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu noble main
+        mode: "0644"
+
+    - name: Install tailscale
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+        update_cache: true
+
+    - name: Bring up Tailscale with the tag:homelab tag
+      ansible.builtin.command:
+        cmd: >
+          tailscale up
+          --authkey={{ tailscale_authkey }}
+          --advertise-tags=tag:homelab
+          --hostname={{ inventory_hostname }}
+          --accept-dns=true
+      register: tailscale_up
+      changed_when: "'Success.' in tailscale_up.stdout or tailscale_up.stdout == ''"
+      # If already authed, tailscale up is idempotent; suppress error noise.
+      failed_when:
+        - tailscale_up.rc != 0
+        - "'already authenticated' not in tailscale_up.stderr | default('')"
+
+    # ---- k3s agent ------------------------------------------------------
+
+    # k3s install script is idempotent — re-runs are safe and pick up
+    # config changes. INSTALL_K3S_VERSION pinning is intentionally left
+    # to the env (or omitted to track stable) so gandalf and agents
+    # don't drift unintentionally; bump centrally when you upgrade.
+    - name: Install k3s agent
+      ansible.builtin.shell:
+        cmd: |
+          curl -sfL https://get.k3s.io | \
+            K3S_URL={{ k3s_url | quote }} \
+            K3S_TOKEN={{ k3s_token | quote }} \
+            INSTALL_K3S_EXEC="agent" \
+            sh -
+        creates: /usr/local/bin/k3s
+
+    - name: Ensure k3s-agent service is enabled and started
+      ansible.builtin.systemd:
+        name: k3s-agent
+        enabled: true
+        state: started
+
+    - name: Apply node labels
+      ansible.builtin.command:
+        cmd: >
+          kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml label node {{ inventory_hostname }}
+          {% for key, value in k3s_node_labels.items() %}
+          {{ key }}={{ value }}
+          {% endfor %}
+          --overwrite
+      when: k3s_node_labels | length > 0
+      delegate_to: gandalf
+      # kubectl on gandalf needs the kubeconfig (root-only by default).
+      become: true
+      changed_when: false
