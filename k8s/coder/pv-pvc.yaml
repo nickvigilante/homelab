@@ -1,0 +1,50 @@
+# Persistent storage for Coder's PostgreSQL. Bitnami's postgresql
+# StatefulSet adopts the PVC named `data-postgres-postgresql-0` when
+# installed with release name `postgres` in the `coder` namespace.
+#
+# Lose this PV → lose Coder's control-plane state (users, templates,
+# workspace metadata). Workspace home dirs live in separate PVCs that
+# the Kubernetes template provisions via the `local-path` storage class
+# (k3s default) — those are NOT backed by this PV.
+#
+# Restic snapshots /opt/coder/postgres nightly under tag `coder-postgres`.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: coder-postgres-data
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/coder/postgres
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - gandalf
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Bitnami postgres StatefulSet auto-names this claim from
+  # `data-<release>-postgresql-0`. Release name is `postgres`, so the
+  # claim must be `data-postgres-postgresql-0` for the StatefulSet to
+  # adopt the bound PV instead of asking for a new one.
+  name: data-postgres-postgresql-0
+  namespace: coder
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 8Gi
+  volumeName: coder-postgres-data
