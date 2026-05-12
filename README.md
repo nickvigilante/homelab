@@ -8,7 +8,7 @@ This repo is the source of truth. The working copy lives at `~/git/nickvigilante
 
 | Path | What's in it |
 |------|--------------|
-| `system/` | Host-level systemd units and config templates (currently: rclone Storj mount for the media bucket) |
+| `system/` | Host-level systemd units, apt drop-ins, and config templates (rclone Storj mount; unattended-upgrades auto-reboot override) |
 | `k8s/jellyfin/` | Jellyfin (`jellyfin/jellyfin` Helm chart) — values.yaml + PV/PVC for config persistence |
 | `k8s/pihole/` | Pi-hole (`mojo2600/pihole` Helm chart) — values.yaml + PV/PVC for `/etc/pihole` persistence |
 | `k8s/backup/` | Restic backup CronJob → Storj. See [`k8s/backup/README.md`](./k8s/backup/README.md) for setup + restore. |
@@ -30,6 +30,9 @@ kubectl -n <namespace> rollout status deployment/<release>
 # Host-level systemd units
 sudo install -m 644 -o root -g root system/<unit>.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl restart <unit>.service
+
+# Host-level apt / unattended-upgrades drop-ins
+sudo install -m 644 -o root -g root system/<file>.conf /etc/apt/apt.conf.d/
 ```
 
 ## Secrets
