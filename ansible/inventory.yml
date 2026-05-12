@@ -20,6 +20,19 @@ all:
       hosts:
         gandalf:
           ansible_host: 192.168.50.135
+          # Ubuntu 26.04 ships sudo-rs (a Rust rewrite of sudo) as the
+          # default behind /usr/bin/sudo via update-alternatives. sudo-rs
+          # wraps the -p prompt as `[sudo: <prompt>] Password:`, which
+          # Ansible's prompt detector — which uses `startswith` against
+          # the configured prompt — cannot match. The result is the
+          # hardcoded 12s "Timeout waiting for privilege escalation
+          # prompt" with --ask-become-pass.
+          #
+          # The `sudo` package installs classic sudo alongside sudo-rs at
+          # /usr/bin/sudo.ws — pin Ansible to that binary on gandalf only.
+          # Pi hosts (Debian/Pi OS) have classic sudo at /usr/bin/sudo
+          # already, so they need no override.
+          ansible_become_exe: /usr/bin/sudo.ws
 
     # Future cluster workers — Pi 5 + Pi 4Bs. Add a host here when you
     # image one, then run `ansible-playbook provision-pi.yml --limit <name>`.
