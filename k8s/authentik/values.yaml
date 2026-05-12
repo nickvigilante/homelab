@@ -1,0 +1,101 @@
+# Authentik Helm values. Targets `authentik/authentik` v2026.2.x.
+#
+# Secret material (AUTHENTIK_SECRET_KEY, postgres password, bootstrap
+# admin password) is NOT in this file — it lives in the `authentik-secrets`
+# k8s Secret in namespace `auth`. See README.md for the
+# `kubectl create secret` invocation that sources from Bitwarden.
+
+global:
+  # Pin every component to gandalf — this is a single-node k3s cluster
+  # and the postgres PV is hostPath-bound here.
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+
+  # Soft pod anti-affinity is fine but doesn't help on n=1. Hard node
+  # affinity with no expressions is a no-op. Keep defaults.
+
+  # All Authentik components read these env vars at startup. Sourced
+  # from a single k8s Secret to keep the moving parts down.
+  env:
+    - name: AUTHENTIK_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: secret-key
+    # Authentik reads postgres credentials from these env vars; the
+    # bitnami postgres chart reads the same value out of the same
+    # Secret via `postgresql.auth.existingSecret` below — keeps them
+    # locked in sync.
+    - name: AUTHENTIK_POSTGRESQL__PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: postgres-password
+    # First-run only: sets the akadmin password instead of letting
+    # the chart auto-generate one. Safe to leave set after bootstrap;
+    # password rotation should be done from the Authentik UI, which
+    # writes to the DB and stops honoring this env on subsequent
+    # runs.
+    - name: AUTHENTIK_BOOTSTRAP_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: bootstrap-password
+    - name: AUTHENTIK_BOOTSTRAP_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: authentik-secrets
+          key: bootstrap-token
+
+authentik:
+  log_level: info
+  # Setting authentik.* values directly conflicts with the env-var
+  # pattern above; let the env vars drive instead. existingSecret
+  # is left unset so chart doesn't create a competing config secret.
+
+server:
+  replicas: 1
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+    hosts:
+      - authentik.home
+    # The chart's default path "{{ .Values.authentik.web.path }}" is "/" —
+    # leave as-is so the entire UI is served.
+
+worker:
+  replicas: 1
+
+# Enable the bundled bitnami postgresql chart. The pre-created PVC at
+# `data-authentik-postgresql-0` (see pv-pvc.yaml) gets adopted by the
+# StatefulSet at first start.
+postgresql:
+  enabled: true
+  auth:
+    username: authentik
+    database: authentik
+    # Read both the user password and the superuser password from the
+    # same Secret. Bitnami's existingSecret convention expects keys
+    # `password` (for the auth.username user) and `postgres-password`
+    # (for the postgres superuser). Map them explicitly.
+    existingSecret: authentik-secrets
+    secretKeys:
+      adminPasswordKey: postgres-superuser-password
+      userPasswordKey: postgres-password
+  primary:
+    persistence:
+      enabled: true
+      storageClass: manual
+      existingClaim: data-authentik-postgresql-0
+    # Pin to gandalf — the PV is hostPath here.
+    nodeSelector:
+      kubernetes.io/hostname: gandalf
+  # hostPath dirs are created by kubelet as root:root, but the bitnami
+  # postgres image runs as uid 1001. Without this init container the
+  # pod CrashLoopBackOffs with "cannot create directory ... Permission
+  # denied" on first start. The init container runs as root and chowns
+  # the mount.
+  volumePermissions:
+    enabled: true
