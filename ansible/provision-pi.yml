@@ -1,6 +1,9 @@
 # Provision a Raspberry Pi as a k3s agent + Tailscale node.
 #
 # Usage:
+#   # Mint a fresh auth key first (defaults to 1h expiry):
+#   ./bin/mint-tailscale-authkey.sh
+#
 #   # Initial run on a fresh Pi (still has the default `pi` user):
 #   ansible-playbook provision-pi.yml \
 #     --limit pi5 \
@@ -11,14 +14,6 @@
 #   # Subsequent runs (after the `nickv` user exists):
 #   ansible-playbook provision-pi.yml --limit pi5 \
 #     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)"
-#
-# `tailscale_authkey` is a one-time pre-authorized key. Generate at
-# https://login.tailscale.com/admin/settings/keys with:
-#   - Reusable: no
-#   - Ephemeral: no
-#   - Pre-approved: yes
-#   - Tags: tag:homelab
-# This avoids the manual "approve device in admin UI" step.
 
 - name: Read k3s node-token from the control plane
   hosts: cluster_servers

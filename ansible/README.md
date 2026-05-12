@@ -11,21 +11,31 @@ hand; future hosts get the playbook treatment.
 | `ansible.cfg` | Defaults: inventory path, SSH multiplexing, YAML output, fact caching |
 | `inventory.yml` | Hosts grouped by role (`cluster_servers`, `cluster_agents`, `tailscale_only`). Pi entries are commented out until you image one. |
 | `provision-pi.yml` | Image-a-Pi-as-k3s-agent flow. Reads the k3s join token from gandalf, brings the Pi up on Tailscale with `tag:homelab`, installs the agent, joins the cluster. |
+| `bin/mint-tailscale-authkey.sh` | Mints a single-use Tailscale auth key via the `opentofu-homelab` OAuth client and writes it to `~/.tailscale-authkey`. Run before each `provision-pi.yml` invocation. |
 
 ## When you image a new Pi
 
-1. **Pre-flight on your workstation.**
-
-   Generate a one-time Tailscale auth key — Settings → Keys → Generate
-   auth key. Make it **reusable: no, ephemeral: no, pre-approved: yes,
-   tags: tag:homelab**. The `tag:homelab` tag matches `tagOwners` in the
-   Tofu-managed ACL (in `nickvigilante/infrastructure`) so the device
-   gets the right access without manual UI approval.
+1. **Mint a fresh Tailscale auth key.** Run the bundled script — it asks
+   Tailscale to mint a single-use, 1-hour, `tag:homelab`-scoped key via
+   the OAuth client, writes it to `~/.tailscale-authkey` with mode 600,
+   and prints the next command for you.
 
    ```bash
-   echo "tskey-auth-..." > ~/.tailscale-authkey
-   chmod 600 ~/.tailscale-authkey
+   ./bin/mint-tailscale-authkey.sh
+   # Defaults: expiry 1h, output ~/.tailscale-authkey, tag tag:homelab.
+   # Override with --expiry 24h, --out /path, --tag tag:other.
    ```
+
+   The script uses the same `opentofu-homelab` OAuth client credentials
+   that Tofu reads from `~/.homelab-opentofu.env`. The client needs the
+   `auth_keys` scope (Write) and `tag:homelab` in its allowed-tags list
+   — verify in the [Tailscale admin OAuth settings](https://login.tailscale.com/admin/settings/oauth).
+
+   Why a script instead of the admin UI? Hand-clicked keys default to a
+   90-day expiry and age out unused. Minting on-demand via OAuth gives
+   a fresh, short-lived key per provisioning session — the OAuth
+   credentials themselves never expire, so this is the long-term
+   rotation story.
 
 2. **Image the SD card.** Raspberry Pi OS Lite (64-bit). Set SSH on,
    add your public key, set `pi` user with a known password (for the
