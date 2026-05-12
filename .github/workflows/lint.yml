@@ -1,0 +1,39 @@
+name: lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: pip install --user yamllint==1.35.1
+      - name: Lint
+        run: yamllint --config-file .github/yamllint.yml .
+
+  kubeconform:
+    name: kubeconform (raw manifests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C /usr/local/bin kubeconform
+      - name: Validate raw manifests
+        # Exclude Helm values files (postgres-values.yaml, values.yaml) and
+        # the ansible/ tree (Ansible YAML, not k8s manifests).
+        run: |
+          set -euo pipefail
+          find k8s -type f \( -name namespace.yaml -o -name pv-pvc.yaml -o -name secret.example.yaml -o -name '*-job.yaml' -o -name '*-cronjob.yaml' \) -print0 \
+            | xargs -0 kubeconform \
+                -summary \
+                -strict \
+                -schema-location default \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'

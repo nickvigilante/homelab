@@ -1,0 +1,110 @@
+# Idempotent host-config playbook for gandalf (k3s control plane).
+#
+# Scope: capture the host-level state that drifts most easily, so a
+# rebuild can replay it and routine maintenance is uniform across runs.
+# NOT a from-scratch bootstrap — gandalf was provisioned by hand and
+# this playbook intentionally avoids the risky bits (k3s install,
+# rclone mount, LVM extend, fstab edits).
+#
+# What it covers:
+#   - Baseline packages
+#   - Timezone (America/New_York)
+#   - Unattended-upgrades auto-reboot drop-in
+#   - k3s secrets-encryption at rest (hardening #6)
+#
+# Usage:
+#   ansible-playbook provision-gandalf.yml --ask-become-pass
+#
+# Idempotent: re-runs are safe. The k3s restart + secret re-encryption
+# tasks only fire when the config file changes.
+
+- name: Maintain gandalf host config
+  hosts: cluster_servers
+  become: true
+
+  vars:
+    # Flip to false to disable k3s secrets-encryption (e.g., for a
+    # rollback scenario). Once enabled, disabling requires manual
+    # `k3s secrets-encrypt disable` + restart + re-encrypt.
+    k3s_secrets_encryption: true
+
+  tasks:
+    - name: Install baseline packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - htop
+          - jq
+          - vim
+          - unattended-upgrades
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Set timezone to America/New_York
+      community.general.timezone:
+        name: America/New_York
+
+    - name: Install auto-reboot drop-in for unattended-upgrades
+      ansible.builtin.copy:
+        src: ../system/52unattended-upgrades-local.conf
+        dest: /etc/apt/apt.conf.d/52unattended-upgrades-local.conf
+        owner: root
+        group: root
+        mode: "0644"
+
+    # ---- k3s secrets encryption at rest ---------------------------------
+    #
+    # k3s stores Secrets in its embedded SQLite. By default they sit in
+    # cleartext. Enabling `secrets-encryption` makes k3s generate an
+    # encryption key and use it for new writes. Existing Secrets stay
+    # in cleartext until they're re-written, which we force with a
+    # kubectl get | kubectl replace round trip after the restart.
+
+    - name: Ensure /etc/rancher/k3s exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write k3s config (secrets-encryption toggle)
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/config.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by ansible/provision-gandalf.yml. Edit there, not here.
+          # See https://docs.k3s.io/installation/configuration for the full
+          # set of options that can land in this file.
+          secrets-encryption: {{ k3s_secrets_encryption | string | lower }}
+      register: k3s_config
+
+    - name: Restart k3s if config changed
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+      when: k3s_config.changed
+
+    - name: Wait for k3s node to be Ready
+      ansible.builtin.command: k3s kubectl wait --for=condition=Ready node/gandalf --timeout=180s
+      when: k3s_config.changed
+      changed_when: false
+
+    # On first enablement, existing Secrets are still in cleartext —
+    # forcing a no-op replace round-trips them through the apiserver
+    # which writes them back encrypted under the new key. Safe to re-run.
+    - name: Re-write all Secrets so they're encrypted at rest
+      ansible.builtin.shell: |
+        set -euo pipefail
+        k3s kubectl get secrets --all-namespaces -o json | k3s kubectl replace -f -
+      when: k3s_config.changed and k3s_secrets_encryption
+      register: secret_reencrypt
+      changed_when: "'replaced' in secret_reencrypt.stdout"
+
+    - name: Show secrets-encrypt status
+      ansible.builtin.command: k3s secrets-encrypt status
+      when: k3s_secrets_encryption
+      changed_when: false

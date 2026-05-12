@@ -1,0 +1,41 @@
+---
+# Permissive yamllint config — catches obvious mistakes (broken
+# indentation, duplicate keys, trailing whitespace) without nitpicking
+# style choices that vary across the Helm values, k8s manifests, and
+# Ansible YAML in this repo.
+extends: default
+
+ignore: |
+  .git/
+
+rules:
+  # Helm values and k8s manifests routinely have long lines (image
+  # paths, URLs, long comments). Don't fight them.
+  line-length: disable
+
+  # Many manifests start with `apiVersion:` without a `---`; some
+  # multi-doc files use it. Either is fine.
+  document-start: disable
+
+  # k8s + Helm yaml uses `on:`, `enable:`, etc. as keys, which yamllint
+  # otherwise flags as truthy.
+  truthy:
+    check-keys: false
+
+  # Allow indentation variation that's common in Helm values.
+  indentation:
+    spaces: 2
+    indent-sequences: consistent
+
+  comments:
+    min-spaces-from-content: 1
+
+  # Inline comments inside k8s/Ansible lists often sit at the parent
+  # indent level rather than the child item's — by design, since they
+  # apply to the whole block. Don't flag this.
+  comments-indentation: disable
+
+  # The init-job + cronjobs use heredoc-style shell scripts inside YAML;
+  # trailing spaces inside those strings are harmless. The pre-commit
+  # hook already catches them at the file level when they matter.
+  trailing-spaces: enable
