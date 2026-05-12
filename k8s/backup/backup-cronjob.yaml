@@ -2,11 +2,12 @@
 # pushes deduplicated snapshots to the restic repo on Storj.
 #
 # Sources backed up:
-#   - /opt/jellyfin/config       (Jellyfin DB + settings)
-#   - /opt/pihole/etc-pihole     (Pi-hole config + gravity DB; FTL query DB excluded)
-#   - /opt/uptime-kuma/data      (Uptime Kuma SQLite DB + monitor config)
-#   - /opt/authentik/postgres    (Authentik PostgreSQL data; useless without AUTHENTIK_SECRET_KEY)
-#   - /opt/coder/postgres        (Coder PostgreSQL data; workspace home dirs are NOT backed up)
+#   - /opt/jellyfin/config                          (Jellyfin DB + settings)
+#   - /opt/pihole/etc-pihole                        (Pi-hole config + gravity DB; FTL query DB excluded)
+#   - /opt/uptime-kuma/data                         (Uptime Kuma SQLite DB + monitor config)
+#   - /opt/authentik/postgres                       (Authentik PostgreSQL data; useless without AUTHENTIK_SECRET_KEY)
+#   - /opt/coder/postgres                           (Coder PostgreSQL data; workspace home dirs are NOT backed up)
+#   - /var/lib/rancher/k3s/server/db/snapshots      (k3s SQLite snapshots — off-host copies for disaster recovery)
 #
 # Heartbeat: pings the `restic-backup` push monitor in Uptime Kuma on
 # success and on failure (via trap). If the job dies before reaching
@@ -79,6 +80,12 @@ spec:
                     --tag coder-postgres \
                     /backup/coder-postgres
                   echo
+                  echo "=== k3s SQLite snapshots ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag k3s-snapshots \
+                    /backup/k3s-snapshots
+                  echo
                   echo "=== Snapshot summary ==="
                   restic snapshots --compact
                   push up OK
@@ -102,6 +109,9 @@ spec:
                   readOnly: true
                 - name: coder-postgres
                   mountPath: /backup/coder-postgres
+                  readOnly: true
+                - name: k3s-snapshots
+                  mountPath: /backup/k3s-snapshots
                   readOnly: true
           volumes:
             - name: jellyfin-config
@@ -128,3 +138,11 @@ spec:
                 # may land before postgres comes up).
                 path: /opt/coder/postgres
                 type: DirectoryOrCreate
+            - name: k3s-snapshots
+              hostPath:
+                # k3s creates this dir on first server boot. Plain
+                # Directory rather than DirectoryOrCreate so a missing
+                # path is treated as a real failure (e.g., wrong data-dir
+                # config) rather than silently shipping nothing to restic.
+                path: /var/lib/rancher/k3s/server/db/snapshots
+                type: Directory
