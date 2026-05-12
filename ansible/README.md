@@ -11,6 +11,7 @@ hand; future hosts get the playbook treatment.
 | `ansible.cfg` | Defaults: inventory path, SSH multiplexing, YAML output, fact caching |
 | `inventory.yml` | Hosts grouped by role (`cluster_servers`, `cluster_agents`, `tailscale_only`). Pi entries are commented out until you image one. |
 | `provision-pi.yml` | Image-a-Pi-as-k3s-agent flow. Reads the k3s join token from gandalf, brings the Pi up on Tailscale with `tag:homelab`, installs the agent, joins the cluster. |
+| `provision-gandalf.yml` | Idempotent host-config maintenance for gandalf (the control plane). Covers baseline packages, the unattended-upgrades drop-in, and the k3s `secrets-encryption` flag. Not a from-scratch bootstrap — gandalf was set up by hand and this playbook intentionally avoids the risky bits (k3s install, rclone mount, LVM, fstab). |
 | `bin/mint-tailscale-authkey.sh` | Mints a single-use Tailscale auth key via the `opentofu-homelab` OAuth client and writes it to `~/.tailscale-authkey`. Run before each `provision-pi.yml` invocation. |
 
 ## When you image a new Pi
@@ -84,6 +85,29 @@ In order:
 6. **Applies node labels** specified in inventory (e.g., `role: pihole`).
 
 The playbook is idempotent — running it twice doesn't break anything. Each major step has a `creates:` guard or relies on the underlying installer's idempotency.
+
+## Maintaining gandalf
+
+The `provision-gandalf.yml` playbook is the idempotent home for
+host-level changes on gandalf. Run it after pulling repo changes that
+touch `system/` or the playbook itself:
+
+```bash
+ansible-playbook provision-gandalf.yml --ask-become-pass
+```
+
+What changes it picks up:
+
+- Updates to `../system/52unattended-upgrades-local.conf` (auto-reboot policy)
+- Toggling `k3s_secrets_encryption` (enables k3s `secrets-encryption` and
+  re-encrypts existing Secrets after a single restart). First enablement
+  causes one brief k3s downtime; subsequent runs are no-ops.
+
+What it intentionally does NOT do (left as manual, with notes in
+`../docs` or the project memory): k3s install, rclone systemd unit,
+LVM/fstab edits, the host's Tailscale install/up. Adding any of these
+should be a deliberate decision — `provision-gandalf.yml` is meant to
+be safely re-runnable without surprises.
 
 ## Why no Semaphore (yet)
 

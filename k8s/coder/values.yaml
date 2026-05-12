@@ -1,4 +1,7 @@
-# Coder Helm values. Targets the official `coder-v2/coder` chart.
+# Coder Helm values. Targets the official `coder-v2/coder` chart v2.x
+# (the chart's appVersion tracks the Coder server release). Pin a
+# specific version in your `helm install --version` invocation per the
+# README; we deliberately leave `values.yaml` version-agnostic.
 #
 # Secret material (postgres URL, OIDC client secret) is NOT in this
 # file — it lives in the `coder-secrets` k8s Secret in namespace `coder`.
