@@ -89,8 +89,15 @@ workspace).
 
 5. **Create the Secret.** With Bitwarden CLI session active:
 
+   > **Gotcha:** if the Bitwarden item or its fields were created/edited
+   > earlier in the same shell session, `bw get item` may still see the
+   > stale local cache and return `Not found` (or empty field values).
+   > Run `bw sync` before the block below if the item is brand new or
+   > was just modified.
+
    ```bash
    export BW_SESSION="$(bw unlock --raw)"
+   bw sync
    PG_PASSWORD="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="postgres-password") | .value')"
    PG_SUPER_PASSWORD="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="postgres-superuser-password") | .value')"
    OIDC_ID="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="oidc-client-id") | .value')"
@@ -134,22 +141,52 @@ workspace).
    First start runs DB migrations. The `coder` deployment should be
    Ready in 1–2 minutes.
 
-8. **Seed a local-only admin** (the SPOF parachute). Open
-   http://coder.home — first login should go through Authentik
-   (auto-promoted to owner). Once logged in, create a *second*
-   local-only owner that can log in when Authentik is down:
+   > **Prereq:** Coder rejects OIDC logins when the IdP returns
+   > `email_verified: False`. Authentik's default `email` scope mapping
+   > does exactly that (no SMTP / verification flow is configured). See
+   > `../authentik/README.md` → "Customize the `email` scope mapping"
+   > before opening Coder, or first-time OIDC sign-in will land on a
+   > `Verify your email address on your OIDC provider` error page.
 
-   ```bash
-   kubectl -n coder exec deployment/coder -- \
-     coder users create \
-       --username=admin-local \
-       --email=admin-local@vigiemail.com \
-       --password="<from Bitwarden>"
-   kubectl -n coder exec deployment/coder -- \
-     coder users edit admin-local --roles=owner
-   ```
+8. **Seed both an OIDC owner and a local-only owner.** Coder's first
+   visit shows a "Create your first user" form *and* the "Sign in
+   with Authentik" button side by side. Which one you click first
+   determines the flow; both paths end at the same final state (one
+   OIDC owner + one local-password owner) so pick whichever fits.
 
-   Save the local password to Bitwarden as a new field
+   **Path A — OIDC first (recommended for a clean cluster):**
+
+   1. On the first-visit page, click **Sign in with Authentik** (do
+      *not* fill out "Create your first user"). The first user to sign
+      in via OIDC is auto-promoted to owner. Confirm the role in
+      **Deployment → Users**.
+   2. Create the local-password parachute via CLI:
+
+      ```bash
+      kubectl -n coder exec deployment/coder -- \
+        coder users create \
+          --username=admin-local \
+          --email=admin-local@vigiemail.com \
+          --password="<from Bitwarden>"
+      kubectl -n coder exec deployment/coder -- \
+        coder users edit admin-local --roles=owner
+      ```
+
+   **Path B — bootstrap user first (what you get if you click "Create
+   your first user" before noticing the OIDC button):**
+
+   1. Fill out the form. The bootstrap user is local-password and
+      auto-promoted to owner — congratulations, this *is* your
+      `admin-local` fallback, just with a different username. Rename
+      it to `admin-local` in **Deployment → Users → Edit** if you
+      want the name to match the convention; purely cosmetic.
+   2. Sign in via Authentik in an incognito window. Coder auto-creates
+      an OIDC user, but because a user already exists it lands as a
+      **member**, not owner. Switch back to the bootstrap tab and
+      promote it: **Deployment → Users →** select the OIDC user **→
+      Edit → Roles → Owner**.
+
+   Save the local-fallback password to Bitwarden as a new field
    `local-admin-password` on the `Homelab Coder` item.
 
 9. **Create a workspace template.** Coder's docs cover this end-to-end
