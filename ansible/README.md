@@ -1,8 +1,35 @@
 # ansible
 
-Host-level config management for the home lab. Mostly for Stage 2 —
-adding Pi workers + the Pi Zero exit node. Gandalf was provisioned by
-hand; future hosts get the playbook treatment.
+Host-level config management for the home lab. Covers maintaining
+gandalf and adding Pi workers / the Pi Zero exit node.
+
+## Where to run from
+
+**Run from the MacBook** (or any workstation with Ansible installed,
+SSH access to the targets, and either LAN reach or a Tailscale
+connection). This is the standard admin-workstation pattern, matches
+how `provision-pi.yml` is meant to run, and avoids the self-SSH
+chicken-and-egg on gandalf.
+
+```bash
+cd ~/git/nickvigilante/homelab/ansible   # commands assume this CWD —
+                                          # ansible.cfg lives here
+ansible-playbook provision-gandalf.yml --ask-become-pass
+```
+
+`ansible.cfg` is in `ansible/` and uses a *relative* inventory path,
+so running from anywhere else silently falls back to implicit
+localhost (no hosts matched). Always `cd` in first.
+
+**Fallback: running from gandalf itself.** If you're already SSH'd
+into gandalf, add `--connection=local --limit gandalf` so Ansible
+doesn't try to SSH back to itself (gandalf doesn't have a self-SSH
+key by design):
+
+```bash
+ansible-playbook provision-gandalf.yml \
+  --connection=local --limit gandalf --ask-become-pass
+```
 
 ## What's in here
 
@@ -90,11 +117,15 @@ The playbook is idempotent — running it twice doesn't break anything. Each maj
 
 The `provision-gandalf.yml` playbook is the idempotent home for
 host-level changes on gandalf. Run it after pulling repo changes that
-touch `system/` or the playbook itself:
+touch `system/` or the playbook itself. From your MacBook:
 
 ```bash
+cd ~/git/nickvigilante/homelab/ansible
 ansible-playbook provision-gandalf.yml --ask-become-pass
 ```
+
+(Or from gandalf itself, use the `--connection=local --limit gandalf`
+form documented in the "Where to run from" section.)
 
 What changes it picks up:
 
