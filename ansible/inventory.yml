@@ -1,0 +1,53 @@
+# Pi hosts join the cluster as k3s agents. The IP scheme is fixed in
+# the home lab plan: ThinkCentre .10, Pi 5 .11, Pi 4Bs .12-.15, Pi Zero .16.
+# The single ThinkCentre uses 192.168.50.135 (pre-existing); the rest
+# follow the same /24 with the planned suffix.
+#
+# When you actually image a Pi, fill in `ansible_user` (default `nickv`,
+# but a stock Raspberry Pi OS image starts with `pi`). Override per-host
+# with `--extra-vars 'ansible_user=pi'` on first run, then bake `nickv`
+# into the image afterwards.
+all:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_user: nickv
+
+  children:
+    # Existing cluster control plane — included so the playbook can read
+    # the k3s node-token from it via delegated tasks. Not a provisioning
+    # target.
+    cluster_servers:
+      hosts:
+        gandalf:
+          ansible_host: 192.168.50.135
+
+    # Future cluster workers — Pi 5 + Pi 4Bs. Add a host here when you
+    # image one, then run `ansible-playbook provision-pi.yml --limit <name>`.
+    cluster_agents:
+      hosts:
+        # Uncomment as each Pi comes online:
+        # pi5:
+        #   ansible_host: 192.168.50.11
+        # pi-hole-pi:
+        #   ansible_host: 192.168.50.12
+        #   k3s_node_labels:
+        #     role: pihole
+        # pi4b-2:
+        #   ansible_host: 192.168.50.13
+        # pi4b-3:
+        #   ansible_host: 192.168.50.14
+        # pi4b-standby:
+        #   ansible_host: 192.168.50.15
+      vars:
+        # K3s agent join target — control plane on gandalf.
+        k3s_url: https://192.168.50.135:6443
+        # Default labels applied to every agent. Override per-host above.
+        k3s_node_labels: {}
+
+    # Pi Zero W stays outside k3s (too underpowered). Runs Tailscale as
+    # the tailnet's exit node and nothing else. Provision separately
+    # via `provision-pi-zero.yml` when that's written.
+    tailscale_only:
+      hosts:
+        # pizero:
+        #   ansible_host: 192.168.50.16
