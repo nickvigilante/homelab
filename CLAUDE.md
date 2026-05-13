@@ -81,6 +81,22 @@ Heartbeats: the CronJob pings Uptime Kuma push monitors on success
 and on failure (via `trap ERR`). Push URLs live in Secret
 `backup/uptime-kuma-push-urls`.
 
+### What we don't back up (and why it's fine)
+
+- **The k3s state DB** (`/var/lib/rancher/k3s/server/db/state.db`).
+  SQLite mode has no online snapshot — `k3s etcd-snapshot save` is
+  etcd-only, and a raw file copy while k3s is mid-write would be
+  inconsistent. Recovery instead: reinstall k3s, re-apply manifests
+  from this repo, re-`kubectl create secret` from Bitwarden, let
+  `local-path` re-provision dynamic PVCs from restored hostPaths.
+- **Coder workspace home directories**. Considered ephemeral; rebuild
+  via the workspace template from git + dotfiles inside the workspace.
+- **Authentik UI-only configuration state**. Property mappings,
+  application/provider bindings etc. live inside the `authentik`
+  postgres DB which *is* backed up — but a from-scratch rebuild
+  without the postgres restore (e.g. lost `AUTHENTIK_SECRET_KEY`)
+  means redoing UI clicks. See `k8s/authentik/README.md`.
+
 ## SPOF discipline (Authentik is a SPOF)
 
 Authentik fronts SSO for downstream services. When Authentik is down,
