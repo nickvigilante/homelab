@@ -11,10 +11,16 @@
 #   - Timezone (America/New_York)
 #   - Unattended-upgrades auto-reboot drop-in
 #   - k3s secrets-encryption at rest (hardening #6)
-#   - k3s SQLite snapshot policy (hardening #8): schedule, retention,
-#     compression. Snapshot files land in
-#     /var/lib/rancher/k3s/server/db/snapshots/ and are picked up by
-#     the restic CronJob under tag `k3s-snapshots` for off-host copies.
+#
+# Hardening #8 (k3s state snapshots) was deliberately dropped: gandalf
+# runs the default SQLite datastore, which has no built-in snapshot
+# facility. The `etcd-snapshot-*` config keys and `k3s etcd-snapshot
+# save` are etcd-only — set them under SQLite and k3s logs "Unknown
+# flag, skipping" on every startup; invoke `etcd-snapshot save` and it
+# fails with `etcd datastore disabled`. Cluster state is reconstructable
+# from the homelab repo + Bitwarden + restic-restored PV data, so the
+# k3s DB itself isn't backed up. See `../CLAUDE.md` for the recovery
+# model.
 #
 # Usage:
 #   ansible-playbook provision-gandalf.yml --ask-become-pass
@@ -31,18 +37,6 @@
     # rollback scenario). Once enabled, disabling requires manual
     # `k3s secrets-encrypt disable` + restart + re-encrypt.
     k3s_secrets_encryption: true
-
-    # SQLite snapshot policy. k3s ships snapshots-on by default
-    # (every 12h, retain 5); these vars make the policy explicit so
-    # it's in IaC rather than implicit defaults.
-    #   - 10 snapshots × 12h = 5 days of local history
-    #   - compress to keep the dir small (each snapshot is the full
-    #     SQLite db dump; without compression they add up)
-    # Restic backs up the snapshot dir nightly so we have off-host
-    # copies as well.
-    k3s_etcd_snapshot_schedule_cron: "0 */12 * * *"
-    k3s_etcd_snapshot_retention: 10
-    k3s_etcd_snapshot_compress: true
 
   tasks:
     - name: Install baseline packages
@@ -85,7 +79,7 @@
         group: root
         mode: "0755"
 
-    - name: Write k3s config (secrets-encryption + snapshot policy)
+    - name: Write k3s config (secrets-encryption)
       ansible.builtin.copy:
         dest: /etc/rancher/k3s/config.yaml
         owner: root
@@ -96,9 +90,6 @@
           # See https://docs.k3s.io/installation/configuration for the full
           # set of options that can land in this file.
           secrets-encryption: {{ k3s_secrets_encryption | string | lower }}
-          etcd-snapshot-schedule-cron: "{{ k3s_etcd_snapshot_schedule_cron }}"
-          etcd-snapshot-retention: {{ k3s_etcd_snapshot_retention }}
-          etcd-snapshot-compress: {{ k3s_etcd_snapshot_compress | string | lower }}
       register: k3s_config
 
     - name: Restart k3s if config changed
@@ -126,16 +117,4 @@
     - name: Show secrets-encrypt status
       ansible.builtin.command: k3s secrets-encrypt status
       when: k3s_secrets_encryption
-      changed_when: false
-
-    # Take an immediate snapshot whenever the config changes so we have
-    # a fresh baseline rather than waiting up to 12h for the schedule
-    # to fire. Subsequent no-op playbook runs skip this.
-    - name: Take an on-demand k3s snapshot
-      ansible.builtin.command: k3s etcd-snapshot save
-      when: k3s_config.changed
-      changed_when: true
-
-    - name: List k3s snapshots
-      ansible.builtin.command: k3s etcd-snapshot list
       changed_when: false
