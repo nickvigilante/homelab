@@ -129,3 +129,42 @@ provider record so you can revoke individually.
 For Traefik forward-auth (services that don't speak OIDC, like Pi-hole
 admin): use the Proxy Provider type instead, then add a Traefik
 `Middleware` that calls Authentik's outpost.
+
+### Customize the `email` scope mapping
+
+Authentik's default `email` scope mapping returns
+`email_verified: False` because this deployment has no SMTP / email
+verification flow configured. Strict OIDC clients (e.g. Coder with
+`CODER_OIDC_IGNORE_EMAIL_VERIFIED=false`) reject the sign-in and the
+user sees `Verify your email address on your OIDC provider` with no
+way forward. The fix is a one-time global edit, applied here once and
+re-used by every future OIDC integration:
+
+1. **Customization → Property Mappings**.
+2. Find the row named `authentik default OAuth Mapping: OpenID 'email'`
+   (type `Scope Mapping`). Click **Edit**.
+3. The expression returns a dict with `email` and `email_verified`.
+   Change the `email_verified` line to return `True` unconditionally:
+
+   ```python
+   return {
+       "email": request.user.email,
+       "email_verified": True,
+   }
+   ```
+
+4. Save. No restart needed — Authentik re-evaluates the expression on
+   the next token exchange.
+
+This mapping lives in the Authentik database, *not* in this repo. A
+restore from postgres backup recovers it; a rebuild-from-scratch does
+not. Re-apply after any from-scratch reinstall.
+
+### Promoting an OIDC user to owner/admin in a downstream
+
+Authentik's first OIDC sign-in to a brand-new downstream creates a
+user with the downstream's default role. If the downstream was *already*
+bootstrapped with a local admin (e.g. Coder's first-visit form), the
+OIDC-created user lands as a member and needs manual promotion via the
+downstream's UI from the bootstrap account. See
+`../coder/README.md` step 8 for the exact pattern.
