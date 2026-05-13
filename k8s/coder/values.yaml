@@ -15,21 +15,6 @@ coder:
 
   replicaCount: 1
 
-  # Resolve authentik.home from inside the Coder pod. CoreDNS does not
-  # know Pi-hole's custom `.home` records, so any pod making outbound
-  # calls to `*.home` hostnames NXDOMAINs by default. The OIDC issuer
-  # URL must resolve at Coder startup, so a hostAliases entry maps
-  # authentik.home to gandalf's LAN IP — request goes out to Traefik
-  # which routes by Host header to the Authentik service.
-  #
-  # A more systemic fix would be a CoreDNS stub-zone forwarding `home`
-  # to Pi-hole's cluster service (pihole-dns-udp.networking); deferred
-  # so this PR stays scoped to Coder.
-  hostAliases:
-    - ip: 192.168.50.135
-      hostnames:
-        - authentik.home
-
   resources:
     requests:
       cpu: 250m
