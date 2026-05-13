@@ -1,0 +1,39 @@
+# Custom CoreDNS configuration mounted via k3s's `coredns-custom`
+# ConfigMap convention. The main Corefile (managed by k3s, do not
+# edit) ends with `import /etc/coredns/custom/*.server`, so every
+# `*.server` key in this ConfigMap is appended as an additional
+# server block at CoreDNS load.
+#
+# Why this exists: Pi-hole serves the `*.home` LAN records to the
+# host network, but pods inside the cluster resolve through CoreDNS,
+# which doesn't know about those records — `*.home` lookups
+# NXDOMAIN. Adding a stub zone forwarding `home.` to Pi-hole's
+# cluster-internal Service means pod-originated lookups
+# (Coder → authentik.home, future Jellyfin → authentik.home, etc.)
+# resolve the same as LAN clients without per-pod `hostAliases`.
+#
+# Why the literal ClusterIP: forwarding to the FQDN
+# `pihole-dns-udp.networking.svc.cluster.local` would create a
+# bootstrap dependency (CoreDNS resolving its own upstream via the
+# kubernetes plugin on startup). The Service IP is stable across
+# Pi-hole pod restarts and only changes if the Service is deleted
+# and recreated — if that ever happens, re-derive with
+# `kubectl -n networking get svc pihole-dns-udp -o jsonpath='{.spec.clusterIP}'`.
+#
+# CoreDNS hot-reloads via the `reload` plugin in the main Corefile,
+# but to guarantee pickup, restart the deployment after applying:
+#   kubectl -n kube-system rollout restart deployment coredns
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  home.server: |
+    home:53 {
+        errors
+        cache 30
+        forward . 10.43.3.132:53 {
+            prefer_udp
+        }
+    }
