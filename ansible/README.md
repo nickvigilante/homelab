@@ -65,33 +65,59 @@ ansible-playbook provision-gandalf.yml \
    credentials themselves never expire, so this is the long-term
    rotation story.
 
-2. **Image the SD card.** Raspberry Pi OS Lite (64-bit). Set SSH on,
-   add your public key, set `pi` user with a known password (for the
-   one-time `--ask-pass` run).
+2. **Image the SD card.**
 
-3. **First boot, find the IP.** Either fixed it in DHCP (using the
-   plan's IP scheme — Pi 5 `.11`, Pi 4Bs `.12`-`.15`, Pi Zero `.16`),
-   or grab it from `arp` / your router.
+   **OS choice:**
+   - **Ubuntu Server 26.04 LTS (ARM64)** — default for cluster workers
+     (frodo, samwise, future merry/pippin). Matches gandalf, so the same
+     `provision-pi.yml` + `ansible.cfg` apply uniformly. Triggers the
+     sudo-rs gotcha — handled via `ansible_become_exe: /usr/bin/sudo.ws`
+     in `inventory.yml` (see top-of-file comment there).
+   - **Raspberry Pi OS Lite (64-bit, Bookworm)** — for single-purpose
+     appliances where matching gandalf doesn't matter (e.g. the planned
+     Pi-hole standby). Classic sudo by default; drop the
+     `ansible_become_exe` override in the inventory entry.
+
+   **Pi Imager preconfig (gear icon, set BEFORE writing):**
+   - Hostname: matches the inventory entry (e.g., `samwise`)
+   - Username: `nickv` + paste your SSH public key
+   - Disable password authentication
+   - Locale + timezone to match gandalf (America/New_York)
+   - Skip WiFi — use wired
+
+   Preconfiguring `nickv` lets you skip the `--ask-pass` bootstrap run
+   entirely. If you image with the stock `pi` (Pi OS) or `ubuntu`
+   (Ubuntu Server) user instead, use the bootstrap variant in step 5.
+
+3. **First boot, find the IP.** Pin it in DHCP (using the plan's
+   IP scheme — Pi 5 `.11`, Pi 4Bs `.12`-`.15`), or grab it from `arp`
+   / your router. Pi Zero exit node is already live on `.123`.
 
 4. **Add to inventory.** Edit `inventory.yml` and uncomment / add the
-   entry under `cluster_agents`. For the Pi 4B that becomes the
-   dedicated Pi-hole host, add `k3s_node_labels: { role: pihole }`
-   so Pi-hole pods can target it via nodeSelector.
+   entry under `cluster_agents`. Include `ansible_become_exe:
+   /usr/bin/sudo.ws` if the host runs Ubuntu 26.04+. For a Pi 4B
+   acting as the dedicated Pi-hole host, add `k3s_node_labels: { role:
+   pihole }` so Pi-hole pods can target it via nodeSelector.
 
 5. **Run the playbook**:
 
    ```bash
-   # First run — Pi still has the `pi` user; we use it to bootstrap.
-   ansible-playbook provision-pi.yml \
-     --limit <hostname> \
-     --extra-vars 'ansible_user=pi' \
-     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)" \
-     --ask-pass --ask-become-pass
-
-   # Re-runs after a `nickv` user has been added (idempotent):
-   ansible-playbook provision-pi.yml --limit <hostname> \
+   # Standard run — Pi Imager preconfigured `nickv` with your SSH key,
+   # so this is what you'll use 99% of the time. The `gandalf` host
+   # must be in --limit so the first play can slurp the k3s join token
+   # from /var/lib/rancher/k3s/server/node-token — without it the
+   # second play fails on an undefined `hostvars['gandalf'].k3s_token`.
+   ansible-playbook provision-pi.yml --limit gandalf,<hostname> \
      --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)"
    ```
+
+   **Skipped Imager preconfig?** If the Pi booted with its stock user
+   (`pi` for Pi OS, `ubuntu` for Ubuntu Server), bootstrap by hand:
+   SSH in once, create `nickv`, add it to `sudo`, drop your SSH key
+   into `~nickv/.ssh/authorized_keys`. Then run the standard command
+   above. The playbook itself doesn't create users — it expects
+   `ansible_user` to already exist. (Per-host `ansible_user` overrides
+   are awkward to mix with the cross-play token slurp, so we don't.)
 
 6. **Verify on gandalf**:
 

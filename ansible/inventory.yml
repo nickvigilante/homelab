@@ -1,12 +1,27 @@
 # Pi hosts join the cluster as k3s agents. The IP scheme is fixed in
-# the home lab plan: ThinkCentre .10, Pi 5 .11, Pi 4Bs .12-.15, Pi Zero .16.
-# The single ThinkCentre uses 192.168.50.135 (pre-existing); the rest
-# follow the same /24 with the planned suffix.
+# the home lab plan: ThinkCentre .10, Pi 5 .11, Pi 4Bs .12-.15, Pi Zero
+# stayed put on .123. The ThinkCentre uses 192.168.50.135 (pre-existing).
+#
+# Naming: Tolkien fellowship — gandalf leads (control plane), workers
+# get fellowship-member names. frodo = Pi 5, samwise = first Pi 4B.
+# Future Pi 4Bs: merry, pippin, etc.
+#
+# sudo-rs gotcha: Ubuntu 26.04 ships sudo-rs (a Rust rewrite) as the
+# default behind /usr/bin/sudo via update-alternatives. sudo-rs wraps
+# the -p prompt as `[sudo: <prompt>] Password:`, which Ansible's prompt
+# detector (uses `startswith` against the configured prompt) cannot
+# match — result is the hardcoded 12s "Timeout waiting for privilege
+# escalation prompt" with --ask-become-pass. The `sudo` package installs
+# classic sudo alongside sudo-rs at /usr/bin/sudo.ws — pin Ansible to
+# that binary via `ansible_become_exe` on every Ubuntu 26.04+ host.
+# Drop the override on hosts running Debian / Raspberry Pi OS (classic
+# sudo at /usr/bin/sudo). Retire entirely once Ansible PR #86175 ships
+# in a Homebrew-packaged ansible-core ≥ 2.21.
 #
 # When you actually image a Pi, fill in `ansible_user` (default `nickv`,
-# but a stock Raspberry Pi OS image starts with `pi`). Override per-host
-# with `--extra-vars 'ansible_user=pi'` on first run, then bake `nickv`
-# into the image afterwards.
+# preconfigured via Pi Imager's gear menu). For a stock image that
+# starts as `pi` (Pi OS) or `ubuntu` (Ubuntu Server), override per-host
+# with `--extra-vars 'ansible_user=pi'` on first run.
 all:
   vars:
     ansible_python_interpreter: /usr/bin/python3
@@ -20,37 +35,29 @@ all:
       hosts:
         gandalf:
           ansible_host: 192.168.50.135
-          # Ubuntu 26.04 ships sudo-rs (a Rust rewrite of sudo) as the
-          # default behind /usr/bin/sudo via update-alternatives. sudo-rs
-          # wraps the -p prompt as `[sudo: <prompt>] Password:`, which
-          # Ansible's prompt detector — which uses `startswith` against
-          # the configured prompt — cannot match. The result is the
-          # hardcoded 12s "Timeout waiting for privilege escalation
-          # prompt" with --ask-become-pass.
-          #
-          # The `sudo` package installs classic sudo alongside sudo-rs at
-          # /usr/bin/sudo.ws — pin Ansible to that binary on gandalf only.
-          # Pi hosts (Debian/Pi OS) have classic sudo at /usr/bin/sudo
-          # already, so they need no override.
-          ansible_become_exe: /usr/bin/sudo.ws
+          ansible_become_exe: /usr/bin/sudo.ws  # sudo-rs workaround (see top of file)
 
-    # Future cluster workers — Pi 5 + Pi 4Bs. Add a host here when you
-    # image one, then run `ansible-playbook provision-pi.yml --limit <name>`.
+    # Cluster workers — Pi 5 + Pi 4Bs. Uncomment a host below when you
+    # image it, then run `ansible-playbook provision-pi.yml --limit <name>`.
     cluster_agents:
       hosts:
-        # Uncomment as each Pi comes online:
-        # pi5:
+        samwise:
+          ansible_host: 192.168.50.12
+          # Running Ubuntu Server 26.04 LTS ARM64 — needs sudo-rs override.
+          ansible_become_exe: /usr/bin/sudo.ws
+        # frodo:                           # Pi 5, Ubuntu Server 26.04 ARM64
         #   ansible_host: 192.168.50.11
-        # pi-hole-pi:
-        #   ansible_host: 192.168.50.12
-        #   k3s_node_labels:
-        #     role: pihole
-        # pi4b-2:
+        #   ansible_become_exe: /usr/bin/sudo.ws
+        # merry:                           # next Pi 4B
         #   ansible_host: 192.168.50.13
-        # pi4b-3:
+        #   ansible_become_exe: /usr/bin/sudo.ws
+        # pippin:                          # next Pi 4B
         #   ansible_host: 192.168.50.14
-        # pi4b-standby:
-        #   ansible_host: 192.168.50.15
+        #   ansible_become_exe: /usr/bin/sudo.ws
+        # pihole-standby:                  # dedicated Pi-hole appliance
+        #   ansible_host: 192.168.50.15    # likely Pi OS Lite — drop the
+        #   k3s_node_labels:               # become_exe override if so.
+        #     role: pihole
       vars:
         # K3s agent join target — control plane on gandalf.
         k3s_url: https://192.168.50.135:6443
@@ -58,9 +65,11 @@ all:
         k3s_node_labels: {}
 
     # Pi Zero W stays outside k3s (too underpowered). Runs Tailscale as
-    # the tailnet's exit node and nothing else. Provision separately
-    # via `provision-pi-zero.yml` when that's written.
+    # the tailnet's exit node and nothing else. Currently live on .123
+    # (the old Pi-hole host IP, repurposed in-place 2026-05-12).
+    # Provisioned by hand — pi-zero-exit predates `provision-pi-zero.yml`
+    # which doesn't exist yet.
     tailscale_only:
       hosts:
-        # pizero:
-        #   ansible_host: 192.168.50.16
+        # pi-zero-exit:
+        #   ansible_host: 192.168.50.123
