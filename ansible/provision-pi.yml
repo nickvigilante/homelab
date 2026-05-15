@@ -83,6 +83,10 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
+        # Stale-image first boot can spend several minutes inside
+        # apt-daily / unattended-upgrades catching up; default 60s
+        # isn't enough. 10 min is generous but still bounded.
+        lock_timeout: 600
 
     # Reuses the same unattended-upgrades drop-in shipped for gandalf.
     # See ../system/52unattended-upgrades-local.conf for the source.
@@ -114,6 +118,9 @@
         name: tailscale
         state: present
         update_cache: true
+        # See "Install baseline packages" above — first boot's
+        # apt-daily can hold the dpkg lock for minutes.
+        lock_timeout: 600
 
     - name: Bring up Tailscale with the tag:homelab tag
       ansible.builtin.command:

@@ -99,17 +99,37 @@ ansible-playbook provision-gandalf.yml \
    acting as the dedicated Pi-hole host, add `k3s_node_labels: { role:
    pihole }` so Pi-hole pods can target it via nodeSelector.
 
-5. **Run the playbook**:
+5. **Run the playbook from a workstation** (MacBook or laptop) — *not* from
+   gandalf or another homelab host. Running from a workstation keeps the
+   cluster machines unable to SSH each other, which is a small but real
+   blast-radius reduction. Each homelab host trusts the workstation's
+   public key, but no homelab host has a private key that would let it
+   reach the others.
 
    ```bash
    # Standard run — Pi Imager preconfigured `nickv` with your SSH key,
-   # so this is what you'll use 99% of the time. The `gandalf` host
-   # must be in --limit so the first play can slurp the k3s join token
-   # from /var/lib/rancher/k3s/server/node-token — without it the
-   # second play fails on an undefined `hostvars['gandalf'].k3s_token`.
+   # so this is what you'll use 99% of the time. Notes:
+   #   * `gandalf` must be in --limit so play #1 can slurp the k3s join
+   #     token via delegated slurp; without it play #2 fails on an
+   #     undefined `hostvars['gandalf'].k3s_token`.
+   #   * `--ask-become-pass` is required because sudo on cluster hosts
+   #     isn't passwordless. Ansible will use the same password for
+   #     both gandalf and the Pi — they need to match (set both up the
+   #     same way, or pre-align with `sudo passwd nickv`).
    ansible-playbook provision-pi.yml --limit gandalf,<hostname> \
-     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)"
+     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)" \
+     --ask-become-pass
    ```
+
+   **First-run gotcha: dpkg lock contention.** Ubuntu Server images that
+   were flashed a while ago boot into a long `apt-daily` /
+   `unattended-upgrades` cycle catching up on pending security patches.
+   That can hold `/var/lib/dpkg/lock-frontend` for several minutes. The
+   playbook's apt tasks set `lock_timeout: 600` (10 min) to wait through
+   it, but if your image is *months* stale you may still hit the timeout.
+   Diagnose with `ssh nickv@<pi> 'ps -ef | grep -E "apt|unattended"'` —
+   wait for those processes to finish, then re-run the playbook
+   (idempotent — already-applied tasks are skipped).
 
    **Skipped Imager preconfig?** If the Pi booted with its stock user
    (`pi` for Pi OS, `ubuntu` for Ubuntu Server), bootstrap by hand:
