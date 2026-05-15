@@ -7,6 +7,9 @@
 #   - /opt/uptime-kuma/data                         (Uptime Kuma SQLite DB + monitor config)
 #   - /opt/authentik/postgres                       (Authentik PostgreSQL data; useless without AUTHENTIK_SECRET_KEY)
 #   - /opt/coder/postgres                           (Coder PostgreSQL data; workspace home dirs are NOT backed up)
+#   - /mnt/storage/syncthing                        (Syncthing config + Sync folders; the DCIM/Pixel-Downloads
+#                                                    folders are receiveonly from a phone and have no other replica
+#                                                    path, so this backup is the only off-host copy for those files)
 #
 # The k3s state DB is deliberately NOT backed up. SQLite mode has no
 # online snapshot facility (etcd-snapshot save only works in etcd
@@ -87,6 +90,22 @@ spec:
                     --tag coder-postgres \
                     /backup/coder-postgres
                   echo
+                  echo "=== Syncthing data ==="
+                  # Excludes Syncthing's database files — they're
+                  # the index, which Syncthing rebuilds from the
+                  # folder contents on first launch. Including them
+                  # would bloat each snapshot for no recovery value
+                  # (and the .tmp/.syncthing.* files churn often).
+                  restic backup \
+                    --host gandalf \
+                    --tag syncthing-data \
+                    --exclude='index-*.db' \
+                    --exclude='**/.stfolder' \
+                    --exclude='**/.stversions' \
+                    --exclude='**/.syncthing.*.tmp' \
+                    --exclude='**/~syncthing~*.tmp' \
+                    /backup/syncthing
+                  echo
                   echo "=== Snapshot summary ==="
                   restic snapshots --compact
                   push up OK
@@ -110,6 +129,9 @@ spec:
                   readOnly: true
                 - name: coder-postgres
                   mountPath: /backup/coder-postgres
+                  readOnly: true
+                - name: syncthing-data
+                  mountPath: /backup/syncthing
                   readOnly: true
           volumes:
             - name: jellyfin-config
@@ -135,4 +157,14 @@ spec:
                 # the PV bind on first apply, but the CronJob change
                 # may land before postgres comes up).
                 path: /opt/coder/postgres
+                type: DirectoryOrCreate
+            - name: syncthing-data
+              hostPath:
+                # DirectoryOrCreate for the same reason as coder above
+                # — if this CronJob update lands before the Syncthing
+                # PV pre-flight (mkdir /mnt/storage/syncthing && chown
+                # 1000:1000) has been done, don't fail the whole
+                # backup; the dir gets created empty and the snapshot
+                # for this tag will be empty until the deploy lands.
+                path: /mnt/storage/syncthing
                 type: DirectoryOrCreate

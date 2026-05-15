@@ -1,0 +1,64 @@
+# Pre-created PV + PVC for Syncthing's data tree.
+#
+# Why /mnt/storage and not /opt/syncthing/ like every other service:
+# this dir holds Syncthing's *shared folders* (Downloads, Documents,
+# Pictures, Videos, Backups, DCIM, "Pixel Downloads"), which together
+# weigh ~180 GB out of the gate and will grow. Gandalf's root LV is
+# only 438 GB and is already at 55% — putting Syncthing's data there
+# would eat the headroom and crowd out room for Coder workspaces,
+# Authentik postgres, etc.
+#
+# /mnt/storage is a separate 1.8 TB ext4 disk (/dev/sdb2) mounted
+# permanently via fstab (UUID + defaults,noatime,nofail), reserved
+# from day one for bulk PVs that don't need SSD speed (per
+# CLAUDE.md's host-level state notes). Syncthing is the first service
+# to use it; future bulk-volume services (Immich, Paperless-ngx,
+# *arr) should follow the same pattern.
+#
+# Layout under /mnt/storage/syncthing/ (created by the README's
+# pre-flight steps before this PV is bound):
+#   config/        Syncthing's own state — device cert, config.xml,
+#                  index DB. Backed up nightly via restic.
+#   Sync/          Parent dir for all shared folders. Each subdir
+#                  becomes one Syncthing folder pointing at
+#                  /var/syncthing/Sync/<name> inside the container.
+#
+# Size: 500 Gi reservation gives ~3x current data for future growth.
+# The underlying fs has 1.7 TB free, so raising later is just a PV
+# edit + apply (Retain reclaim policy keeps the on-disk data safe).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: syncthing-data
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/storage/syncthing
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - gandalf
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-data
+  namespace: syncthing
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 500Gi
+  volumeName: syncthing-data

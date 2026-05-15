@@ -27,11 +27,21 @@ jobs:
           curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
             | tar -xz -C /usr/local/bin kubeconform
       - name: Validate raw manifests
-        # Exclude Helm values files (postgres-values.yaml, values.yaml) and
-        # the ansible/ tree (Ansible YAML, not k8s manifests).
+        # Includes every standalone raw manifest in k8s/. Excludes Helm
+        # values files (anything matching `*values.yaml`) and the
+        # ansible/ tree (Ansible YAML, not k8s manifests). When a new
+        # service uses a filename that isn't in this list, add it
+        # rather than letting it silently bypass the CI check.
         run: |
           set -euo pipefail
-          find k8s -type f \( -name namespace.yaml -o -name pv-pvc.yaml -o -name secret.example.yaml -o -name '*-job.yaml' -o -name '*-cronjob.yaml' \) -print0 \
+          find k8s -type f \( \
+              -name namespace.yaml \
+              -o -name pv-pvc.yaml \
+              -o -name secret.example.yaml \
+              -o -name deployment.yaml \
+              -o -name '*-job.yaml' \
+              -o -name '*-cronjob.yaml' \
+            \) -print0 \
             | xargs -0 kubeconform \
                 -summary \
                 -strict \

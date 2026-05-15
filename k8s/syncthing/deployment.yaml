@@ -1,0 +1,161 @@
+# Syncthing deployment + Service + Ingress. Raw manifests (no Helm
+# chart — Syncthing is one Deployment, the available community charts
+# add abstraction without saving complexity).
+#
+# Topology:
+#   - Pod runs with hostNetwork: true so the peer-protocol ports
+#     (22000/tcp+udp for data, 21027/udp for local discovery) bind
+#     directly to gandalf's interfaces. Peers reach gandalf at its
+#     LAN IP (192.168.50.135) and tailnet name
+#     (gandalf.tail395fc0.ts.net) on those same ports — no NodePort
+#     translation gymnastics. Pi-hole uses the same pattern for its
+#     port-53 binding.
+#   - The web UI (port 8384) is the one thing routed via cluster:
+#     ClusterIP service + Traefik ingress at syncthing.home. STGUIADDRESS
+#     forces the GUI to listen on 0.0.0.0 (default is 127.0.0.1) so
+#     the in-cluster Service can reach it.
+#   - dnsPolicy: ClusterFirstWithHostNet pairs with hostNetwork so
+#     the pod can still resolve cluster-internal names if it ever
+#     needs to (it doesn't today, but it's the correct pairing).
+#
+# Resource sizing: 256 Mi base / 1 Gi limit covers the index rebuild
+# during initial scan of ~180 GB; steady state is well under that.
+# 100m CPU is comfortable headroom.
+#
+# Image tag is intentionally `latest`. Pin to a specific version (e.g.
+# `1.30.0`) before first apply via the README's pinning step — `latest`
+# is fine for a one-time deploy but a moving target for re-applies.
+# Bumps should go through this manifest, not Watchtower-style auto-pulls.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncthing
+  namespace: syncthing
+  labels:
+    app: syncthing
+spec:
+  replicas: 1
+  # Recreate (not RollingUpdate) because the PVC is ReadWriteOnce and
+  # a rolling update would deadlock waiting for the old pod's volume
+  # claim to release. Single-replica anyway, so no availability loss.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: syncthing
+  template:
+    metadata:
+      labels:
+        app: syncthing
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: syncthing
+          image: syncthing/syncthing:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # The Syncthing image's su-exec wrapper drops to this
+            # UID/GID after init. Matches `nickv` on gandalf (uid 1000)
+            # so the hostPath data is read/writable without an extra
+            # chown init container.
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            # Make the GUI listen on all interfaces. Without this the
+            # default is 127.0.0.1:8384 and the in-cluster Service
+            # can't reach it.
+            - name: STGUIADDRESS
+              value: "0.0.0.0:8384"
+            # Quiet the home-screen telemetry. Set to "true" later if
+            # you want to opt in.
+            - name: STNOUPGRADE
+              value: "true"
+          ports:
+            - name: web
+              containerPort: 8384
+              protocol: TCP
+            - name: sync-tcp
+              containerPort: 22000
+              protocol: TCP
+            - name: sync-udp
+              containerPort: 22000
+              protocol: UDP
+            - name: discovery
+              containerPort: 21027
+              protocol: UDP
+          volumeMounts:
+            - name: data
+              # Syncthing's HOME inside the official image is
+              # /var/syncthing — config goes to /var/syncthing/config
+              # and shared folders are configured (via the GUI) to live
+              # under /var/syncthing/Sync/<folder>.
+              mountPath: /var/syncthing
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: 8384
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: 8384
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: syncthing-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing-web
+  namespace: syncthing
+  labels:
+    app: syncthing
+spec:
+  type: ClusterIP
+  selector:
+    app: syncthing
+  ports:
+    - name: http
+      port: 8384
+      targetPort: 8384
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: syncthing-web
+  namespace: syncthing
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: syncthing.home
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: syncthing-web
+                port:
+                  number: 8384
