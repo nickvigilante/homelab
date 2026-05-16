@@ -63,6 +63,22 @@
         group: root
         mode: "0644"
 
+    # ---- SSH pubkey-only --------------------------------------------------
+    #
+    # Disable password + keyboard-interactive auth. SSH keys are the
+    # only accepted credential. Configured via a drop-in under
+    # /etc/ssh/sshd_config.d/ so distro upgrades that overwrite
+    # /etc/ssh/sshd_config don't undo this. Was applied manually on
+    # 2026-05-14; this task captures the drift.
+    - name: Install sshd drop-in (pubkey-only)
+      ansible.builtin.copy:
+        src: ../system/99-no-passwords.conf
+        dest: /etc/ssh/sshd_config.d/99-no-passwords.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sshd
+
     # ---- k3s secrets encryption at rest ---------------------------------
     #
     # k3s stores Secrets in its embedded SQLite. By default they sit in
@@ -118,3 +134,9 @@
       ansible.builtin.command: k3s secrets-encrypt status
       when: k3s_secrets_encryption
       changed_when: false
+
+  handlers:
+    - name: Reload sshd
+      ansible.builtin.systemd:
+        name: ssh
+        state: reloaded

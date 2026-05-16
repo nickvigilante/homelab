@@ -98,6 +98,21 @@
         group: root
         mode: "0644"
 
+    # ---- SSH pubkey-only ------------------------------------------------
+    #
+    # Same drop-in shipped for gandalf — disables password + keyboard-
+    # interactive auth via /etc/ssh/sshd_config.d/. Was applied manually
+    # on samwise 2026-05-14; this task captures the drift so future
+    # Pis come up pubkey-only from first provision.
+    - name: Install sshd drop-in (pubkey-only)
+      ansible.builtin.copy:
+        src: ../system/99-no-passwords.conf
+        dest: /etc/ssh/sshd_config.d/99-no-passwords.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sshd
+
     # ---- Tailscale ------------------------------------------------------
 
     - name: Add Tailscale apt signing key
@@ -172,3 +187,9 @@
       # kubectl on gandalf needs the kubeconfig (root-only by default).
       become: true
       changed_when: false
+
+  handlers:
+    - name: Reload sshd
+      ansible.builtin.systemd:
+        name: ssh
+        state: reloaded
