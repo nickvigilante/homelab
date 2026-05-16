@@ -1,0 +1,29 @@
+# Let's Encrypt PRODUCTION ClusterIssuer. Real, browser-trusted certs.
+# Use this only after the staging ClusterIssuer has issued a successful
+# Certificate for the same name set — burning a prod issuance on a
+# misconfigured DNS-01 setup eats into the 5-duplicate-certs-per-week
+# rate limit and can cause a multi-day cooldown.
+#
+# Identical shape to the staging issuer; differs only in:
+#   - the ACME server URL (prod, not staging)
+#   - a separate account-key Secret name (keeps staging and prod
+#     account state isolated)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: claude@vigiemail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+        selector:
+          dnsZones:
+            - vigihome.net

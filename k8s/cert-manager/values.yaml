@@ -1,0 +1,38 @@
+# cert-manager Helm values. Chart: jetstack/cert-manager.
+#
+# Why cert-manager lives here: we issue wildcard TLS for *.vigihome.net
+# (and the apex) via Let's Encrypt's DNS-01 challenge against the
+# Cloudflare zone. cert-manager has native Cloudflare DNS-01 support,
+# so no separate webhook chart is required.
+#
+# CRDs install: enabled via `crds.enabled` so the chart owns the
+# Certificate / ClusterIssuer / Order / Challenge CRDs. Keeps a future
+# `helm uninstall` clean.
+
+crds:
+  enabled: true
+
+# Pin every cert-manager component to gandalf. Single-node cluster
+# today, but explicit nodeSelector is correct if we ever add a worker
+# (challenge state lives in cluster API, not on the controller node,
+# so this is just to keep scheduling deterministic).
+nodeSelector:
+  kubernetes.io/hostname: gandalf
+
+webhook:
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+
+cainjector:
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+
+# DNS-01 propagation self-check: cert-manager confirms the TXT record
+# is visible from a public resolver before asking Let's Encrypt to
+# verify it. Pin those resolvers to 1.1.1.1 + 8.8.8.8 so the check
+# doesn't go via the in-cluster Pi-hole — Pi-hole would technically
+# forward the query, but adds avoidable indirection and a restart-race
+# risk during pod rollouts.
+extraArgs:
+  - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+  - --dns01-recursive-nameservers-only
