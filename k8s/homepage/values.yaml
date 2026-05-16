@@ -73,7 +73,7 @@ config:
   services:
     - Infrastructure:
         - Pi-hole:
-            href: http://pihole.home/admin
+            href: https://pi-hole.vigihome.net/admin
             description: DNS + ad blocking
             icon: pi-hole.png
         - Authentik:

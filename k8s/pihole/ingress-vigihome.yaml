@@ -1,0 +1,44 @@
+# Additional Ingress for Pi-hole admin over HTTPS at
+# https://pi-hole.vigihome.net. Lives alongside the chart-managed
+# http://pi.hole Ingress (Pi-hole's magic in-LAN name) — both work.
+# The legacy `pi.hole` Ingress stays for as long as Pi-hole-resolved
+# clients hit it; this raw manifest is the cross-device entry point
+# (cellular + LAN + tailnet, with a trusted cert).
+#
+# No OIDC coordination needed — Pi-hole admin uses its own native
+# password (Bitwarden item `Pi-Hole`). Forward-auth via Authentik is
+# a separate future PR.
+#
+# DNS prereq (manual, see README): Pi-hole local DNS record
+# `pi-hole.vigihome.net → 192.168.50.135` via the admin UI before
+# applying.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pihole-vigihome
+  namespace: networking
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - pi-hole.vigihome.net
+      # Reflected into the `networking` namespace by emberstack/reflector
+      # via cert-manager's secretTemplate annotations on
+      # k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
+  rules:
+    - host: pi-hole.vigihome.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              # Service exposed by the mojo2600/pihole Helm chart.
+              # Traefik terminates TLS on websecure (443) and proxies
+              # plain HTTP to pihole-web:80 in-cluster.
+              service:
+                name: pihole-web
+                port:
+                  name: http
