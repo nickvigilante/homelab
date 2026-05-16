@@ -94,7 +94,7 @@ config:
             description: Media server
             icon: jellyfin.png
         - Syncthing:
-            href: http://syncthing.home
+            href: https://syncthing.vigihome.net
             description: File sync
             icon: syncthing.png
 
