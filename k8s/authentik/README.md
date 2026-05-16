@@ -8,33 +8,19 @@ giving you one login instead of one per service.
 
 - `namespace.yaml` — `auth` namespace
 - `pv-pvc.yaml` — PV `authentik-postgres-data` → hostPath `/opt/authentik/postgres` (gandalf), matching PVC named for what the bitnami postgres StatefulSet expects (`data-authentik-postgresql-0`)
-- `values.yaml` — Helm values for `authentik/authentik`. Includes the chart-managed Ingress at `http://authentik.home`.
-- `ingress-vigihome.yaml` — raw Ingress at `https://authentik.vigihome.net` (TLS via reflected `vigihome-tls`). Lives alongside the chart Ingress during the vigihome.net cutover; see [vigihome HTTPS cutover](#vigihome-https-cutover-in-progress) below.
+- `values.yaml` — Helm values for `authentik/authentik`. The chart's own Ingress is disabled (`server.ingress.enabled: false`) — Ingress lives in `ingress-vigihome.yaml` instead.
+- `ingress-vigihome.yaml` — raw Ingress at `https://authentik.vigihome.net` (TLS via reflected `vigihome-tls`). This is the sole user-facing entry point for Authentik post-cutover.
 - `secret.example.yaml` — template documenting the keys required in the `authentik-secrets` Secret. Never apply this directly — the real Secret is created from out-of-repo material (see below).
 
-## vigihome HTTPS cutover (in progress)
+## Cleanup after D3
 
-Three-PR sequence to move Authentik from `http://authentik.home` to
-`https://authentik.vigihome.net`. Coordinated with downstream OIDC
-clients because Authentik derives token issuer URLs from the request
-Host header — each client validates `iss` against exactly one URL, so
-the OIDC client and Authentik have to flip together.
+Once this PR (D3) is applied:
 
-| PR | Scope | Effect |
-|----|-------|--------|
-| **D1 (this one)** | Add `ingress-vigihome.yaml` + reflect `vigihome-tls` into `auth` ns. | Both URLs work. Visiting `https://authentik.vigihome.net` issues tokens with `iss=https://authentik.vigihome.net/...`; visiting `http://authentik.home` issues `iss=http://authentik.home/...` tokens. OIDC clients still pinned to the old URL, unaffected. |
-| **D2** | `k8s/coder/values.yaml`: flip OIDC issuer URL to `https://authentik.vigihome.net/application/o/coder/`; helm-upgrade Coder. **Must be applied with Authentik already serving HTTPS.** Login flow tested end-to-end (incl. Bitwarden-backed local fallback). | Coder users authenticate via HTTPS Authentik. |
-| **D3** | `values.yaml`: `server.ingress.enabled: false` (drop the HTTP Ingress) + remove Pi-hole `authentik.home` local DNS record. | Only `https://authentik.vigihome.net` works. Cleanup. |
+- Remove the Pi-hole local DNS record for `authentik.home` (Settings → Local DNS Records → delete). The `pi.hole` and `*.home` records for other services stay until their own Phase 3 cutovers.
+- Verify with `curl http://authentik.home` from gandalf — expect Traefik's 404 (no Ingress matches that host anymore).
+- Verify `https://authentik.vigihome.net` still serves the Authentik UI and Coder OIDC login still works.
 
-**Before applying D1**: add Pi-hole local DNS record
-`authentik.vigihome.net → 192.168.50.135` via the Pi-hole admin UI
-(Settings → Local DNS Records). Reflector mirrors the cert in <5s
-after `cert-manager/certificate.yaml` is re-applied with the updated
-auto-namespaces list.
-
-**Don't apply D1 yet from the merged PR.** The PR is intentionally
-shipped DRAFT-only — the apply needs you at a real browser with
-Bitwarden local-fallback creds open in case anything misbehaves.
+For the original D1→D2→D3 cutover sequence (kept here as the runbook for any future Authentik hostname change), see commit history on this directory.
 
 ## ⚠️ SPOF discipline
 

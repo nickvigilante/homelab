@@ -55,15 +55,12 @@ authentik:
 
 server:
   replicas: 1
+  # Ingress is owned by ingress-vigihome.yaml, not the chart.
+  # The legacy http://authentik.home Ingress was dropped after D2
+  # (Coder OIDC cutover) verified that authentik.vigihome.net is
+  # serving everything users + downstream OIDC clients need.
   ingress:
-    enabled: true
-    ingressClassName: traefik
-    annotations:
-      traefik.ingress.kubernetes.io/router.entrypoints: web
-    hosts:
-      - authentik.home
-    # The chart's default path "{{ .Values.authentik.web.path }}" is "/" —
-    # leave as-is so the entire UI is served.
+    enabled: false
 
 worker:
   replicas: 1
