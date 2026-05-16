@@ -43,6 +43,7 @@ jobs:
               -o -name '*-cronjob.yaml' \
               -o -name 'clusterissuer-*.yaml' \
               -o -name certificate.yaml \
+              -o -name 'ingress-*.yaml' \
             \) -print0 \
             | xargs -0 kubeconform \
                 -summary \
