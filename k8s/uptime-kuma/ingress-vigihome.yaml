@@ -1,0 +1,40 @@
+# Additional Ingress for Uptime Kuma over HTTPS at
+# https://uptime-kuma.vigihome.net. Lives alongside the chart-managed
+# http://uptime.home Ingress; both work. The legacy `uptime.home`
+# stays until we're sure nothing depends on it.
+#
+# No OIDC coordination — Uptime Kuma uses its own native admin login
+# (Bitwarden item `Homelab Uptime Kuma`). Upstream OIDC support is
+# still pending as of v2.x — see homelab-todo.md "Authentik downstream
+# integrations queue".
+#
+# DNS prereq (manual, see commit body): Pi-hole local DNS record
+# `uptime-kuma.vigihome.net → 192.168.50.135` via the admin UI before
+# applying.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: uptime-kuma-vigihome
+  namespace: monitoring
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - uptime-kuma.vigihome.net
+      # Reflected into `monitoring` via cert-manager's secretTemplate
+      # annotations on k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
+  rules:
+    - host: uptime-kuma.vigihome.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              # Service exposed by the louislam/uptime-kuma chart.
+              service:
+                name: uptime-kuma
+                port:
+                  number: 3001
