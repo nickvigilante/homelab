@@ -38,7 +38,7 @@ spec:
       reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
       # Comma-separated list of consumer namespaces. Add a namespace
       # here when migrating a service onto HTTPS at *.vigihome.net.
-      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "homepage"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "homepage,networking"
   duration: 2160h    # 90 days
   renewBefore: 720h  # 30 days before expiry
   issuerRef:
