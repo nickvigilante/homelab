@@ -1,0 +1,39 @@
+# emberstack/reflector Helm values.
+#
+# Reflector is a small Kubernetes controller that mirrors Secrets and
+# ConfigMaps across namespaces. It watches resources with the
+# `reflector.v1.k8s.emberstack.com/reflection-allowed: "true"`
+# annotation and auto-copies them into namespaces matching the
+# `reflection-auto-namespaces` annotation (regex or comma-separated
+# list).
+#
+# Why we need it: cert-manager issues `vigihome-tls` into the
+# `cert-manager` namespace. Every Ingress that wants HTTPS needs the
+# Secret in its own namespace. The alternatives:
+#   - per-namespace Certificate resources → burns LE's 5
+#     duplicate-certs-per-week budget,
+#   - hand-copy via `kubectl get … | kubectl apply` → drift-prone,
+#     no automatic refresh on renewal.
+# Reflector handles both: one source-of-truth Secret, mirrors stay
+# in sync as cert-manager rotates the original on renewal (~60d).
+#
+# Cluster placement: pin to gandalf. Single-node anyway, but an
+# explicit nodeSelector is correct if we add more workers — the
+# controller is tiny (~10 MiB RSS) and doesn't need redundancy.
+
+replicaCount: 1
+
+nodeSelector:
+  kubernetes.io/hostname: gandalf
+
+# Default resources are empty — set modest requests so the scheduler
+# accounts for it. Reflector's footprint is ~10–20 MiB at rest.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+# Reflector defaults to non-root + read-only root FS (good). No
+# overrides needed for our use case.
