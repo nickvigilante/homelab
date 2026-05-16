@@ -90,7 +90,7 @@ config:
             description: Cloud dev environments
             icon: coder.png
         - Jellyfin:
-            href: http://jellyfin.home
+            href: https://jellyfin.vigihome.net
             description: Media server
             icon: jellyfin.png
         - Syncthing:
