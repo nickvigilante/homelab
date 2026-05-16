@@ -1,0 +1,37 @@
+# Let's Encrypt STAGING ClusterIssuer. Use this when iterating on the
+# DNS-01 flow — staging has effectively no rate limit, where prod is
+# 5 duplicate certs per week (easy to burn through with a token-scope
+# typo). Certs from staging are signed by the "Fake LE Root" CA, so
+# browsers will still complain — that's expected. Staging is for
+# *workflow* validation, not real cert deployment.
+#
+# Switching a Certificate from staging to prod is a one-line edit
+# (issuerRef.name) — cert-manager re-requests against prod and rotates
+# the cert secret in-place on next reconcile.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: claude@vigiemail.com
+    # ACME account private key. cert-manager creates this Secret on
+    # first reconcile if it doesn't exist. Keep the staging and prod
+    # account keys in separate Secrets so an account-level issue with
+    # one doesn't bleed into the other.
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+        # Restrict this solver to the vigihome.net zone. If we ever
+        # add a second zone (e.g. nickvigilante.com), it gets its own
+        # solver entry with its own token Secret rather than reusing
+        # this one.
+        selector:
+          dnsZones:
+            - vigihome.net
