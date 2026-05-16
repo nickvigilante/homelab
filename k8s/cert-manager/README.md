@@ -39,11 +39,11 @@ to `letsencrypt-prod`.
 
 2. **Confirm the chart version**, then install. (Check
    `helm search repo jetstack/cert-manager` for the latest; the pinned
-   version below is correct as of writing.)
+   version below was current at install time.)
    ```sh
    helm install cert-manager jetstack/cert-manager \
      --namespace cert-manager \
-     --version v1.18.2 \
+     --version v1.20.2 \
      -f values.yaml
    ```
 
@@ -55,16 +55,19 @@ to `letsencrypt-prod`.
 
 4. **Create the Cloudflare API token Secret from Bitwarden.** The
    value lives only in Bitwarden; the cluster gets a copy via
-   `kubectl create secret`. Token is loaded into a shell var so it
-   never lands on disk.
+   `kubectl create secret`. Piping `bw get` into `--from-file=/dev/stdin`
+   keeps the token out of shell history and process args (which
+   `--from-literal` would expose).
    ```sh
-   bw unlock
-   CLOUDFLARE_TOKEN=$(bw get password 'Cloudflare DNS API Token — vigihome.net')
-   kubectl create secret generic cloudflare-api-token \
-     --namespace cert-manager \
-     --from-literal=api-token="$CLOUDFLARE_TOKEN"
-   unset CLOUDFLARE_TOKEN
+   export BW_SESSION=$(bw unlock --raw)
+   bw get password 'Cloudflare DNS API Token — vigihome.net' \
+     | kubectl create secret generic cloudflare-api-token \
+         -n cert-manager --from-file=api-token=/dev/stdin
+   bw lock
+   unset BW_SESSION
    ```
+   If the Bitwarden item is a Secure Note rather than a Login (token
+   in the notes body), substitute `bw get notes` for `bw get password`.
 
 5. **Apply both ClusterIssuers:**
    ```sh
@@ -100,12 +103,13 @@ That's the end of PR A. PR B adds the wildcard Certificate.
 - **Rotate the Cloudflare token:** rotate in the Cloudflare UI →
   update the Bitwarden item → overwrite the Secret:
   ```sh
-  CLOUDFLARE_TOKEN=$(bw get password 'Cloudflare DNS API Token — vigihome.net')
-  kubectl create secret generic cloudflare-api-token \
-    --namespace cert-manager \
-    --from-literal=api-token="$CLOUDFLARE_TOKEN" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  unset CLOUDFLARE_TOKEN
+  export BW_SESSION=$(bw unlock --raw)
+  bw get password 'Cloudflare DNS API Token — vigihome.net' \
+    | kubectl create secret generic cloudflare-api-token \
+        -n cert-manager --from-file=api-token=/dev/stdin \
+        --dry-run=client -o yaml | kubectl apply -f -
+  bw lock
+  unset BW_SESSION
   ```
   cert-manager re-reads the Secret on next reconcile; no restart needed.
 
