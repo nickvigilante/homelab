@@ -1,0 +1,140 @@
+# Homepage Helm values. Chart: jameswynn/homepage v2.1.0 (appVersion v1.2.0).
+#
+# Why Homepage: k8s-native dashboard at the apex of vigihome.net. First
+# end-to-end exercise of the HTTPS-via-vigihome stack (Ingress + reflected
+# vigihome-tls + Pi-hole local DNS apex record), and a low-stakes way to
+# prove the pattern before migrating existing services with users.
+#
+# Service list is hand-curated for now. Homepage can auto-discover
+# Ingresses annotated with `gethomepage.dev/enabled: "true"`, but
+# retro-fitting every existing service's Ingress is out of scope for
+# this PR — flip on auto-discovery in a follow-up once we've migrated
+# a few services to vigihome.net and their Ingresses are getting
+# touched anyway.
+
+image:
+  repository: ghcr.io/gethomepage/homepage
+  # Pin to the chart's appVersion. Bump when bumping the chart version.
+  tag: v1.2.0
+
+# Kubernetes integration (cluster resource widgets, eventual Ingress
+# auto-discovery). enableRbac true → chart creates the ClusterRole +
+# ClusterRoleBinding that lets the controller list nodes / namespaces /
+# pods / services / ingresses. enabling these now means the widget
+# block below can use `mode: cluster`.
+enableRbac: true
+serviceAccount:
+  create: true
+  name: homepage
+
+# Single-node cluster; pin to gandalf.
+nodeSelector:
+  kubernetes.io/hostname: gandalf
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      # HTTPS-only on 443. No HTTP-on-port-80 entrypoint here — type
+      # `https://vigihome.net` explicitly. A http→https redirect via a
+      # Traefik middleware can land later if typing https:// gets old.
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hosts:
+      - host: &host vigihome.net
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - hosts:
+          - *host
+        # vigihome-tls is reflected into this namespace by reflector
+        # (annotations on cert-manager's Certificate via secretTemplate).
+        secretName: vigihome-tls
+
+# Required as of Homepage v1.x — refuses requests with Host headers
+# outside this list. Allow both the public name (when used via Traefik)
+# and the in-cluster Service name (for kubectl port-forward / probes).
+env:
+  - name: HOMEPAGE_ALLOWED_HOSTS
+    value: "vigihome.net,homepage.homepage.svc.cluster.local"
+
+config:
+  # Hand-curated initial list pointing at current *.home services.
+  # As each service migrates to *.vigihome.net in Phase 3 PRs, update
+  # the href here in the same PR.
+  services:
+    - Infrastructure:
+        - Pi-hole:
+            href: http://pihole.home/admin
+            description: DNS + ad blocking
+            icon: pi-hole.png
+        - Authentik:
+            href: http://authentik.home
+            description: SSO / identity
+            icon: authentik.png
+        - Uptime Kuma:
+            href: http://uptime.home
+            description: Service health
+            icon: uptime-kuma.png
+    - Applications:
+        - Coder:
+            href: http://coder.home
+            description: Cloud dev environments
+            icon: coder.png
+        - Jellyfin:
+            href: http://jellyfin.home
+            description: Media server
+            icon: jellyfin.png
+        - Syncthing:
+            href: http://syncthing.home
+            description: File sync
+            icon: syncthing.png
+
+  widgets:
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: "k3s"
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+    - search:
+        provider: duckduckgo
+        target: _blank
+
+  # `mode: cluster` lets the kubernetes widget read across the cluster
+  # via the ServiceAccount's ClusterRole. `disable` would no-op the
+  # widget; `default` uses an in-namespace ServiceAccount which is too
+  # narrow for the nodes/cluster view we want.
+  kubernetes:
+    mode: cluster
+
+  # settingsString preserves key ordering (Helm's toYaml sorts keys).
+  settingsString: |
+    title: vigihome
+    headerStyle: boxed
+    layout:
+      Infrastructure:
+        style: row
+        columns: 3
+      Applications:
+        style: row
+        columns: 3
+    theme: dark
+    color: slate
+
+  bookmarks: []
+  docker:

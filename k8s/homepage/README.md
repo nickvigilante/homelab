@@ -1,0 +1,131 @@
+# Homepage
+
+Dashboard at `https://vigihome.net` (the apex of the homelab's
+vigihome.net zone). First service on the HTTPS-via-vigihome stack:
+exercises Ingress + reflected `vigihome-tls` Secret + Pi-hole local
+DNS apex record end-to-end on a low-stakes deploy before the
+existing-services migration begins.
+
+Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
+
+## Prereqs
+
+- cert-manager + ClusterIssuers installed (PR #23) — issued.
+- `vigihome-tls` Certificate issued + prod issuer (PRs #24, #25) —
+  Secret in `cert-manager` namespace.
+- `emberstack/reflector` installed (PR #26) — controller running.
+- `vigihome-tls` Secret reflected into the `homepage` namespace via
+  cert-manager's `secretTemplate` annotations (added in this PR).
+- `helm` on gandalf, jameswynn repo registered:
+  ```sh
+  helm repo add jameswynn https://jameswynn.github.io/helm-charts
+  helm repo update
+  ```
+
+## One-time install
+
+1. **Apply the cert-manager Certificate update** so reflector mirrors
+   `vigihome-tls` into the `homepage` namespace:
+   ```sh
+   kubectl apply -f ../cert-manager/certificate.yaml
+   # cert-manager rolls the Secret's annotations onto next reconcile.
+   ```
+
+2. **Apply the namespace:**
+   ```sh
+   kubectl apply -f namespace.yaml
+   ```
+
+3. **Verify the Secret has been mirrored** into `homepage`:
+   ```sh
+   kubectl -n homepage get secret vigihome-tls
+   # Should appear within ~5s of reflector picking up the annotation.
+   ```
+
+4. **Install Homepage via Helm:**
+   ```sh
+   helm install homepage jameswynn/homepage \
+     --namespace homepage \
+     --version 2.1.0 \
+     -f values.yaml
+   ```
+
+5. **Wait for the Deployment to be Ready:**
+   ```sh
+   kubectl -n homepage rollout status deploy/homepage
+   ```
+
+6. **Add the Pi-hole local DNS record for the apex.** Pi-hole on v6
+   stores local records in `pihole.toml`, managed via the web UI:
+   - Open the Pi-hole admin UI.
+   - **Settings → Local DNS Records → Add**:
+     - Domain: `vigihome.net`
+     - IP: `192.168.50.135` (gandalf)
+   - Save.
+   - The change is picked up immediately; no Pi-hole pod restart needed
+     for record additions (v6 watches `pihole.toml`).
+
+7. **Verify HTTPS end-to-end** from any LAN client whose DNS goes
+   through Pi-hole:
+   ```sh
+   curl -sv https://vigihome.net 2>&1 | grep -E "(subject|issuer|HTTP/)"
+   ```
+   Expect:
+   - `subject: CN=vigihome.net`
+   - `issuer: ... O = Let's Encrypt, CN = E7` (real LE intermediate,
+     not Fake LE Root)
+   - `HTTP/2 200`
+   - Browser at `https://vigihome.net` shows the Homepage UI with no
+     cert warning.
+
+## Day-to-day ops
+
+- **Edit the services list / widgets:** modify `values.yaml`, then
+  `helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0
+  -f values.yaml`. The Deployment is restarted; Homepage re-reads its
+  ConfigMap on boot (~5s). No data loss — Homepage is stateless.
+
+- **Add a new service after a Phase 3 cutover.** When a `*.home`
+  service moves to `*.vigihome.net`, update its `href` in `services:`
+  here. Two edits per cutover (the service's own PR + this one) is
+  fine for now; consolidate into a single PR when easier.
+
+- **Enable Ingress auto-discovery later.** Each migrated service can
+  add `gethomepage.dev/enabled: "true"` + metadata annotations to its
+  Ingress, and Homepage will pick them up via the cluster mode RBAC
+  this chart provisions. Skipped here to keep the initial deploy
+  scope-clean — flip on after a few services are migrated.
+
+- **Upgrade Homepage:** bump `tag` in `values.yaml` (Homepage version)
+  and/or the `--version` flag (chart version), then `helm upgrade`.
+  Watch for Homepage major-version notes in the release notes — v1.x
+  added `HOMEPAGE_ALLOWED_HOSTS` and broke un-allowed hostnames.
+
+- **Uninstall:** `helm uninstall homepage -n homepage` then
+  `kubectl delete -f namespace.yaml`. Removing the Pi-hole DNS record
+  is a manual cleanup step in the web UI.
+
+## Pitfalls
+
+- **`HOMEPAGE_ALLOWED_HOSTS` is mandatory on Homepage v1.x.** Without
+  it (or with the wrong list), Homepage 403s every request and the
+  Traefik Ingress shows a useless "200 OK" backed by an empty body in
+  curl. Already set in `values.yaml` to `vigihome.net` + the cluster
+  Service name (so `kubectl port-forward` works).
+
+- **First-load delay.** Homepage's kubernetes widget makes its first
+  API call to the apiserver lazily; the dashboard can take 2–5s to
+  paint the cluster + node panels on a cold load. Not a bug.
+
+- **Certificate renewal is invisible.** When cert-manager renews
+  `vigihome-tls` (~60 days), reflector mirrors the new Secret into
+  the `homepage` namespace automatically; Traefik picks it up
+  without a restart. No action needed.
+
+- **Don't put the Pi-hole admin URL on this dashboard's homepage
+  if the dashboard hostname depends on Pi-hole DNS.** Circular: if
+  Pi-hole is down, you can't reach the dashboard to click into
+  Pi-hole. We accept the bootstrap dependency because the alternative
+  (memorizing 192.168.50.135 paths) is worse — but Pi-hole admin
+  should always have a known IP-based backup path documented in the
+  Bitwarden `Pi-Hole` item.
