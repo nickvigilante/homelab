@@ -33,7 +33,7 @@ spec:
   duration: 2160h    # 90 days
   renewBefore: 720h  # 30 days before expiry
   issuerRef:
-    name: letsencrypt-staging
+    name: letsencrypt-prod
     kind: ClusterIssuer
   dnsNames:
     - vigihome.net
