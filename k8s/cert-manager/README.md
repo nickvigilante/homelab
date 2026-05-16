@@ -98,30 +98,21 @@ letsencrypt-prod      True    1m
 
 ## Issuing the wildcard certificate (`certificate.yaml`)
 
-Once both ClusterIssuers report `Ready=True`, `certificate.yaml` asks
-cert-manager for a single wildcard cert covering `vigihome.net` +
-`*.vigihome.net`. **Apply it against `letsencrypt-staging` first**
-(the resource ships that way) and only flip to `letsencrypt-prod`
-once the staging issuance succeeds.
+`certificate.yaml` asks cert-manager for a single wildcard cert
+covering `vigihome.net` + `*.vigihome.net`, signed by
+`letsencrypt-prod`. The file ships pointed at prod because the
+DNS-01 flow has already been validated against staging during the
+original PR (#24). For DR re-issuance, applying as-is goes straight
+to prod and is the expected path.
 
-1. **Apply against staging:**
+1. **Apply:**
    ```sh
    kubectl apply -f certificate.yaml
-   kubectl -n cert-manager describe certificate vigihome-tls
-   # Watch the Events stream; expect ~30–90s while DNS-01 propagates.
+   kubectl -n cert-manager get certificate vigihome-tls -w
+   # Wait for READY=True (~30–90s for DNS-01 propagation + LE issuance).
    ```
 
-2. **Verify `Ready=True`:**
-   ```sh
-   kubectl -n cert-manager get certificate vigihome-tls
-   # NAME           READY   SECRET         AGE
-   # vigihome-tls   True    vigihome-tls   1m
-   ```
-
-3. **Inspect the cert chain** — the staging cert should be signed by
-   `(STAGING) Pretend Pear X1` / "Fake LE Root". This confirms the
-   flow but is **not** browser-trusted; do not configure any
-   real Ingress against it.
+2. **Inspect the cert chain** to confirm prod issuance:
    ```sh
    kubectl -n cert-manager get secret vigihome-tls \
      -o jsonpath='{.data.tls\.crt}' | base64 -d \
@@ -129,25 +120,20 @@ once the staging issuance succeeds.
    ```
    Expect:
    - `subject = CN = vigihome.net`
-   - `issuer = ... O = (STAGING) Let's Encrypt, CN = (STAGING) Pretend Pear X1`
+   - `issuer = ... O = Let's Encrypt, CN = E7` (or whatever LE's
+     current ECDSA intermediate is — `E7` and `E5` for ECDSA, `R10`
+     and `R11` for RSA)
    - `DNS:vigihome.net, DNS:*.vigihome.net` in the SAN extension.
 
-4. **Flip to production.** Edit `certificate.yaml`:
-   ```yaml
-   issuerRef:
-     name: letsencrypt-prod   # was: letsencrypt-staging
-   ```
-   Then `kubectl apply -f certificate.yaml`. cert-manager re-requests
-   immediately; the Secret rotates in-place when the new cert is
-   ready (usually under a minute).
+### Validating a risky change against staging first
 
-5. **Re-verify** with the same `openssl x509` block above. Issuer
-   should now read `O = Let's Encrypt, CN = R10` (or whatever LE's
-   current intermediate is). Subject and SANs unchanged.
-
-6. **Commit the issuer flip.** This is the only manifest edit that
-   needs to land back on `main` after the cert-flip exercise — open
-   a one-line PR.
+If you change something risky in `certificate.yaml` (new `dnsNames`,
+algorithm swap, key size change) and want a dry-run against staging
+to avoid burning LE prod's rate budget, edit `issuerRef.name` to
+`letsencrypt-staging` locally, apply, verify, then flip back to
+`letsencrypt-prod`. **Do not commit the staging value to `main`.**
+cert-manager re-requests in-place when the issuer changes; the
+Secret rotates without an Ingress restart.
 
 ## Day-to-day ops
 
