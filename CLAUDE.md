@@ -26,10 +26,66 @@ Each service under `k8s/<service>/` follows the same layout:
 | `pv-pvc.yaml` | Pre-created PV (hostPath, gandalf-pinned) + PVC for any persistent data the chart can't manage with its own dynamic provisioning |
 | `values.yaml` | Helm values, or raw manifests when a chart doesn't fit |
 | `secret.example.yaml` | **Template only** — documents which keys must live in the real Secret. Never applied; the real Secret is created via `kubectl create secret generic` sourced from a Bitwarden item |
+| `ingress-vigihome.yaml` | Raw Ingress at `https://<service>.vigihome.net` once the service migrates onto HTTPS. See "TLS / HTTPS" below. |
 | `README.md` | One-time setup runbook + day-to-day ops notes |
 
 When adding a new service, mirror this layout. See `k8s/authentik/`
 and `k8s/coder/` for the most complete examples.
+
+## TLS / HTTPS — the `*.vigihome.net` stack
+
+Every internal service moves onto HTTPS at `*.vigihome.net` (cleanly
+separated from the public `nickvigilante.com`). The supporting infra
+runs in three namespaces:
+
+| Namespace | What | PR |
+|-----------|------|----|
+| `cert-manager` | cert-manager controller + LE staging/prod ClusterIssuers using native Cloudflare DNS-01 + the wildcard `Certificate` for `vigihome.net` + `*.vigihome.net` | #23, #24, #25 |
+| `reflector` | emberstack/reflector — mirrors annotated Secrets across namespaces | #26 |
+| `homepage` | First end-to-end exercise of the stack at the apex | #27 |
+
+**The flow:** cert-manager issues `vigihome-tls` (ECDSA P-256, 90d /
+30d-renew) into `cert-manager/vigihome-tls`. Reflector reads the
+`secretTemplate` annotations on `k8s/cert-manager/certificate.yaml`
+and copies the Secret into every namespace listed in
+`reflection-auto-namespaces`. Consumer Ingresses reference
+`secretName: vigihome-tls` in their TLS block.
+
+**Migrating a service onto HTTPS:**
+
+1. Add the consumer namespace to `reflection-auto-namespaces` in
+   `k8s/cert-manager/certificate.yaml` (comma-separated). `kubectl
+   apply` it. Reflector mirrors `vigihome-tls` into the namespace in
+   < 5s.
+2. Add `k8s/<service>/ingress-vigihome.yaml` — a raw `Ingress` at
+   `<service>.vigihome.net` with `traefik.ingress.kubernetes.io/router.entrypoints: websecure`
+   and `tls.secretName: vigihome-tls`. See `k8s/authentik/ingress-vigihome.yaml`
+   for the canonical example.
+3. Add the Pi-hole local DNS record `<service>.vigihome.net →
+   192.168.50.135` via the Pi-hole admin UI (Settings → Local DNS
+   Records). v6 manages local records in `pihole.toml`
+   non-declaratively.
+4. Test in a real browser. Expect a trusted cert from
+   `O=Let's Encrypt, CN=E7` (ECDSA intermediate).
+5. After the service is verified working over HTTPS, drop the chart's
+   legacy HTTP Ingress + matching `*.home` Pi-hole record in a
+   follow-up PR.
+
+**OIDC clients gotcha:** Authentik derives token `iss` claims from
+the request `Host` header — not a single configured external URL.
+When migrating Authentik to its new HTTPS host, every OIDC client
+(Coder today; future Jellyfin) must update its issuer URL in
+lockstep. The Authentik cutover therefore lands as a 3-PR sequence:
+D1 (add HTTPS Ingress) → D2 (flip each client's `OIDC_ISSUER_URL`)
+→ D3 (drop chart's HTTP Ingress + Pi-hole record). Don't merge them
+out of order. See PRs #28 / #30 / #31 for the template.
+
+**Lint:** the kubeconform CI filter at `.github/workflows/lint.yml`
+covers `namespace.yaml`, `pv-pvc.yaml`, `secret.example.yaml`,
+`deployment.yaml`, `*-job.yaml`, `*-cronjob.yaml`, `clusterissuer-*.yaml`,
+`certificate.yaml`, `ingress-*.yaml`. When a new service uses a
+filename outside that set, add it to the filter rather than letting
+it silently bypass validation.
 
 ## Secrets discipline
 
@@ -50,10 +106,20 @@ and `k8s/coder/` for the most complete examples.
 
 ## DNS pattern (recurring gotcha)
 
-Pi-hole serves custom records for `*.home` hostnames (`jellyfin.home`,
-`uptime.home`, `authentik.home`, `coder.home`, etc.) to the LAN and
-tailnet. **CoreDNS inside the cluster does not see these records** —
-it uses upstream DNS but is configured separately.
+Pi-hole serves custom records to the LAN and tailnet in two
+hostname namespaces today, mid-migration:
+
+- `*.vigihome.net` — the new target. Browser-trusted HTTPS, single
+  wildcard cert (see "TLS / HTTPS" above). Live as of 2026-05-16 for
+  `vigihome.net` (Homepage) and `authentik.vigihome.net`. Each Phase
+  3 PR adds another service.
+- `*.home` (`jellyfin.home`, `uptime.home`, `coder.home`, etc.) —
+  legacy plain-HTTP names. Stay live for services not yet cut over;
+  retire each one in a tiny PR after its `*.vigihome.net` Ingress is
+  verified.
+
+**CoreDNS inside the cluster does not see these records** — it uses
+upstream DNS but is configured separately.
 
 So: inside a pod, `*.home` hostnames will NXDOMAIN. Always use
 cluster-internal service DNS for pod-to-pod traffic:
