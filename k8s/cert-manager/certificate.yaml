@@ -1,23 +1,22 @@
 # Wildcard TLS certificate for vigihome.net (apex + every one-level
 # subdomain). Single cert covers everything; consumer Ingresses
-# reference the resulting Secret rather than each requesting their
+# reference the reflected Secret rather than each requesting their
 # own cert (which would burn LE's 5-duplicate-certs-per-week budget
 # and add per-service moving parts).
 #
-# IssuerRef starts on STAGING — this resource is meant to land first
-# against `letsencrypt-staging`, prove the DNS-01 flow works
-# end-to-end, then flip `issuerRef.name` to `letsencrypt-prod` once
-# the staging cert reaches Ready=True. cert-manager re-requests
-# in-place; the Secret name stays the same.
+# Issuer: letsencrypt-prod. The staging-first dance from PR #24's
+# original validation is documented in this dir's README under
+# "Validating a risky change against staging first" — only flip
+# `issuerRef.name` back to staging if you're changing something
+# risky (new dnsNames, key algorithm, etc.) and want a dry-run.
 #
-# Secret distribution: the issued Secret lives in `cert-manager`
-# namespace. Consumer namespaces (auth, coder, syncthing, etc.) need
-# a copy. Two acceptable options, picked per service in Phase 3 PRs:
-#   1. Hand-copy via `kubectl get secret -o yaml | kubectl apply` —
-#      one-shot, drift-prone, fine for a one-off bring-up.
-#   2. Install a controller (e.g. emberstack/reflector) that mirrors
-#      annotated Secrets into matching namespaces. Worth doing once
-#      we have ≥ 3 services on HTTPS.
+# Secret distribution: emberstack/reflector (installed in PR #26)
+# watches the issued Secret and mirrors it into every namespace
+# listed in `secretTemplate.annotations.reflection-auto-namespaces`
+# below. To add a service onto HTTPS-via-vigihome, append its
+# namespace to that list and `kubectl apply` this file —
+# cert-manager copies the annotations to the Secret on next
+# reconcile, reflector picks up the new namespace within seconds.
 #
 # Key algorithm: ECDSA P-256. Browser-trusted, ~10× smaller and
 # faster than RSA-2048, lower TLS handshake CPU on the Pi peers.
@@ -30,6 +29,16 @@ metadata:
   namespace: cert-manager
 spec:
   secretName: vigihome-tls
+  secretTemplate:
+    annotations:
+      # Reflector reads these off the issued Secret. cert-manager copies
+      # them from this `secretTemplate` block on every reconcile, so the
+      # source of truth for "who gets a mirror" is this manifest.
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      # Comma-separated list of consumer namespaces. Add a namespace
+      # here when migrating a service onto HTTPS at *.vigihome.net.
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "homepage"
   duration: 2160h    # 90 days
   renewBefore: 720h  # 30 days before expiry
   issuerRef:
