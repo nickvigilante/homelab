@@ -42,6 +42,7 @@ jobs:
               -o -name '*-job.yaml' \
               -o -name '*-cronjob.yaml' \
               -o -name 'clusterissuer-*.yaml' \
+              -o -name certificate.yaml \
             \) -print0 \
             | xargs -0 kubeconform \
                 -summary \

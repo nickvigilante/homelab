@@ -1,0 +1,44 @@
+# Wildcard TLS certificate for vigihome.net (apex + every one-level
+# subdomain). Single cert covers everything; consumer Ingresses
+# reference the resulting Secret rather than each requesting their
+# own cert (which would burn LE's 5-duplicate-certs-per-week budget
+# and add per-service moving parts).
+#
+# IssuerRef starts on STAGING — this resource is meant to land first
+# against `letsencrypt-staging`, prove the DNS-01 flow works
+# end-to-end, then flip `issuerRef.name` to `letsencrypt-prod` once
+# the staging cert reaches Ready=True. cert-manager re-requests
+# in-place; the Secret name stays the same.
+#
+# Secret distribution: the issued Secret lives in `cert-manager`
+# namespace. Consumer namespaces (auth, coder, syncthing, etc.) need
+# a copy. Two acceptable options, picked per service in Phase 3 PRs:
+#   1. Hand-copy via `kubectl get secret -o yaml | kubectl apply` —
+#      one-shot, drift-prone, fine for a one-off bring-up.
+#   2. Install a controller (e.g. emberstack/reflector) that mirrors
+#      annotated Secrets into matching namespaces. Worth doing once
+#      we have ≥ 3 services on HTTPS.
+#
+# Key algorithm: ECDSA P-256. Browser-trusted, ~10× smaller and
+# faster than RSA-2048, lower TLS handshake CPU on the Pi peers.
+# Duration / renewBefore: 90d / 30d — LE's max validity and a 30-day
+# buffer is plenty even if a DNS-01 challenge fails for a few days.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vigihome-tls
+  namespace: cert-manager
+spec:
+  secretName: vigihome-tls
+  duration: 2160h    # 90 days
+  renewBefore: 720h  # 30 days before expiry
+  issuerRef:
+    name: letsencrypt-staging
+    kind: ClusterIssuer
+  dnsNames:
+    - vigihome.net
+    - "*.vigihome.net"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

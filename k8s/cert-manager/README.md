@@ -87,7 +87,7 @@ to `letsencrypt-prod`.
    `The ACME account was registered with the ACME server`. Same for
    prod.
 
-## What success looks like
+## What success looks like (PR A)
 
 ```
 $ kubectl get clusterissuer
@@ -96,7 +96,58 @@ letsencrypt-staging   True    1m
 letsencrypt-prod      True    1m
 ```
 
-That's the end of PR A. PR B adds the wildcard Certificate.
+## Issuing the wildcard certificate (`certificate.yaml`)
+
+Once both ClusterIssuers report `Ready=True`, `certificate.yaml` asks
+cert-manager for a single wildcard cert covering `vigihome.net` +
+`*.vigihome.net`. **Apply it against `letsencrypt-staging` first**
+(the resource ships that way) and only flip to `letsencrypt-prod`
+once the staging issuance succeeds.
+
+1. **Apply against staging:**
+   ```sh
+   kubectl apply -f certificate.yaml
+   kubectl -n cert-manager describe certificate vigihome-tls
+   # Watch the Events stream; expect ~30–90s while DNS-01 propagates.
+   ```
+
+2. **Verify `Ready=True`:**
+   ```sh
+   kubectl -n cert-manager get certificate vigihome-tls
+   # NAME           READY   SECRET         AGE
+   # vigihome-tls   True    vigihome-tls   1m
+   ```
+
+3. **Inspect the cert chain** — the staging cert should be signed by
+   `(STAGING) Pretend Pear X1` / "Fake LE Root". This confirms the
+   flow but is **not** browser-trusted; do not configure any
+   real Ingress against it.
+   ```sh
+   kubectl -n cert-manager get secret vigihome-tls \
+     -o jsonpath='{.data.tls\.crt}' | base64 -d \
+     | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
+   ```
+   Expect:
+   - `subject = CN = vigihome.net`
+   - `issuer = ... O = (STAGING) Let's Encrypt, CN = (STAGING) Pretend Pear X1`
+   - `DNS:vigihome.net, DNS:*.vigihome.net` in the SAN extension.
+
+4. **Flip to production.** Edit `certificate.yaml`:
+   ```yaml
+   issuerRef:
+     name: letsencrypt-prod   # was: letsencrypt-staging
+   ```
+   Then `kubectl apply -f certificate.yaml`. cert-manager re-requests
+   immediately; the Secret rotates in-place when the new cert is
+   ready (usually under a minute).
+
+5. **Re-verify** with the same `openssl x509` block above. Issuer
+   should now read `O = Let's Encrypt, CN = R10` (or whatever LE's
+   current intermediate is). Subject and SANs unchanged.
+
+6. **Commit the issuer flip.** This is the only manifest edit that
+   needs to land back on `main` after the cert-flip exercise — open
+   a one-line PR.
 
 ## Day-to-day ops
 
