@@ -8,8 +8,33 @@ giving you one login instead of one per service.
 
 - `namespace.yaml` — `auth` namespace
 - `pv-pvc.yaml` — PV `authentik-postgres-data` → hostPath `/opt/authentik/postgres` (gandalf), matching PVC named for what the bitnami postgres StatefulSet expects (`data-authentik-postgresql-0`)
-- `values.yaml` — Helm values for `authentik/authentik`
+- `values.yaml` — Helm values for `authentik/authentik`. Includes the chart-managed Ingress at `http://authentik.home`.
+- `ingress-vigihome.yaml` — raw Ingress at `https://authentik.vigihome.net` (TLS via reflected `vigihome-tls`). Lives alongside the chart Ingress during the vigihome.net cutover; see [vigihome HTTPS cutover](#vigihome-https-cutover-in-progress) below.
 - `secret.example.yaml` — template documenting the keys required in the `authentik-secrets` Secret. Never apply this directly — the real Secret is created from out-of-repo material (see below).
+
+## vigihome HTTPS cutover (in progress)
+
+Three-PR sequence to move Authentik from `http://authentik.home` to
+`https://authentik.vigihome.net`. Coordinated with downstream OIDC
+clients because Authentik derives token issuer URLs from the request
+Host header — each client validates `iss` against exactly one URL, so
+the OIDC client and Authentik have to flip together.
+
+| PR | Scope | Effect |
+|----|-------|--------|
+| **D1 (this one)** | Add `ingress-vigihome.yaml` + reflect `vigihome-tls` into `auth` ns. | Both URLs work. Visiting `https://authentik.vigihome.net` issues tokens with `iss=https://authentik.vigihome.net/...`; visiting `http://authentik.home` issues `iss=http://authentik.home/...` tokens. OIDC clients still pinned to the old URL, unaffected. |
+| **D2** | `k8s/coder/values.yaml`: flip OIDC issuer URL to `https://authentik.vigihome.net/application/o/coder/`; helm-upgrade Coder. **Must be applied with Authentik already serving HTTPS.** Login flow tested end-to-end (incl. Bitwarden-backed local fallback). | Coder users authenticate via HTTPS Authentik. |
+| **D3** | `values.yaml`: `server.ingress.enabled: false` (drop the HTTP Ingress) + remove Pi-hole `authentik.home` local DNS record. | Only `https://authentik.vigihome.net` works. Cleanup. |
+
+**Before applying D1**: add Pi-hole local DNS record
+`authentik.vigihome.net → 192.168.50.135` via the Pi-hole admin UI
+(Settings → Local DNS Records). Reflector mirrors the cert in <5s
+after `cert-manager/certificate.yaml` is re-applied with the updated
+auto-namespaces list.
+
+**Don't apply D1 yet from the merged PR.** The PR is intentionally
+shipped DRAFT-only — the apply needs you at a real browser with
+Bitwarden local-fallback creds open in case anything misbehaves.
 
 ## ⚠️ SPOF discipline
 
