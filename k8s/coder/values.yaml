@@ -63,8 +63,13 @@ coder:
     # so you can fall back to the bootstrap owner account when
     # Authentik is down — Coder is downstream of Authentik in the SPOF
     # chain, keep the parachute.
+    # vigihome.net HTTPS cutover (D2): flipped from
+    # http://authentik.home/application/o/coder/ once Authentik began
+    # serving at https://authentik.vigihome.net (homelab PR #28 / D1).
+    # OIDC clients validate `iss` against one URL, so this must apply
+    # in the same coordinated session as D1.
     - name: CODER_OIDC_ISSUER_URL
-      value: http://authentik.home/application/o/coder/
+      value: https://authentik.vigihome.net/application/o/coder/
     - name: CODER_OIDC_CLIENT_ID
       valueFrom:
         secretKeyRef:
