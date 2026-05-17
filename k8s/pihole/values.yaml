@@ -46,13 +46,33 @@ extraEnvVars:
   FTLCONF_dns_listeningMode: "all"
   TZ: "America/New_York"
 
-# Ingress disabled — Pi-hole admin is served at https://pi-hole.vigihome.net
-# via the raw Ingress in k8s/pihole/ingress-vigihome.yaml. The legacy
-# http://pi.hole chart-managed Ingress was the original LAN-only path
-# (relied on Pi-hole's "pi.hole" magic name DNS quirk); now redundant
-# with the *.vigihome.net wildcard + browser-trusted TLS.
+# Pi-hole admin is served at https://pi-hole.vigihome.net. The chart's
+# Ingress is the canonical declaration — everything routing-related
+# lives in this values block. (The legacy http://pi.hole chart-managed
+# Ingress was the original LAN-only path, relying on Pi-hole's
+# "pi.hole" magic name DNS quirk; obsolete with the *.vigihome.net
+# wildcard + browser-trusted TLS.)
+#
+# The router.middlewares annotation references the Traefik Middleware
+# in k8s/pihole/middleware-root-redirect.yaml. Pi-hole's webserver
+# returns 403 at `/`; the middleware bounces visitors to `/admin/`.
 ingress:
-  enabled: false
+  enabled: true
+  ingressClassName: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: networking-pihole-root-redirect@kubernetescrd
+  path: /
+  pathType: Prefix
+  hosts:
+    - pi-hole.vigihome.net
+  tls:
+    - hosts:
+        - pi-hole.vigihome.net
+      # Reflected into the `networking` namespace by emberstack/reflector
+      # via cert-manager's secretTemplate annotations on
+      # k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
 
 # Local DNS records and dnsmasq directives both live in pihole.toml on
 # the PV. Both are managed via the Pi-hole admin UI and persist via the
