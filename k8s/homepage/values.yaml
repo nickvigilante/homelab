@@ -81,7 +81,7 @@ config:
             description: SSO / identity
             icon: authentik.png
         - Uptime Kuma:
-            href: http://uptime.home
+            href: https://uptime-kuma.vigihome.net
             description: Service health
             icon: uptime-kuma.png
     - Applications:
