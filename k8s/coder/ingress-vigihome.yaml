@@ -1,0 +1,42 @@
+# Additional Ingress for Coder over HTTPS at
+# https://coder.vigihome.net. Lives alongside the chart-managed
+# http://coder.home Ingress (which stays in place as a backwards-
+# compat path). Both URLs reach the same Coder server, but
+# CODER_ACCESS_URL is set to https://coder.vigihome.net (see
+# values.yaml) — that's the URL Coder uses for self-referential
+# links and the URL workspace agents connect back to.
+#
+# Workspace agent caveat: when CODER_ACCESS_URL changes, currently-
+# running workspace agents need a Coder server restart (they re-
+# connect on next heartbeat). Workspace pods stay up; only the
+# control-plane connection rolls.
+#
+# DNS prereq (manual, see commit body): Pi-hole local DNS record
+# `coder.vigihome.net → 192.168.50.135` via the admin UI before
+# applying.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: coder-vigihome
+  namespace: coder
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - coder.vigihome.net
+      # Reflected into `coder` via cert-manager's secretTemplate
+      # annotations on k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
+  rules:
+    - host: coder.vigihome.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: coder
+                port:
+                  number: 80

@@ -86,7 +86,7 @@ config:
             icon: uptime-kuma.png
     - Applications:
         - Coder:
-            href: http://coder.home
+            href: https://coder.vigihome.net
             description: Cloud dev environments
             icon: coder.png
         - Jellyfin:

@@ -41,8 +41,13 @@ coder:
 
     # The URL users hit to reach the Coder dashboard. Must match the
     # ingress host or workspace agents will fail to connect.
+    # vigihome cutover (2026-05-16): flipped from http://coder.home to
+    # https://coder.vigihome.net (PR #37). Workspace agents reconnect
+    # to this URL on next heartbeat after the coder server restarts.
+    # The chart's http://coder.home Ingress stays in place as a
+    # backwards-compat path for bookmarks; drop in a follow-up PR.
     - name: CODER_ACCESS_URL
-      value: http://coder.home
+      value: https://coder.vigihome.net
 
     # Wildcard subdomain for port-forwarding from workspaces (e.g.,
     # `8080--main--user.coder.home`). Disabled for now — enabling it
