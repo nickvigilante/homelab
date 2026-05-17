@@ -40,12 +40,11 @@ coder:
           key: pg-connection-url
 
     # The URL users hit to reach the Coder dashboard. Must match the
-    # ingress host or workspace agents will fail to connect.
-    # vigihome cutover (2026-05-16): flipped from http://coder.home to
-    # https://coder.vigihome.net (PR #37). Workspace agents reconnect
-    # to this URL on next heartbeat after the coder server restarts.
-    # The chart's http://coder.home Ingress stays in place as a
-    # backwards-compat path for bookmarks; drop in a follow-up PR.
+    # ingress host below or workspace agents will fail to connect.
+    # Workspace agents reconnect to this URL on next heartbeat after
+    # the coder server restarts, so changing it rolls the agents'
+    # control-plane connection (workspace pods themselves keep
+    # running).
     - name: CODER_ACCESS_URL
       value: https://coder.vigihome.net
 
@@ -100,9 +99,24 @@ coder:
   service:
     type: ClusterIP
 
+  # Chart-managed Ingress for https://coder.vigihome.net. Replaces the
+  # previous two-Ingress setup (chart at http://coder.home + raw
+  # ingress-vigihome.yaml at the HTTPS host); the raw file is dropped
+  # in the same PR as this change.
+  #
+  # Coder's chart uses singular `host` and a flat `tls.{enable,
+  # secretName}` shape — different from the hosts[]/tls[] convention
+  # the other charts use, but functionally equivalent for our single-
+  # host case.
   ingress:
     enable: true
     className: traefik
-    host: coder.home
+    host: coder.vigihome.net
     annotations:
-      traefik.ingress.kubernetes.io/router.entrypoints: web
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    tls:
+      enable: true
+      # Reflected into the `coder` namespace by emberstack/reflector
+      # via cert-manager's secretTemplate annotations on
+      # k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
