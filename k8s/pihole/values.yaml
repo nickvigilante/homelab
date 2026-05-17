@@ -57,9 +57,33 @@ ingress:
   hosts:
     - pi.hole
 
-# Pi-hole v6's FTL serves DNS records from pihole.toml's `dns.hosts` array
-# before dnsmasq's address= directives get a chance, so the chart's
-# customDnsEntries / additionalHostsEntries mechanism is effectively a no-op
-# for names FTL already has an opinion about (like the auto-generated pi.hole).
-# Records are managed via the web UI (Settings → Local DNS Records), which
-# persists to pihole.toml on the PV. Non-declarative but reliable on v6.
+# Local DNS records and dnsmasq directives both live in pihole.toml on
+# the PV. Both are managed via the Pi-hole admin UI and persist via the
+# nightly restic backup of the PV; a from-scratch rebuild from the repo
+# alone would not recover these. Two layers, used for different things:
+#
+# 1) Local DNS Records (Settings → Local DNS Records → Add)
+#    Used for one-off A records that don't fit a pattern, e.g. `pi.hole`
+#    (Pi-hole's own UI name). Stored in pihole.toml's `dns.hosts` array.
+#    Avoid for *.vigihome.net hostnames — use the wildcard below.
+#
+# 2) `misc.dnsmasq_lines` (Settings → All settings → Misc → dnsmasq_lines)
+#    Used for raw dnsmasq directives. The canonical wildcard for every
+#    homelab service is two lines (order matters for sequential
+#    clients — LAN first so on-LAN requests don't pay tailnet overhead):
+#
+#       address=/vigihome.net/192.168.50.135
+#       address=/vigihome.net/100.92.2.25
+#
+#    Returns both IPs in the DNS answer:
+#      - 192.168.50.135 → gandalf's LAN IP. Fast path for on-LAN clients
+#        (home Wi-Fi, gandalf itself, ethernet workstations).
+#      - 100.92.2.25 → gandalf's tailnet IP. Fallback for off-LAN tailnet
+#        clients (e.g. cellular MacBook) when no exit node is selected.
+#        Happy-eyeballs clients race both; sequential clients fall through
+#        when LAN times out.
+#
+#    With the wildcard in place, NEW *.vigihome.net hostnames need no
+#    Pi-hole config edit — they resolve automatically. The chart's
+#    customDnsEntries / additionalHostsEntries are still no-ops for
+#    names FTL has an opinion about (pi.hole, etc.).
