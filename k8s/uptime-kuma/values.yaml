@@ -34,17 +34,31 @@ podEnv:
   - name: UPTIME_KUMA_BEHIND_PROXY
     value: "1"
 
+# Chart-managed Ingress for https://uptime-kuma.vigihome.net. Replaces
+# the previous setup which had two Ingresses side by side: this chart
+# Ingress at http://uptime.home plus a raw `ingress-vigihome.yaml` at
+# the new HTTPS host. The chart now owns the vigihome host directly
+# and the raw file is dropped in this PR.
+#
+# The chart merges its default nginx-targeted annotations with these;
+# Traefik silently ignores the nginx ones, so the only annotation that
+# actually changes behavior is the entrypoint pin to `websecure`.
+# Kuma's UI uses Socket.IO — Traefik passes the WebSocket upgrade
+# through transparently, no middleware needed.
 ingress:
   enabled: true
   className: traefik
-  # Chart's default ingress annotations target nginx and break Traefik
-  # parsing. Replace with the Traefik entrypoint + websocket middleware
-  # (Kuma's UI uses Socket.IO; Traefik handles upgrade headers fine but
-  # the entrypoint must be explicit).
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
   hosts:
-    - host: uptime.home
+    - host: uptime-kuma.vigihome.net
       paths:
         - path: /
           pathType: Prefix
+  tls:
+    - hosts:
+        - uptime-kuma.vigihome.net
+      # Reflected into the `monitoring` namespace by emberstack/reflector
+      # via cert-manager's secretTemplate annotations on
+      # k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls

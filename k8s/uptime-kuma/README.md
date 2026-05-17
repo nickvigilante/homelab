@@ -22,13 +22,13 @@ helm install uptime-kuma uptime-kuma/uptime-kuma \
   -n monitoring --version 4.1.0 -f values.yaml
 ```
 
-Then add `192.168.50.135 uptime.home` (LAN) and/or `100.92.2.25 uptime.home`
-(Tailscale) to Pi-hole's `dns.hosts` in `/opt/pihole/etc-pihole/pihole.toml`
-and restart the Pi-hole deployment so it picks up the new record.
+No Pi-hole DNS edits needed — `uptime-kuma.vigihome.net` is resolved by
+the wildcard `address=/vigihome.net/...` directive in Pi-hole's
+`misc.dnsmasq_lines` (see `k8s/pihole/values.yaml`).
 
 ## First-run setup
 
-Open http://uptime.home/ — Uptime Kuma will prompt for:
+Open https://uptime-kuma.vigihome.net/ — Uptime Kuma will prompt for:
 
 1. **Database type:** pick **SQLite**. Embedded MariaDB exists for users who
    outgrow SQLite; you're not anywhere near that with a handful of monitors,
