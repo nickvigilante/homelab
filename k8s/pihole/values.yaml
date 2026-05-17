@@ -46,16 +46,13 @@ extraEnvVars:
   FTLCONF_dns_listeningMode: "all"
   TZ: "America/New_York"
 
-# Ingress at pi.hole — Traefik serves both http and https (default cert on 443).
+# Ingress disabled — Pi-hole admin is served at https://pi-hole.vigihome.net
+# via the raw Ingress in k8s/pihole/ingress-vigihome.yaml. The legacy
+# http://pi.hole chart-managed Ingress was the original LAN-only path
+# (relied on Pi-hole's "pi.hole" magic name DNS quirk); now redundant
+# with the *.vigihome.net wildcard + browser-trusted TLS.
 ingress:
-  enabled: true
-  ingressClassName: traefik
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-  path: /
-  pathType: Prefix
-  hosts:
-    - pi.hole
+  enabled: false
 
 # Local DNS records and dnsmasq directives both live in pihole.toml on
 # the PV. Both are managed via the Pi-hole admin UI and persist via the
