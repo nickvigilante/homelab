@@ -67,11 +67,15 @@ spec:
               value: "1000"
             - name: PGID
               value: "1000"
-            # Make the GUI listen on all interfaces. Without this the
-            # default is 127.0.0.1:8384 and the in-cluster Service
-            # can't reach it.
-            - name: STGUIADDRESS
-              value: "0.0.0.0:8384"
+            # GUI bind address is set in Syncthing's config.xml on the PV
+            # (already `<address>0.0.0.0:8384</address>` from initial
+            # bootstrap), so the in-cluster Service reaches it just fine.
+            # NOT also setting it via STGUIADDRESS env var here — when
+            # that env var is present, Syncthing treats GUI config as
+            # "overridden by startup options" and refuses to apply GUI-
+            # side edits (including setting the admin password — the
+            # specific bug that surfaced when migrating to HTTPS).
+            #
             # Quiet the home-screen telemetry. Set to "true" later if
             # you want to opt in.
             - name: STNOUPGRADE
