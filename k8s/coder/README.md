@@ -60,15 +60,9 @@ workspace).
    kubectl apply -f namespace.yaml -f pv-pvc.yaml
    ```
 
-3. **Add `coder.home` to Pi-hole.** Append to `dns.hosts` in
-   `/opt/pihole/etc-pihole/pihole.toml`:
-
-   ```toml
-   "192.168.50.135 coder.home",
-   "100.92.2.25 coder.home"
-   ```
-
-   Then `kubectl -n networking rollout restart deployment/pihole`.
+3. **No Pi-hole DNS edits needed.** `coder.vigihome.net` is resolved
+   by the wildcard `address=/vigihome.net/...` directive in Pi-hole's
+   `misc.dnsmasq_lines` (see `k8s/pihole/values.yaml`).
 
 4. **Create the Authentik OIDC provider.** In the Authentik UI:
 
@@ -77,7 +71,7 @@ workspace).
      - Authorization flow: `default-provider-authorization-explicit-consent`
      - Client type: Confidential
      - Redirect URIs:
-       - `http://coder.home/api/v2/users/oidc/callback`
+       - `https://coder.vigihome.net/api/v2/users/oidc/callback`
      - Signing key: leave default
    - Copy the **Client ID** and **Client Secret** into the Bitwarden
      item from step 1.
@@ -85,7 +79,7 @@ workspace).
      - Name: `Coder`
      - Slug: `coder` (must match the issuer URL in values.yaml)
      - Provider: `coder`
-     - Launch URL: `http://coder.home`
+     - Launch URL: `https://coder.vigihome.net`
 
 5. **Create the Secret.** With Bitwarden CLI session active:
 
