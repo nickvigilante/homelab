@@ -45,9 +45,9 @@ all:
           ansible_host: 192.168.50.12
           # Running Ubuntu Server 26.04 LTS ARM64 — needs sudo-rs override.
           ansible_become_exe: /usr/bin/sudo.ws
-        # frodo:                           # Pi 5, Ubuntu Server 26.04 ARM64
-        #   ansible_host: 192.168.50.11
-        #   ansible_become_exe: /usr/bin/sudo.ws
+        frodo:                           # Pi 5, Ubuntu Server 26.04 ARM64
+          ansible_host: 192.168.50.11
+          ansible_become_exe: /usr/bin/sudo.ws
         # merry:                           # next Pi 4B
         #   ansible_host: 192.168.50.13
         #   ansible_become_exe: /usr/bin/sudo.ws
