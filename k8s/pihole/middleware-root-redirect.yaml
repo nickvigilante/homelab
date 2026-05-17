@@ -1,0 +1,31 @@
+# Traefik Middleware that redirects requests to the Pi-hole root path
+# (`/`) up to the admin dashboard (`/admin/`). Pi-hole's webserver
+# returns a bare `403 Forbidden` at `/` by design — the dashboard
+# lives at `/admin/`. Without this middleware, typing
+# `pi-hole.vigihome.net` into a browser greets visitors with a 403
+# instead of the dashboard, which is confusing every single time.
+#
+# Why redirectRegex and not redirectScheme: redirectScheme only swaps
+# the scheme/host; redirectRegex is the only built-in middleware that
+# rewrites the path. The trailing-slash optional match (`/?`) catches
+# both `https://pi-hole.vigihome.net` and `https://pi-hole.vigihome.net/`.
+#
+# Why `permanent: false` (302): so we keep the option to change this
+# behavior later without browsers having cached a 301 forever.
+#
+# Referenced from the chart-managed Ingress (k8s/pihole/values.yaml)
+# via the annotation
+#   traefik.ingress.kubernetes.io/router.middlewares: networking-pihole-root-redirect@kubernetescrd
+# The `<namespace>-<name>@kubernetescrd` form is how Traefik names
+# CRD-defined middlewares — see Traefik docs on the KubernetesIngress
+# provider for the full syntax.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: pihole-root-redirect
+  namespace: networking
+spec:
+  redirectRegex:
+    regex: ^https://pi-hole\.vigihome\.net/?$
+    replacement: https://pi-hole.vigihome.net/admin/
+    permanent: false
