@@ -1,0 +1,41 @@
+# Additional Ingress for Syncthing's GUI over HTTPS at
+# https://syncthing.vigihome.net. Lives alongside the raw HTTP
+# Ingress at http://syncthing.home (defined inline in
+# deployment.yaml's manifest set). Both URLs work.
+#
+# No OIDC coordination — Syncthing's GUI auth is set in its own
+# config.xml (managed via the GUI on first launch; admin creds in
+# Bitwarden item `Homelab Syncthing`).
+#
+# DNS prereq (manual, see commit body): Pi-hole local DNS record
+# `syncthing.vigihome.net → 192.168.50.135` via the admin UI before
+# applying.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: syncthing-vigihome
+  namespace: syncthing
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - syncthing.vigihome.net
+      # Reflected into the `syncthing` namespace via cert-manager's
+      # secretTemplate annotations on k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
+  rules:
+    - host: syncthing.vigihome.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              # ClusterIP Service defined in deployment.yaml. Traefik
+              # terminates TLS on websecure (443) and proxies plain
+              # HTTP to syncthing-web:8384 in-cluster.
+              service:
+                name: syncthing-web
+                port:
+                  number: 8384
