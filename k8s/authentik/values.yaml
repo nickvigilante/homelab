@@ -55,12 +55,27 @@ authentik:
 
 server:
   replicas: 1
-  # Ingress is owned by ingress-vigihome.yaml, not the chart.
-  # The legacy http://authentik.home Ingress was dropped after D2
-  # (Coder OIDC cutover) verified that authentik.vigihome.net is
-  # serving everything users + downstream OIDC clients need.
+  # Ingress for https://authentik.vigihome.net. Chart-managed — the rest
+  # of the Authentik config already lives in this values block, so the
+  # Ingress belongs here too. The legacy http://authentik.home Ingress
+  # was dropped earlier (after Coder's OIDC issuer was flipped); now
+  # the chart owns the new vigihome host directly. iss claims keep
+  # validating against authentik.vigihome.net (same hostname as the
+  # raw Ingress this replaces, so no downstream OIDC fallout).
   ingress:
-    enabled: false
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hosts:
+      - authentik.vigihome.net
+    tls:
+      - hosts:
+          - authentik.vigihome.net
+        # Reflected into the `auth` namespace by emberstack/reflector
+        # via cert-manager's secretTemplate annotations on
+        # k8s/cert-manager/certificate.yaml.
+        secretName: vigihome-tls
 
 worker:
   replicas: 1
