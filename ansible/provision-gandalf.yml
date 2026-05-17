@@ -79,6 +79,22 @@
         mode: "0644"
       notify: Reload sshd
 
+    # ---- IP forwarding (IPv4 + IPv6) ------------------------------------
+    #
+    # Required for gandalf's Tailscale exit-node role and future
+    # subnet-routing. IPv4 forwarding was already on (likely set by
+    # k3s install path); IPv6 was off and triggered Tailscale's admin-UI
+    # "IP forwarding disabled" warning on the route-settings modal.
+    # See system/99-ip-forwarding.conf for the actual values.
+    - name: Install IP forwarding sysctl drop-in
+      ansible.builtin.copy:
+        src: ../system/99-ip-forwarding.conf
+        dest: /etc/sysctl.d/99-ip-forwarding.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sysctl
+
     # ---- k3s secrets encryption at rest ---------------------------------
     #
     # k3s stores Secrets in its embedded SQLite. By default they sit in
@@ -140,3 +156,7 @@
       ansible.builtin.systemd:
         name: ssh
         state: reloaded
+
+    - name: Reload sysctl
+      ansible.builtin.command: sysctl --system
+      changed_when: false
