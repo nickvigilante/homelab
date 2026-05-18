@@ -95,6 +95,27 @@
         mode: "0644"
       notify: Reload sysctl
 
+    # ---- Traefik externalTrafficPolicy: Local ---------------------------
+    #
+    # k3s ships Traefik as a LoadBalancer Service with the default
+    # externalTrafficPolicy: Cluster, which makes kube-proxy SNAT incoming
+    # connections to the CNI bridge IP (10.42.0.1). That destroys the real
+    # client IP before Traefik can read it, which in turn poisons
+    # X-Forwarded-For for every service behind Traefik — breaking IP-based
+    # auth policies (e.g. Authentik reputation tracking), forensic audit
+    # logs, and any future geolocation rules.
+    #
+    # Override via a HelmChartConfig in the k3s manifests dir; k3s's
+    # HelmChart controller picks it up and re-renders the bundled chart
+    # with the new values. See system/traefik-helmchartconfig.yaml.
+    - name: Install Traefik HelmChartConfig override (externalTrafficPolicy)
+      ansible.builtin.copy:
+        src: ../system/traefik-helmchartconfig.yaml
+        dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
+        owner: root
+        group: root
+        mode: "0644"
+
     # ---- k3s secrets encryption at rest ---------------------------------
     #
     # k3s stores Secrets in its embedded SQLite. By default they sit in

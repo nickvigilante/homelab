@@ -1,0 +1,29 @@
+# Override for k3s's bundled Traefik chart. Deployed by Ansible to
+# /var/lib/rancher/k3s/server/manifests/traefik-config.yaml; k3s's
+# HelmChart controller reads anything in that dir and merges it onto
+# the default chart values, then re-renders the release.
+#
+# Why externalTrafficPolicy: Local — the LoadBalancer Service's
+# default (Cluster) makes kube-proxy SNAT incoming connections to
+# the CNI bridge IP (10.42.0.1) before they reach Traefik. Traefik
+# then writes that bogus source into X-Forwarded-For, destroying
+# the real client IP for every service behind it. Local preserves
+# source IPs end-to-end at the cost of only routing to pods on the
+# node that received the connection — fine for this cluster, where
+# Traefik runs as a Deployment that defaults to one replica per node
+# via the k3s chart's daemonset-like scheduling.
+#
+# Multi-node note: if the cluster ever scales to more nodes and
+# Traefik isn't running on each one, traffic arriving at a
+# Traefik-less node would be dropped. The k3s default DaemonSet-
+# style deployment of Traefik avoids this; check before scaling.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      spec:
+        externalTrafficPolicy: Local
