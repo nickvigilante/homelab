@@ -24,13 +24,32 @@ Each service under `k8s/<service>/` follows the same layout:
 |------|---------|
 | `namespace.yaml` | The k8s Namespace |
 | `pv-pvc.yaml` | Pre-created PV (hostPath, gandalf-pinned) + PVC for any persistent data the chart can't manage with its own dynamic provisioning |
-| `values.yaml` | Helm values, or raw manifests when a chart doesn't fit |
+| `values.yaml` | Helm values (when chart-managed) — Ingress lives inside the chart's `ingress` key, not as a separate file |
+| `deployment.yaml` | Raw `Deployment` + `Service` (when raw-managed) |
 | `secret.example.yaml` | **Template only** — documents which keys must live in the real Secret. Never applied; the real Secret is created via `kubectl create secret generic` sourced from a Bitwarden item |
-| `ingress-vigihome.yaml` | Raw Ingress at `https://<service>.vigihome.net` once the service migrates onto HTTPS. See "TLS / HTTPS" below. |
+| `ingress-vigihome.yaml` | Raw `Ingress` at `https://<service>.vigihome.net`, **only for raw-managed services** (chart-managed services keep the Ingress in `values.yaml`). See `k8s/syncthing/` for the canonical example. |
 | `README.md` | One-time setup runbook + day-to-day ops notes |
 
 When adding a new service, mirror this layout. See `k8s/authentik/`
-and `k8s/coder/` for the most complete examples.
+and `k8s/coder/` for chart-managed examples; `k8s/syncthing/` for the
+single raw-managed exception.
+
+### Chart vs raw: which to pick
+
+**Chart-first when an official or widely-used chart exists.** Raw
+manifests when only community-maintained charts exist *and* the app
+is a single Deployment.
+
+Reasoning: the consistency win from chart-managed services
+(uniform `helm upgrade` ergonomics, uniform Ingress placement in
+`values.yaml`, atomic rollback) is worth a lot in a one-operator
+repo. Community charts for single-Deployment apps add abstraction
+that costs more than it saves — overriding chart defaults (e.g.
+NodePort vs `hostNetwork` conflicts on the Syncthing chart),
+managing chart-version drift, and "fighting the chart" when its
+opinions misalign. Reference precedent: Syncthing kept raw
+(2026-05-17) because only community charts exist and it's one
+Deployment.
 
 ## TLS / HTTPS — the `*.vigihome.net` stack
 
@@ -57,28 +76,55 @@ and copies the Secret into every namespace listed in
    `k8s/cert-manager/certificate.yaml` (comma-separated). `kubectl
    apply` it. Reflector mirrors `vigihome-tls` into the namespace in
    < 5s.
-2. Add `k8s/<service>/ingress-vigihome.yaml` — a raw `Ingress` at
-   `<service>.vigihome.net` with `traefik.ingress.kubernetes.io/router.entrypoints: websecure`
-   and `tls.secretName: vigihome-tls`. See `k8s/authentik/ingress-vigihome.yaml`
-   for the canonical example.
-3. Add the Pi-hole local DNS record `<service>.vigihome.net →
-   192.168.50.135` via the Pi-hole admin UI (Settings → Local DNS
-   Records). v6 manages local records in `pihole.toml`
-   non-declaratively.
-4. Test in a real browser. Expect a trusted cert from
+2. **Chart-managed service:** modify `values.yaml`'s `ingress` block
+   to set the vigihome host with
+   `traefik.ingress.kubernetes.io/router.entrypoints: websecure` and
+   `tls.secretName: vigihome-tls`. Each chart's Ingress shape varies
+   slightly — singular `host` (Coder) vs `hosts[]` (Authentik,
+   Uptime Kuma, Jellyfin), flat `tls.{enable, secretName}` (Coder)
+   vs `tls[].{hosts, secretName}` (others). Render with `helm
+   template ... --show-only templates/ingress.yaml` before applying
+   to verify the chart consumes the values as expected.
+   **Raw-managed service:** add `k8s/<service>/ingress-vigihome.yaml`
+   with the same Traefik annotation + TLS block. See
+   `k8s/syncthing/ingress-vigihome.yaml` for the canonical example.
+3. DNS: nothing per-service. Pi-hole's
+   `address=/vigihome.net/192.168.50.135` and
+   `address=/vigihome.net/100.92.2.25` wildcard directives in
+   `dns.dnsmasq_lines` (managed via the Pi-hole admin UI, see
+   `k8s/pihole/values.yaml`'s big DNS comment) resolve any new
+   `*.vigihome.net` host to gandalf automatically on both LAN and
+   tailnet.
+4. Apply: `helm upgrade` for chart-managed, `kubectl apply -f
+   ingress-vigihome.yaml` for raw. For chart-managed services that
+   previously had both a raw `ingress-vigihome.yaml` *and* a chart
+   Ingress on the legacy `*.home` host, the chart's Ingress takes
+   over the vigihome host on `helm upgrade`; the orphaned raw
+   resource needs `kubectl delete ingress <name>` afterward.
+5. Test in a real browser. Expect a trusted cert from
    `O=Let's Encrypt, CN=E7` (ECDSA intermediate).
-5. After the service is verified working over HTTPS, drop the chart's
-   legacy HTTP Ingress + matching `*.home` Pi-hole record in a
-   follow-up PR.
+6. If any legacy Pi-hole local DNS record (`<service>.home`) is left
+   over, retire it via the Pi-hole admin UI.
 
 **OIDC clients gotcha:** Authentik derives token `iss` claims from
 the request `Host` header — not a single configured external URL.
-When migrating Authentik to its new HTTPS host, every OIDC client
-(Coder today; future Jellyfin) must update its issuer URL in
-lockstep. The Authentik cutover therefore lands as a 3-PR sequence:
-D1 (add HTTPS Ingress) → D2 (flip each client's `OIDC_ISSUER_URL`)
-→ D3 (drop chart's HTTP Ingress + Pi-hole record). Don't merge them
-out of order. See PRs #28 / #30 / #31 for the template.
+When migrating Authentik to a new HTTPS host, every OIDC client
+must update its issuer URL in lockstep. The original Authentik
+cutover landed as a 3-PR sequence (D1: add HTTPS Ingress → D2: flip
+each client's `OIDC_ISSUER_URL` → D3: drop legacy HTTP Ingress; PRs
+#28 / #30 / #31). Subsequent client migrations to the chart's
+`values.yaml` Ingress (Coder #46, etc.) didn't trigger the same
+`iss` flip because the *Authentik* host stayed put — only the
+client's own external URL changed. Two related but distinct
+gotchas to remember:
+
+- **Authentik `iss` flip:** every downstream OIDC client must
+  bounce when Authentik's external host changes.
+- **OIDC redirect URI allowlist:** when a *client*'s external URL
+  changes (e.g. Coder → `coder.vigihome.net`), Authentik's provider
+  redirect URI list must include the new callback URL **byte-for-
+  byte**. Strict mode rejects `http` vs `https` and trailing-slash
+  mismatches.
 
 **Lint:** the kubeconform CI filter at `.github/workflows/lint.yml`
 covers `namespace.yaml`, `pv-pvc.yaml`, `secret.example.yaml`,
@@ -106,32 +152,44 @@ it silently bypass validation.
 
 ## DNS pattern (recurring gotcha)
 
-Pi-hole serves custom records to the LAN and tailnet in two
-hostname namespaces today, mid-migration:
+Pi-hole serves custom records to the LAN and tailnet via two
+mechanisms in `/opt/pihole/etc-pihole/pihole.toml` (managed by the
+Pi-hole admin UI, persisted on the PV, captured by the nightly
+restic backup — but **not** in this repo):
 
-- `*.vigihome.net` — the new target. Browser-trusted HTTPS, single
-  wildcard cert (see "TLS / HTTPS" above). Live as of 2026-05-16 for
-  `vigihome.net` (Homepage) and `authentik.vigihome.net`. Each Phase
-  3 PR adds another service.
-- `*.home` (`jellyfin.home`, `uptime.home`, `coder.home`, etc.) —
-  legacy plain-HTTP names. Stay live for services not yet cut over;
-  retire each one in a tiny PR after its `*.vigihome.net` Ingress is
-  verified.
+- **`misc.dnsmasq_lines` wildcard** — the canonical source of
+  truth for `*.vigihome.net`. Two lines (order matters for
+  sequential resolvers; LAN first so on-LAN clients don't pay
+  tailnet overhead):
 
-**CoreDNS inside the cluster does not see these records** — it uses
-upstream DNS but is configured separately.
+  ```
+  address=/vigihome.net/192.168.50.135
+  address=/vigihome.net/100.92.2.25
+  ```
 
-So: inside a pod, `*.home` hostnames will NXDOMAIN. Always use
-cluster-internal service DNS for pod-to-pod traffic:
+  Any new `*.vigihome.net` host resolves automatically — no
+  per-service record needed. See `k8s/pihole/values.yaml`'s big
+  DNS comment for the full rationale.
+
+- **`dns.hosts` per-record list** — for one-off A records that
+  don't fit a pattern (e.g. `pi.hole` itself, hardware on the LAN
+  without its own DNS like a printer or NAS). Avoid for
+  `*.vigihome.net` hosts — the wildcard above covers those.
+
+The legacy `*.home` namespace (`jellyfin.home`, `uptime.home`,
+`coder.home`, etc.) has been **fully retired**. Any leftover
+`dns.hosts` entries for `*.home` are dead and can be cleaned up.
+
+**CoreDNS inside the cluster does not see Pi-hole's records** — it
+uses upstream DNS but is configured separately. So inside a pod,
+`*.vigihome.net` hostnames may NXDOMAIN or resolve to gandalf's
+external IPs (defeating the purpose). Always use cluster-internal
+service DNS for pod-to-pod traffic:
 `<svc>.<namespace>.svc.cluster.local`. Examples:
 
 - `jellyfin.media.svc.cluster.local:8096`
 - `pihole-web.networking.svc.cluster.local`
 - `uptime-kuma.monitoring.svc.cluster.local:3001`
-
-Custom DNS records for the host network live in
-`/opt/pihole/etc-pihole/pihole.toml` under `dns.hosts`. Editing them
-requires a Pi-hole pod rollout to pick up.
 
 ## Backup wiring
 
