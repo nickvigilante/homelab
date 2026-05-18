@@ -140,6 +140,50 @@ helm -n auth upgrade authentik authentik/authentik -f values.yaml
 kubectl -n auth rollout status deployment/authentik-server
 ```
 
+### Rotating the OIDC signing certificate
+
+Authentik signs every OIDC token (id_token, access_token) with a single keypair stored in its DB. The default `authentik Self-signed Certificate` ships with each install and has a 365-day expiry; rotation is **manual on cadence, automated in execution** via two scripts in `scripts/`.
+
+**Annual rotation** (one command, scales to N providers):
+
+```bash
+# On laptop or gandalf:
+./scripts/rotate-authentik-signing-cert.sh
+```
+
+What it does:
+
+1. Reads the admin API token from `auth/authentik-secrets`.
+2. Generates a new signing keypair via Authentik's API (default: ECDSA P-256, 365d validity, name `authentik-signing-YYYYMMDD`).
+3. Auto-discovers every OAuth2/OIDC provider and PATCHes each `signing_key` to the new keypair.
+4. Restarts `authentik-server` for a clean JWKS cache.
+5. Verifies every Application's JWKS endpoint serves the new key's `kid`.
+6. Optionally emails a run summary (if SMTP_* env vars are set — wire from the Forward Email creds in Bitwarden `Homelab Mail Relay`).
+
+Flags:
+
+- `--key-type=ecdsa` (default) or `rsa`
+- `--name=NAME` to override the auto-datestamped cert name
+- `--dry-run` to print the plan without changes
+- `--quiet` to suppress per-step output
+
+**Real-world friction:** in-flight access tokens signed by the old key become unverifiable on the downstream client's next JWKS refresh. Active sessions get a brief "sign in again" prompt within the next ~5 minutes. Pick a quiet hour to run.
+
+**Cleanup, 30+ days later:**
+
+```bash
+# On laptop or gandalf:
+./scripts/cleanup-old-authentik-signing-certs.sh           # default retention: 30 days
+./scripts/cleanup-old-authentik-signing-certs.sh --days=14 # custom
+./scripts/cleanup-old-authentik-signing-certs.sh --dry-run # preview
+```
+
+Deletes any keypair whose `name` matches `authentik-signing-*` AND is older than the retention window AND is not currently referenced by any provider's `signing_key`. Idempotent and safe — bails on anything still in use.
+
+**Defense in depth — JWKS health monitor:**
+
+In Uptime Kuma, add one HTTP monitor per OIDC application that hits `https://authentik.vigihome.net/application/o/<slug>/.well-known/openid-configuration` every 5 minutes and asserts HTTP 200. Catches silent post-rotation breakage (e.g., a downstream client caching JWKS too aggressively) that the rotation script's own verify step would miss. Setup via the Uptime Kuma UI; reproducible-config tooling for Uptime Kuma is a separate follow-up.
+
 ### Postgres backup / restore
 
 The postgres data dir at `/opt/authentik/postgres` is captured by the
