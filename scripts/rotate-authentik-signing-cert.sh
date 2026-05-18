@@ -186,8 +186,10 @@ GENERATE_BODY=$(jq -n \
     '{common_name: $name, subject_alt_name: "", validity_days: 365, alg: $alg}')
 NEW_CERT=$(api POST "/crypto/certificatekeypairs/generate/" "$GENERATE_BODY")
 NEW_CERT_PK=$(echo "$NEW_CERT" | jq -r '.pk')
-[ -n "$NEW_CERT_PK" ] && [ "$NEW_CERT_PK" != "null" ] || \
-    { err "Failed to generate cert: $NEW_CERT"; exit 6; }
+if [ -z "$NEW_CERT_PK" ] || [ "$NEW_CERT_PK" = "null" ]; then
+    err "Failed to generate cert: $NEW_CERT"
+    exit 6
+fi
 say "  New cert pk=$NEW_CERT_PK"
 
 # ─────────────────────────── swap signing_key ──────────────────────────────
