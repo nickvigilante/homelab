@@ -39,7 +39,7 @@ Required fields:
 
 | Field | Value |
 |-------|-------|
-| `gui-admin-password` | Strong password, used for the web UI at `http://syncthing.home`. Set this in step 6 — no Secret/Secret-from-env wiring on the cluster side, Syncthing stores its own GUI auth in `config/config.xml`. |
+| `gui-admin-password` | Strong password, used for the web UI at `https://syncthing.vigihome.net`. Set this in step 5 — no Secret/Secret-from-env wiring on the cluster side, Syncthing stores its own GUI auth in `config/config.xml`. |
 
 (Optional: stash the pod's eventual device ID here too after step 5
 for reference — peers will need it.)
@@ -80,20 +80,12 @@ ls -la ~/syncthing-pi42-recovery/   # only Syncthing internals left
 rm -rf ~/syncthing-pi42-recovery/
 ```
 
-### 4. Add the Pi-hole DNS record
+### 4. DNS (no action needed)
 
-Pi-hole serves `*.home` records to the LAN and tailnet via
-`/opt/pihole/etc-pihole/pihole.toml` (the `dns.hosts` array). Add:
-
-```
-192.168.50.135 syncthing.home
-```
-
-Either edit the toml directly and `kubectl -n networking rollout
-restart deploy/pihole`, or use the Pi-hole web UI → Settings → All
-Settings → DNS → Hosts. (Inside the cluster, the CoreDNS stub zone
-added in PR #18 forwards `*.home` lookups to Pi-hole's cluster
-service — no per-pod hostAliases needed.)
+`syncthing.vigihome.net` is resolved by Pi-hole's
+`address=/vigihome.net/...` wildcard in `misc.dnsmasq_lines` (see
+`k8s/pihole/values.yaml`) — both LAN and tailnet. No per-service
+record to add.
 
 ## Apply
 
@@ -102,6 +94,7 @@ cd ~/git/nickvigilante/homelab/k8s/syncthing
 kubectl apply -f namespace.yaml
 kubectl apply -f pv-pvc.yaml
 kubectl apply -f deployment.yaml
+kubectl apply -f ingress-vigihome.yaml
 
 # Watch the pod come up — first start with 180 GB to scan takes a
 # few minutes (Syncthing builds its index by walking the files).
@@ -122,9 +115,9 @@ effect on the next 03:00 schedule. To test sooner, see step 9.)
 
 ### 5. Open the web UI and capture the device ID
 
-Browse to `http://syncthing.home`. On first launch, Syncthing prompts
-you to set a GUI admin user/password — use `Homelab Syncthing` from
-Bitwarden. (Decline the anonymous-usage-report dialog; we're
+Browse to `https://syncthing.vigihome.net`. On first launch, Syncthing
+prompts you to set a GUI admin user/password — use `Homelab Syncthing`
+from Bitwarden. (Decline the anonymous-usage-report dialog; we're
 self-hosting on purpose.)
 
 Note the **Device ID** shown at the top of the UI — it's a long
@@ -244,14 +237,16 @@ restic restore <snapshot-id> --target /restore \
 
 - **GUI defaults to HTTPS with a self-signed cert.** Some images
   ignore `STGUIADDRESS=0.0.0.0:8384` and still flip on TLS internally,
-  which then mismatches with Traefik's plain HTTP route. If
-  `http://syncthing.home` returns 502 or "protocol error," shell into
-  the pod and edit `config/config.xml`: under `<gui ...>` change
-  `tls="true"` to `tls="false"`, then `kubectl -n syncthing rollout
-  restart deploy/syncthing`. Or add the
+  which then mismatches with Traefik's plain HTTP upstream route. If
+  `https://syncthing.vigihome.net` returns 502 or "protocol error,"
+  shell into the pod and edit `config/config.xml`: under `<gui ...>`
+  change `tls="true"` to `tls="false"`, then `kubectl -n syncthing
+  rollout restart deploy/syncthing`. Or add the
   `traefik.ingress.kubernetes.io/service.serverstransport:
   insecureskipverify@file` annotation to the Ingress and let Traefik
-  skip cert verification on the upstream.
+  skip cert verification on the upstream (Traefik still terminates
+  the public TLS with the wildcard vigihome cert; this only affects
+  the in-cluster hop).
 
 - **`hostNetwork: true` means port collisions are fatal.** Anything
   else on gandalf binding 22000, 21027, or 8384 will block the pod

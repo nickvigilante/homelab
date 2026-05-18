@@ -1,6 +1,12 @@
-# Syncthing deployment + Service + Ingress. Raw manifests (no Helm
-# chart — Syncthing is one Deployment, the available community charts
-# add abstraction without saving complexity).
+# Syncthing Deployment + Service. Raw manifests (no Helm chart —
+# only community charts exist for Syncthing, and the app is just a
+# single Deployment; raw stays simpler than fighting community-chart
+# defaults like NodePort vs hostNetwork conflicts).
+#
+# The HTTPS Ingress at https://syncthing.vigihome.net is defined
+# separately in ingress-vigihome.yaml — the legacy inline Ingress at
+# http://syncthing.home was retired along with the rest of the *.home
+# stack.
 #
 # Topology:
 #   - Pod runs with hostNetwork: true so the peer-protocol ports
@@ -10,10 +16,12 @@
 #     (gandalf.tail395fc0.ts.net) on those same ports — no NodePort
 #     translation gymnastics. Pi-hole uses the same pattern for its
 #     port-53 binding.
-#   - The web UI (port 8384) is the one thing routed via cluster:
-#     ClusterIP service + Traefik ingress at syncthing.home. STGUIADDRESS
-#     forces the GUI to listen on 0.0.0.0 (default is 127.0.0.1) so
-#     the in-cluster Service can reach it.
+#   - The web UI (port 8384) is exposed via the ClusterIP Service
+#     below and fronted by the vigihome Ingress. The GUI bind address
+#     is set in Syncthing's own config.xml on the PV (already
+#     `<address>0.0.0.0:8384</address>` from initial bootstrap), so
+#     the Service reaches it; see the STGUIADDRESS comment in env
+#     for why it's not set there.
 #   - dnsPolicy: ClusterFirstWithHostNet pairs with hostNetwork so
 #     the pod can still resolve cluster-internal names if it ever
 #     needs to (it doesn't today, but it's the correct pairing).
@@ -23,7 +31,7 @@
 # 100m CPU is comfortable headroom.
 #
 # Image tag is intentionally `latest`. Pin to a specific version (e.g.
-# `1.30.0`) before first apply via the README's pinning step — `latest`
+# `2.1.0`) before first apply via the README's pinning step — `latest`
 # is fine for a one-time deploy but a moving target for re-applies.
 # Bumps should go through this manifest, not Watchtower-style auto-pulls.
 apiVersion: apps/v1
@@ -142,24 +150,3 @@ spec:
       port: 8384
       targetPort: 8384
       protocol: TCP
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: syncthing-web
-  namespace: syncthing
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: syncthing.home
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: syncthing-web
-                port:
-                  number: 8384
