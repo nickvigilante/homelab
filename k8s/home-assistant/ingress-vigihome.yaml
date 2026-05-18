@@ -27,12 +27,15 @@
 #   http:
 #     use_x_forwarded_for: true
 #     trusted_proxies:
-#       - 10.42.0.0/16     # k3s pod CIDR
-#       - 192.168.50.135   # gandalf LAN IP
+#       - 192.168.50.0/24   # LAN — covers all k3s node IPs
 #
-# Without those, HA records every request's client IP as the proxy
-# (Traefik), and depending on version may reject proxied requests
-# entirely with `400: Bad Request`.
+# Traefik proxies the request out of a pod, and the outbound is
+# NAT'd through the host k3s node. HA sees the source IP as the
+# node IP (192.168.50.11 / .12 / .135 / future workers), not the
+# pod IP. A single /24 covers them all and any future cluster
+# expansion. Without trusted_proxies set, recent HA versions
+# return `400: Bad Request: Bad Host header` for the proxied
+# request.
 apiVersion: v1
 kind: Service
 metadata:

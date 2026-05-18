@@ -91,18 +91,27 @@ In HAOS, open the **File Editor** add-on (or SSH in) and edit
 http:
   use_x_forwarded_for: true
   trusted_proxies:
-    - 10.42.0.0/16     # k3s pod CIDR
-    - 192.168.50.135   # gandalf LAN IP
+    - 192.168.50.0/24   # LAN — covers all k3s node IPs
 ```
 
-Then restart HA: **Developer Tools → Restart → Restart Home Assistant**.
+Then **Developer Tools → YAML → Check Configuration**, then
+**Developer Tools → Restart → Restart Home Assistant**.
 
-If you skip this step:
+### Why a /24 instead of pod CIDR + a specific node
 
-- HA logs every client IP as Traefik's pod IP (not the real client).
-- Recent HA versions reject the proxied request with `400 Bad Request:
-  Bad Host header` because the X-Forwarded-Host header didn't come
-  from a trusted source.
+Traefik proxies the request out of a pod on whichever k3s node
+the scheduler placed it on, and Linux NATs pod-outbound through
+the node's IP. HA at .42 sees the source IP as the *node IP*
+(192.168.50.11 / .12 / .135 / any future worker), not the pod
+IP. A `/24` on the LAN covers all current and future cluster
+nodes without enumerating them. The pod CIDR (10.42.0.0/16)
+wouldn't help — pod IPs never appear on this hop.
+
+If you skip this step entirely, recent HA versions reject the
+proxied request with `400 Bad Request: Bad Host header` because
+the `X-Forwarded-Host` header arrived from an untrusted source.
+The browser shows `400` from `Python/3.14 aiohttp/...` — that's
+HA itself, the request has reached it correctly, it's just refusing.
 
 ### 3. Verify
 
