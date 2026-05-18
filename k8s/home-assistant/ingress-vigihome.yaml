@@ -4,10 +4,11 @@
 #
 #   1. Service (no selector) — looks like any in-cluster ClusterIP
 #      from the Ingress's perspective, but with no Pod backing.
-#   2. Endpoints — manually points the Service at HAOS's IP:port.
-#      This is the canonical k8s pattern for fronting an off-cluster
-#      backend. EndpointSlice would also work; Endpoints is simpler
-#      and still fully supported.
+#   2. EndpointSlice — manually points the Service at HAOS's IP:port.
+#      The `kubernetes.io/service-name` label on the slice is what
+#      k8s uses to associate it with its Service (replaces the
+#      name-match mechanism of the legacy v1 Endpoints API, which
+#      was deprecated in k8s v1.33).
 #   3. Ingress — terminates TLS at https://home-assistant.vigihome.net
 #      with the wildcard vigihome-tls cert (reflected into this
 #      namespace by emberstack/reflector) and proxies plain HTTP to
@@ -45,18 +46,26 @@ spec:
       targetPort: 8123
       protocol: TCP
 ---
-apiVersion: v1
-kind: Endpoints
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
 metadata:
-  name: home-assistant
+  name: home-assistant-haos
   namespace: home-assistant
-subsets:
+  labels:
+    # Required: this is how k8s associates the slice with its Service.
+    # Any name is fine; the link is via this label, not the slice name.
+    kubernetes.io/service-name: home-assistant
+addressType: IPv4
+endpoints:
   - addresses:
-      - ip: 192.168.50.42
-    ports:
-      - name: http
-        port: 8123
-        protocol: TCP
+      - 192.168.50.42
+    # No `conditions.ready: false` — assume HAOS is reachable.
+    # Without an explicit conditions block, kube-proxy treats the
+    # endpoint as ready.
+ports:
+  - name: http
+    port: 8123
+    protocol: TCP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

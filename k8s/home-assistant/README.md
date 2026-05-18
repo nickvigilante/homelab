@@ -48,7 +48,7 @@ home-assistant.vigihome.net
 └─────────────────────────────┘
         │
         │  k8s Service (no selector) +
-        │  manual Endpoints object
+        │  manual EndpointSlice
         ▼
 ┌─────────────────────────────┐
 │  HAOS on Pi at .42:8123     │
