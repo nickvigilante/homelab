@@ -46,6 +46,19 @@ global:
         secretKeyRef:
           name: authentik-secrets
           key: bootstrap-token
+    # Trust Traefik as an upstream proxy so Authentik reads the real
+    # client IP from X-Forwarded-For instead of recording the CNI
+    # bridge IP (10.42.0.1) as the source of every request. Without
+    # this, IP-based reputation policies bucket every login attempt
+    # under one address and the audit log loses forensic value.
+    #
+    # Scope: pod CIDR + loopback. The actual browser IP only makes
+    # it all the way through if Traefik's LoadBalancer Service is
+    # set to externalTrafficPolicy: Local — otherwise XFF contains
+    # the gandalf node IP (kube-proxy SNATs the connection on the
+    # way in). That's still strictly better than 10.42.0.1.
+    - name: AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS
+      value: "127.0.0.0/8,10.42.0.0/16"
 
 authentik:
   log_level: info
