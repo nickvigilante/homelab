@@ -1,0 +1,55 @@
+# Restrict ingress to authentik-server. Without this, any Pod in any
+# namespace can reach Authentik's HTTP API on port 9000 directly —
+# bypassing Traefik's ingress and the reputation/policy gates that live
+# in the auth flow. A compromised pod elsewhere (e.g. Jellyfin RCE, a
+# misconfigured Coder workspace) could attempt credential stuffing or
+# token introspection internally without showing up as external traffic
+# in the audit log's reputation tracking.
+#
+# Allowed ingress:
+#   1. Traefik pods in kube-system on port 9000 (the legitimate public
+#      path — external requests come through here after TLS termination)
+#   2. Same-namespace pods on port 9000 (defense in depth — covers the
+#      worker pod and any future Authentik outposts deployed alongside)
+#
+# Deliberately NOT allowed:
+#   - 9443 (HTTPS): Traefik terminates TLS and proxies plain HTTP to 9000;
+#     the in-cluster HTTPS path isn't used and shouldn't be exposed.
+#   - 9300 (metrics): no in-cluster Prometheus scraper deployed yet.
+#     Add a rule here if/when monitoring lands.
+#
+# Kubelet probes are NOT explicitly allowed — k3s's bundled kube-router
+# netpol controller whitelists local-node→Pod traffic regardless of
+# policy, so liveness/readiness probes from the node continue to work.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: authentik-server-ingress
+  namespace: auth
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: authentik
+      app.kubernetes.io/component: server
+  policyTypes:
+    - Ingress
+  ingress:
+    # Public path: Traefik in kube-system → Authentik :9000.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 9000
+          protocol: TCP
+    # Same-namespace path: worker, postgres reverse calls, future outposts.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: auth
+      ports:
+        - port: 9000
+          protocol: TCP

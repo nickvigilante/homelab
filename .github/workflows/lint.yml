@@ -45,6 +45,7 @@ jobs:
               -o -name certificate.yaml \
               -o -name 'ingress-*.yaml' \
               -o -name 'middleware-*.yaml' \
+              -o -name 'netpol-*.yaml' \
             \) -print0 \
             | xargs -0 kubeconform \
                 -summary \

@@ -6,7 +6,8 @@ giving you one login instead of one per service.
 
 ## Layout
 
-- `namespace.yaml` — `auth` namespace
+- `namespace.yaml` — `auth` namespace; carries Pod Security Standards labels (`enforce: baseline`, `audit + warn: restricted`) — see "Security posture" below
+- `netpol-authentik-server.yaml` — `NetworkPolicy` restricting ingress to `authentik-server:9000` to Traefik + same-namespace pods only — see "Security posture" below
 - `pv-pvc.yaml` — PV `authentik-postgres-data` → hostPath `/opt/authentik/postgres` (gandalf), matching PVC named for what the bitnami postgres StatefulSet expects (`data-authentik-postgresql-0`)
 - `values.yaml` — Helm values for `authentik/authentik`. The chart's own Ingress is disabled (`server.ingress.enabled: false`) — Ingress lives in `ingress-vigihome.yaml` instead.
 - `ingress-vigihome.yaml` — raw Ingress at `https://authentik.vigihome.net` (TLS via reflected `vigihome-tls`). This is the sole user-facing entry point for Authentik post-cutover.
@@ -32,6 +33,31 @@ when Authentik is broken.
 - Jellyfin: keep a local admin account with username/password in Bitwarden, configure OIDC as an *additional* identity provider rather than replacing local auth.
 - Pi-hole admin: native password stays in Bitwarden item `Pi-Hole`. Don't put it solely behind forward-auth.
 - Uptime Kuma: same — local admin in Bitwarden, OIDC as an alternative login.
+
+## Security posture
+
+Two defense-in-depth layers live in this directory:
+
+### Pod Security Standards (namespace label)
+
+The `auth` namespace is labeled with:
+
+- `pod-security.kubernetes.io/enforce: baseline` — hard-blocks the worst patterns (privileged containers, `hostNetwork`, `hostPID`/`hostIPC`, untrusted hostPath volumes).
+- `pod-security.kubernetes.io/audit: restricted` + `warn: restricted` — surfaces drift toward the tighter standard without breaking anything.
+
+**Not `enforce: restricted`** because the bitnami postgresql chart's `volumePermissions` init container runs as root to chown the hostPath PV mount before postgres starts. Moving to restricted would require either (a) disabling `volumePermissions` and chowning manually on gandalf, or (b) switching postgres charts. Either is its own change.
+
+### NetworkPolicy on `authentik-server`
+
+`netpol-authentik-server.yaml` restricts ingress to the `authentik-server` pods on port 9000 (the HTTP port Traefik proxies to after TLS termination):
+
+- ✅ Traefik pods in `kube-system` (the legitimate public path)
+- ✅ Same-namespace pods (worker, future outposts)
+- ❌ Any other namespace (a compromised pod elsewhere can no longer hit Authentik's API directly to attempt credential stuffing / token introspection internally)
+
+Enforcement: k3s ships with kube-router's NetworkPolicy controller built in, so this is actively enforced (verified by attempting a connection from the `coder` namespace and getting connection-refused). The controller also whitelists local-node → Pod traffic, so kubelet liveness/readiness probes continue to work without an explicit allow.
+
+Ports `9443` (HTTPS) and `9300` (metrics) are deliberately not allowed; HTTPS is unused because TLS terminates at Traefik, and there's no in-cluster Prometheus scraper to allow yet. Add a rule here if/when monitoring lands.
 
 ## ⚠️ Don't lose `AUTHENTIK_SECRET_KEY`
 
