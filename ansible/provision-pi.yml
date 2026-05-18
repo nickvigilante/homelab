@@ -1,44 +1,33 @@
 # Provision a Raspberry Pi as a k3s agent + Tailscale node.
 #
 # Usage:
-#   # Mint a fresh auth key first (defaults to 1h expiry):
-#   ./bin/mint-tailscale-authkey.sh
 #
-#   # Initial run on a fresh Pi (still has the default `pi` user):
+#   # 1. Mint a Tailscale auth key in the admin UI
+#   #      https://login.tailscale.com/admin/settings/keys
+#   #    Pre-authorized, single-use, tag:homelab, ~1h expiry.
+#   #    Save to ~/.tailscale-authkey (chmod 600).
+#
+#   # 2. With Pi Imager Advanced Options, the freshly imaged Pi
+#   #    already has the `nickv` user + your SSH pubkey on first
+#   #    boot. No `ansible_user=pi --ask-pass` dance needed.
+#
 #   ansible-playbook provision-pi.yml \
-#     --limit pi5 \
-#     --extra-vars 'ansible_user=pi' \
-#     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)" \
-#     --ask-pass --ask-become-pass
-#
-#   # Subsequent runs (after the `nickv` user exists):
-#   ansible-playbook provision-pi.yml --limit pi5 \
+#     --limit <pi-hostname> \
+#     --ask-become-pass \
 #     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)"
-
-- name: Read k3s node-token from the control plane
-  hosts: cluster_servers
-  gather_facts: false
-  tasks:
-    - name: Slurp /var/lib/rancher/k3s/server/node-token
-      become: true
-      ansible.builtin.slurp:
-        src: /var/lib/rancher/k3s/server/node-token
-      register: k3s_token_slurped
-
-    - name: Stash the token for downstream plays
-      ansible.builtin.set_fact:
-        k3s_token: "{{ k3s_token_slurped.content | b64decode | trim }}"
-        cacheable: false
+#
+# --ask-become-pass (-K) is required: the k3s join token is slurped
+# from gandalf via `delegate_to`, and the file is root-only on
+# gandalf. The same prompt also covers `become: true` for the
+# pi-side tasks (apt, systemd, etc.) — Ansible caches the password
+# across hosts in the play, and `nickv` is the operator on every
+# host, so one prompt does both.
 
 - name: Provision Pi as k3s agent + Tailscale node
   hosts: cluster_agents
   become: true
 
   vars:
-    # Injected by the play above via hostvars lookup. Fails fast if
-    # the prior play didn't run (e.g., wrong --limit).
-    k3s_token: "{{ hostvars['gandalf']['k3s_token'] }}"
-
     # Pre-flight check: the operator must pass tailscale_authkey via
     # --extra-vars. Defaulting to empty so the assert below fires
     # with a clear message instead of an opaque tailscale CLI error.
@@ -53,6 +42,23 @@
           Set tailscale_authkey via --extra-vars. Generate a one-time
           pre-authorized key tagged tag:homelab at
           https://login.tailscale.com/admin/settings/keys.
+
+    # Read the k3s join token from gandalf via delegate_to so the
+    # operator can `--limit <pi>` without also listing gandalf in
+    # the limit. `become: true` from the play applies to the
+    # delegated host (gandalf), where the token file is root-owned.
+    # Re-slurping once per pi when --limit covers multiple hosts is
+    # harmless — the token is identical across runs.
+    - name: Slurp k3s node-token from gandalf
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_slurped
+      delegate_to: gandalf
+
+    - name: Stash decoded k3s_token for downstream tasks
+      ansible.builtin.set_fact:
+        k3s_token: "{{ k3s_token_slurped.content | b64decode | trim }}"
+        cacheable: false
 
   tasks:
     # ---- Base system ----------------------------------------------------
