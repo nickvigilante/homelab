@@ -1,0 +1,87 @@
+# Home Assistant runs on HAOS on a separate Raspberry Pi at
+# 192.168.50.42, outside the k3s cluster. This file wires it into
+# the vigihome.net TLS/DNS stack with three resources:
+#
+#   1. Service (no selector) — looks like any in-cluster ClusterIP
+#      from the Ingress's perspective, but with no Pod backing.
+#   2. Endpoints — manually points the Service at HAOS's IP:port.
+#      This is the canonical k8s pattern for fronting an off-cluster
+#      backend. EndpointSlice would also work; Endpoints is simpler
+#      and still fully supported.
+#   3. Ingress — terminates TLS at https://home-assistant.vigihome.net
+#      with the wildcard vigihome-tls cert (reflected into this
+#      namespace by emberstack/reflector) and proxies plain HTTP to
+#      the HAOS backend.
+#
+# Why HAOS stays separate (not containerized in k3s): HA's Zigbee USB
+# dongle would need USB-passthrough into a Pod (painful, hard-pins
+# HA to whichever node holds the dongle), and the three add-ons in
+# use (VS Code Web, Terminal, Matter Server) aren't available outside
+# HAOS. Decided 2026-05-17 — keep HAOS.
+#
+# HA-side config (operator must apply via the File Editor add-on or
+# SSH; this file can't enforce it):
+#
+#   # configuration.yaml
+#   http:
+#     use_x_forwarded_for: true
+#     trusted_proxies:
+#       - 10.42.0.0/16     # k3s pod CIDR
+#       - 192.168.50.135   # gandalf LAN IP
+#
+# Without those, HA records every request's client IP as the proxy
+# (Traefik), and depending on version may reject proxied requests
+# entirely with `400: Bad Request`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: home-assistant
+  namespace: home-assistant
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+      protocol: TCP
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: home-assistant
+  namespace: home-assistant
+subsets:
+  - addresses:
+      - ip: 192.168.50.42
+    ports:
+      - name: http
+        port: 8123
+        protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: home-assistant
+  namespace: home-assistant
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - home-assistant.vigihome.net
+      # Reflected into the `home-assistant` namespace by emberstack/
+      # reflector via cert-manager's secretTemplate annotations on
+      # k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
+  rules:
+    - host: home-assistant.vigihome.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: home-assistant
+                port:
+                  number: 8123
