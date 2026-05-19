@@ -60,6 +60,46 @@ global:
     - name: AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS
       value: "127.0.0.0/8,10.42.0.0/16"
 
+    # ---- SMTP via Forward Email (managed relay) -----------------------
+    #
+    # Outbound mail for: akadmin / nickv password recovery, breach alerts,
+    # Authentik event notifications. Routed through Forward Email's SMTP
+    # relay (smtp.forwardemail.net:465, implicit TLS).
+    #
+    # Credentials live in a SEPARATE Secret `smtp-relay` rather than in
+    # `authentik-secrets` — SMTP creds are not Authentik-specific (other
+    # services may consume the same relay later, with each service
+    # holding its own copy of the Secret per RBAC blast-radius hygiene).
+    #
+    # The SMTP username also serves as the From address — Forward Email
+    # ties auth to a verified sender at the configured domain, and we
+    # reuse it for FROM rather than tracking a separate field.
+    - name: AUTHENTIK_EMAIL__HOST
+      value: "smtp.forwardemail.net"
+    - name: AUTHENTIK_EMAIL__PORT
+      value: "465"
+    - name: AUTHENTIK_EMAIL__USE_SSL
+      value: "true"
+    - name: AUTHENTIK_EMAIL__USE_TLS
+      value: "false"
+    - name: AUTHENTIK_EMAIL__TIMEOUT
+      value: "10"
+    - name: AUTHENTIK_EMAIL__USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: smtp-relay
+          key: smtp-username
+    - name: AUTHENTIK_EMAIL__PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: smtp-relay
+          key: smtp-password
+    - name: AUTHENTIK_EMAIL__FROM
+      valueFrom:
+        secretKeyRef:
+          name: smtp-relay
+          key: smtp-username
+
 authentik:
   log_level: info
   # Setting authentik.* values directly conflicts with the env-var

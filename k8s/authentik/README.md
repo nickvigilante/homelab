@@ -140,6 +140,51 @@ helm -n auth upgrade authentik authentik/authentik -f values.yaml
 kubectl -n auth rollout status deployment/authentik-server
 ```
 
+### Outbound SMTP (Forward Email)
+
+Authentik sends mail for password recovery, breach alerts, and event notifications via **Forward Email**'s managed SMTP relay (FOSS, MIT-licensed, $3/mo on the Enhanced Protection plan). Credentials live in a separate Secret (`smtp-relay`) rather than `authentik-secrets` so other services can mount their own copy of the relay creds without RBAC contagion.
+
+**One-time setup (already done for the current deployment; documented for rebuild):**
+
+1. **Forward Email dashboard:** verify your sender domain (MX + SPF + DKIM + DMARC records in DNS — Forward Email's UI walks through these). Generate SMTP credentials on the **Outbound Emails** page.
+
+2. **Save to Bitwarden** as item `Homelab Mail Relay` with these custom fields:
+   - `smtp-host` → `smtp.forwardemail.net`
+   - `smtp-port` → `465`
+   - `smtp-username` → the verified sender at your domain (e.g. `noreply@vigihome.net`)
+   - `smtp-password` → the password from the Forward Email dashboard
+   - `from-address` → typically the same as `smtp-username`
+
+3. **Create the k8s Secret** sourced from Bitwarden:
+
+   ```bash
+   # On laptop (with bw CLI):
+   export BW_SESSION="$(bw unlock --raw)"
+   kubectl -n auth create secret generic smtp-relay \
+     --from-literal=smtp-username="$(bw get item 'Homelab Mail Relay' | jq -r '.fields[] | select(.name=="smtp-username") | .value')" \
+     --from-literal=smtp-password="$(bw get item 'Homelab Mail Relay' | jq -r '.fields[] | select(.name=="smtp-password") | .value')"
+   unset BW_SESSION
+   ```
+
+4. **Apply via helm upgrade.** The chart's existing values block already references this Secret via env vars; no manifest change is needed once the Secret exists.
+
+   ```bash
+   helm -n auth upgrade authentik authentik/authentik -f values.yaml
+   kubectl -n auth rollout status deployment/authentik-server
+   ```
+
+**Testing the relay:**
+
+In the Authentik admin UI, navigate to **System → Tasks** → find any task ending in `email` (e.g., `notification_transport`), or trigger a real password recovery from the login screen. Inspect the resulting mail's headers — expect:
+
+- `Authentication-Results: ... dkim=pass`
+- `Authentication-Results: ... spf=pass`
+- `Authentication-Results: ... dmarc=pass`
+
+If any fail, check Forward Email's dashboard for delivery logs (the **Logs** page shows recent send attempts with the failure reason).
+
+**Rotating SMTP creds:** generate a new password in the Forward Email dashboard, update the Bitwarden item, then re-run step 3 above (kubectl will overwrite the existing Secret) and bounce authentik-server via `kubectl -n auth rollout restart deployment/authentik-server`.
+
 ### Rotating the OIDC signing certificate
 
 Authentik signs every OIDC token (id_token, access_token) with a single keypair stored in its DB. The default `authentik Self-signed Certificate` ships with each install and has a 365-day expiry; rotation is **manual on cadence, automated in execution** via two scripts in `scripts/`.
