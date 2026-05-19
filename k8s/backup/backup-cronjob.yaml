@@ -19,10 +19,18 @@
 # back via the local-path provisioner — that's the recovery model.
 # See ../../CLAUDE.md and ../../ansible/provision-gandalf.yml.
 #
-# Heartbeat: pings the `restic-backup` push monitor in Uptime Kuma on
-# success and on failure (via trap). If the job dies before reaching
-# either branch, the monitor goes DOWN on its own when the heartbeat
-# interval expires — same signal, slower.
+# Failure signals: TWO independent channels.
+#   1. Uptime Kuma push monitor (`restic-backup`) — pinged on success
+#      and on failure (via trap). If the job dies before reaching either
+#      branch, the monitor goes DOWN on its own when the heartbeat
+#      interval expires — same signal, slower.
+#   2. Email via Forward Email's SMTP relay — sent on failure only,
+#      using the `smtp-relay` Secret in this namespace. The Secret is
+#      mirrored from `auth/smtp-relay` by emberstack/reflector; the
+#      annotations live on the source Secret. Out-of-band channel for
+#      times when Uptime Kuma is also unreachable / not being watched.
+#      Recipient hardcoded in env below (SMTP_TO); change there if
+#      the homelab inbox moves.
 #
 # Schedule: 03:00 every day. Adjust via `spec.schedule` if 3am isn't quiet.
 #
@@ -55,10 +63,74 @@ spec:
                 - -c
                 - |
                   set -euo pipefail
+
+                  # The restic/restic image is minimal Alpine (wget but
+                  # no curl). Install curl for SMTP. ~2s, best-effort —
+                  # if it fails (network, apk mirror down), send_email
+                  # below no-ops and Uptime Kuma push remains the signal.
+                  apk add --no-cache curl >/dev/null 2>&1 || true
+
                   push() {
                     wget -q -O- "${UPTIME_KUMA_PUSH_BACKUP_URL}?status=${1:-up}&msg=${2:-OK}" >/dev/null 2>&1 || true
                   }
-                  trap 'push down failed' ERR
+
+                  send_email() {
+                    # No-op silently if SMTP env isn't fully populated or
+                    # curl isn't available. Both branches happen during
+                    # normal operation if reflector hasn't synced yet OR
+                    # apk add failed — neither should escalate into a
+                    # second failure on top of the original.
+                    if [ -z "${SMTP_HOST:-}" ] || [ -z "${SMTP_USER:-}" ] || [ -z "${SMTP_PASS:-}" ]; then
+                      return 0
+                    fi
+                    if ! command -v curl >/dev/null 2>&1; then
+                      return 0
+                    fi
+                    subject="$1"
+                    body="$2"
+                    {
+                      printf 'From: %s\r\n' "$SMTP_FROM"
+                      printf 'To: %s\r\n' "$SMTP_TO"
+                      printf 'Subject: %s\r\n' "$subject"
+                      printf 'Date: %s\r\n' "$(date)"
+                      printf 'MIME-Version: 1.0\r\n'
+                      printf 'Content-Type: text/plain; charset=UTF-8\r\n'
+                      printf '\r\n'
+                      printf '%s\r\n' "$body"
+                    } | curl -sS --max-time 30 \
+                        --url "smtps://${SMTP_HOST}:${SMTP_PORT:-465}" \
+                        --user "$SMTP_USER:$SMTP_PASS" \
+                        --mail-from "$SMTP_FROM" \
+                        --mail-rcpt "$SMTP_TO" \
+                        --upload-file - >/dev/null 2>&1 || true
+                  }
+
+                  on_failure() {
+                    exit_code=$?
+                    push down "failed (exit=$exit_code)"
+                    # Body built line-by-line via printf so every line
+                    # stays within the YAML block scalar's indentation.
+                    # \$(...) becomes literal $(...) in the email body
+                    # so the recipient can copy-paste a usable command.
+                    body=$(printf '%s\n' \
+                      "Restic backup CronJob failed on gandalf at $(date)." \
+                      "" \
+                      "Exit code: $exit_code" \
+                      "Job pod:   ${HOSTNAME:-unknown}" \
+                      "Schedule:  daily 03:00 ET" \
+                      "" \
+                      "Inspect via:" \
+                      "  kubectl -n backup get jobs" \
+                      "  kubectl -n backup logs -l job-name=\$(kubectl -n backup get jobs --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')" \
+                      "" \
+                      "This message is sent in addition to the Uptime Kuma push monitor" \
+                      "(restic-backup); both fire on the same trap." \
+                      "" \
+                      "Repo: github.com/nickvigilante/homelab")
+                    send_email "[homelab] Restic backup FAILED on gandalf" "$body"
+                  }
+
+                  trap on_failure ERR
                   echo "=== Jellyfin config ==="
                   restic backup \
                     --host gandalf \
@@ -114,6 +186,40 @@ spec:
                     name: restic-credentials
                 - secretRef:
                     name: uptime-kuma-push-urls
+              env:
+                # SMTP relay creds — sourced from `smtp-relay` Secret
+                # which emberstack/reflector mirrors here from
+                # auth/smtp-relay (the source-of-truth in the auth
+                # namespace, kept tight per RBAC blast-radius
+                # discipline). dashes-in-keys means we can't envFrom
+                # this Secret directly — explicit valueFrom each.
+                - name: SMTP_HOST
+                  value: "smtp.forwardemail.net"
+                - name: SMTP_PORT
+                  value: "465"
+                # Where alert emails go. Same inbox akadmin recovery
+                # already targets. Hardcoded — change here if the
+                # homelab admin inbox ever moves.
+                - name: SMTP_TO
+                  value: "vigihome-admin@vigiemail.com"
+                - name: SMTP_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: smtp-relay
+                      key: smtp-username
+                - name: SMTP_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: smtp-relay
+                      key: smtp-password
+                # FROM matches USER — Forward Email requires the auth
+                # username to match (or be an alias of) the sending
+                # address. Same key reused.
+                - name: SMTP_FROM
+                  valueFrom:
+                    secretKeyRef:
+                      name: smtp-relay
+                      key: smtp-username
               volumeMounts:
                 - name: jellyfin-config
                   mountPath: /backup/jellyfin

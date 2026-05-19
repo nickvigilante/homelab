@@ -29,6 +29,59 @@ readOnly volumeMount, and a `restic backup --tag <tag> /backup/<dir>` line.
 snapshots per (host, tag) group. Runs Sundays at 04:00 with `--prune` so
 the bucket actually shrinks.
 
+## Failure alerts
+
+Two independent channels fire on a failed backup, so a silently-broken
+nightly job doesn't go unnoticed:
+
+1. **Uptime Kuma push monitor** (`restic-backup`) — pinged on success
+   and on failure via `trap ... ERR`. If the job dies before reaching
+   either branch, the monitor goes DOWN on its own when its heartbeat
+   interval expires.
+2. **Email via Forward Email's SMTP relay** — sent on failure only.
+   Recipient: hardcoded in `backup-cronjob.yaml`'s `SMTP_TO` env var.
+   Out-of-band channel for cases when Uptime Kuma is also unreachable
+   or not being actively watched.
+
+The SMTP creds come from a Secret `smtp-relay` in this namespace, which
+is **mirrored from `auth/smtp-relay`** by emberstack/reflector. The
+annotations live on the source Secret in the `auth` namespace — see
+`k8s/authentik/secret.example.yaml` and `k8s/authentik/README.md`. No
+separate `kubectl create secret` step in this namespace; the mirror
+happens automatically within seconds of reflector seeing the source.
+
+**Forcing a failure for verification:**
+
+```bash
+# Trigger a real failure by pointing the job at an invalid hostPath
+# source briefly, OR simulate by exec-ing into a running test pod and
+# running `exit 1`. Cleanest test:
+
+kubectl -n backup create job test-fail-$(date +%s) \
+  --from=cronjob/restic-backup \
+  --image=restic/restic:latest -- /bin/sh -c 'apk add --no-cache curl; echo "simulated failure"; exit 1'
+# (Note: this won't actually exercise the real trap; use it only as
+# a smoke test that the email path itself works. Real failures during
+# `restic backup` will fire `on_failure` via ERR trap.)
+```
+
+Easier: just watch a real failure (e.g., the next time Storj has a
+hiccup and the upload retries exhaust). The email contains exit code,
+job pod hostname, and the kubectl commands to inspect logs.
+
+**Adding more namespaces that need SMTP later:**
+
+Append the namespace name to the `reflection-auto-namespaces`
+annotation on `auth/smtp-relay`:
+
+```bash
+# Example: also mirror into the cert-manager namespace
+kubectl -n auth annotate secret smtp-relay --overwrite \
+  reflector.v1.k8s.emberstack.com/reflection-auto-namespaces=backup,cert-manager
+```
+
+Reflector picks up the change within seconds.
+
 ## One-time setup
 
 1. **Generate a strong repo password** (Bitwarden → new item `Homelab Restic Repository`).
