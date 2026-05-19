@@ -27,3 +27,12 @@ spec:
     service:
       spec:
         externalTrafficPolicy: Local
+    # Default middleware on the websecure entryPoint: every HTTPS request
+    # passes through strip-auth-headers before reaching any backend. Closes
+    # Tier-1 Authentik audit finding 6-ii. The middleware itself lives at
+    # system/traefik-strip-auth-headers-middleware.yaml (kube-system ns).
+    # Traefik refers to k8s-CRD middlewares as <namespace>-<name>@kubernetescrd.
+    ports:
+      websecure:
+        middlewares:
+          - kube-system-strip-auth-headers@kubernetescrd
