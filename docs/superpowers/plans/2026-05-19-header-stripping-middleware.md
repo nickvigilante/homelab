@@ -246,7 +246,9 @@ Replace with:
 
 Leave `#NN` literal for now; backfill the actual PR number once Task 5 opens the PR.
 
-- [ ] **Step 3: Drop entry #1 from "Open follow-ups"**
+- [ ] **Step 3: Replace "Open follow-ups" section with issue-tracker pointer**
+
+Open work is now tracked as GitHub issues per the homelab repo's tracking policy. The audit doc references work by issue number; it is no longer the source of truth for follow-up status.
 
 Find the section:
 
@@ -273,17 +275,26 @@ Replace with:
 ```
 ## Open follow-ups
 
-One item deliberately left open at end of Tier-1. Has a clear shape
-but needs work outside the audit cadence.
+Both items deliberately left open at end of Tier-1 are tracked as
+GitHub issues. See those for current status; this doc is no longer
+the source of truth for follow-up work.
 
-1. **Email-based recovery flow** (finding 5-i). Now that SMTP is
-   wired, the recovery flow can be enabled and bound to the
-   authentication flow. Needs user sign-off on UX details (which
-   users / which lockout duration / what the email template looks
-   like) before it lands.
+- **Email-based recovery flow** (finding 5-i) — #62
 ```
 
-(Header-stripping was item #1; the renumber drops the old #1 and re-leads with the recovery flow.)
+(Header-stripping is finding 6-ii, resolved by this PR — the row in the table above is updated in Step 2.)
+
+- [ ] **Step 3a: Fix stray `Tier-2 (#86)` reference in "Things deliberately not done"**
+
+PR #61 fixed three of the four `#86` / `#87` references but missed one. Find the line in the "Things deliberately not done" section:
+
+```
+- **No automated penetration tooling** (ZAP, etc.). The Tier-1 pass
+  was checklist-driven, not fuzzing-driven. If Tier-2 (#86) wants
+  fuzzing, it'll add that explicitly.
+```
+
+Change `(#86)` to `(#59)` to match the real Tier-2 audit issue number.
 
 - [ ] **Step 4: Lint the markdown file**
 
