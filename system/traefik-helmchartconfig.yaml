@@ -32,7 +32,14 @@ spec:
     # Tier-1 Authentik audit finding 6-ii. The middleware itself lives at
     # system/traefik-strip-auth-headers-middleware.yaml (kube-system ns).
     # Traefik refers to k8s-CRD middlewares as <namespace>-<name>@kubernetescrd.
-    ports:
-      websecure:
-        middlewares:
-          - kube-system-strip-auth-headers@kubernetescrd
+    #
+    # Why additionalArguments and not ports.websecure.middlewares: the
+    # k3s-bundled Traefik chart (image rancher/mirrored-library-traefik:3.6.13
+    # as of 2026-05-19) doesn't translate the ports.<name>.middlewares values
+    # key into the --entryPoints.<name>.http.middlewares CLI flag. Verified
+    # post-apply of PR #64 that the ports.websecure.middlewares block rendered
+    # into the HelmChartConfig but never reached the Traefik pod's args. Pass
+    # the flag directly via additionalArguments — supported across all chart
+    # versions, simpler control flow.
+    additionalArguments:
+      - --entryPoints.websecure.http.middlewares=kube-system-strip-auth-headers@kubernetescrd
