@@ -3,7 +3,7 @@
 A focused audit of the Authentik deployment (`auth` namespace) and the
 parts of the cluster that touch it. Tier-1 was deliberately scoped to
 Authentik only; the full-stack pass is tracked separately as
-**Tier-2** (#86).
+**Tier-2** (#59).
 
 | | |
 |---|---|
@@ -28,7 +28,7 @@ Two follow-ups remain open and are listed at the bottom.
   (see "Open follow-ups").
 - **Bootstrap token disposition** — `AUTHENTIK_BOOTSTRAP_TOKEN` lives
   in Bitwarden and remains a static admin token. Tracked separately
-  as **#87** (move static tokens out of Bitwarden onto a KeePass
+  as **#60** (move static tokens out of Bitwarden onto a KeePass
   database on a USB stick) — Bitwarden-hosted static admin tokens are
   a low-grade SPOF that doesn't belong on the same blast radius as
   the daily-use credential store.
@@ -124,5 +124,5 @@ shape but need work outside the audit cadence.
 
 Tier-2 is the full-stack version of this audit — same approach
 applied to every cluster service plus host-level gandalf. Tracked in
-issue/task **#86**. When it kicks off, write `audits/tier-2-full-stack.md`
+issue **#59**. When it kicks off, write `audits/tier-2-full-stack.md`
 alongside this file using the same shape.
