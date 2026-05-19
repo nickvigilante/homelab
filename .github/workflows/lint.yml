@@ -17,6 +17,21 @@ jobs:
       - name: Lint
         run: yamllint --config-file .github/yamllint.yml .
 
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck on scripts/
+        # shellcheck is preinstalled on ubuntu-latest runners.
+        run: |
+          set -euo pipefail
+          if [ -d scripts ]; then
+            find scripts -type f -name '*.sh' -print0 | xargs -0 -r shellcheck
+          else
+            echo "No scripts/ directory; nothing to lint."
+          fi
+
   kubeconform:
     name: kubeconform (raw manifests)
     runs-on: ubuntu-latest
