@@ -14,7 +14,7 @@ Authentik only; the full-stack pass is tracked separately as
 | **Method** | Checklist-driven walkthrough of Authentik's surface area (admin/bootstrap, sessions/MFA, container hardening, OIDC bindings, self-service flows, network exposure) with each finding tracked to either a PR or a deliberate accept-the-risk decision |
 
 The actionable findings shipped as PRs #52, #53, #54, #55, #56, #57.
-Two follow-ups remain open and are listed at the bottom.
+Remaining follow-ups are tracked as GitHub issues; see "Open follow-ups" at the bottom.
 
 ## Findings
 
@@ -24,8 +24,8 @@ Two follow-ups remain open and are listed at the bottom.
   rotate or recover akadmin was via the postgres DB or the bootstrap
   env vars; email-based recovery silently no-op'd because Authentik
   had no SMTP relay wired. Resolved by **PR #56** (Forward Email
-  SMTP) — recovery flow itself is one of the two remaining open items
-  (see "Open follow-ups").
+  SMTP) — the recovery flow itself is now tracked as #62 (see
+  "Open follow-ups").
 - **Bootstrap token disposition** — `AUTHENTIK_BOOTSTRAP_TOKEN` lives
   in Bitwarden and remains a static admin token. Tracked separately
   as **#60** (move static tokens out of Bitwarden onto a KeePass
@@ -66,7 +66,7 @@ Two follow-ups remain open and are listed at the bottom.
 - The default Authentik recovery flow assumes outbound email exists,
   and at audit time none did. Tracked as finding 5-i (email-based
   recovery). **Unblocked** by PR #56 (SMTP wiring); the flow itself
-  is the second of the two open follow-ups below — it needs user
+  is now tracked as #62 — it needs user
   sign-off on the exact UX (who can recover what, lockout window,
   rate limits) before it lands.
 
@@ -75,7 +75,7 @@ Two follow-ups remain open and are listed at the bottom.
 | Sub-finding | Status | Reference |
 |---|---|---|
 | 6-i — Authentik recorded `10.42.0.1` (CNI bridge) as the source IP of every request, breaking IP reputation and audit log forensics | **Resolved** | Two-PR fix: **PR #52** sets Traefik `externalTrafficPolicy: Local` via a `HelmChartConfig` so kube-proxy stops SNAT-ing, **PR #53** sets `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,10.42.0.0/16` so Authentik consumes XFF. Both needed for end-to-end real client IPs. PR #52 also benefits Pi-hole, Jellyfin, Coder, Uptime Kuma audit logs |
-| 6-ii — Traefik passes through arbitrary upstream headers (e.g. `X-Forwarded-User`) that a misbehaving downstream could trust | **Resolved** | PR #NN — default Middleware on the `websecure` entryPoint strips `X-Forwarded-User` / `Remote-User` / `X-Authentik-*` families on every HTTPS route |
+| 6-ii — Traefik passes through arbitrary upstream headers (e.g. `X-Forwarded-User`) that a misbehaving downstream could trust | **Resolved** | PR #NN — default Middleware on the `websecure` entryPoint strips `X-Forwarded-User`, `Remote-User`, and `X-Authentik-*` headers on every HTTPS route |
 | 6-iii — Traefik DaemonSet placement on multi-node cluster could cause `externalTrafficPolicy: Local` to drop traffic on nodes without a Traefik pod | **Accepted** | Documented in PR #52; gandalf is the only Traefik-running node today. Revisit when scaling beyond a single Traefik replica |
 
 ## Cross-cutting work that came out of the audit
@@ -93,8 +93,8 @@ surfaced the underlying need:
 
 ## Open follow-ups
 
-Open work now lives as GitHub issues. This doc references items by
-number.
+Tracked as GitHub issues in this repo, not described inline. Items
+currently open:
 
 - **Email-based recovery flow** (finding 5-i) — #62
 
