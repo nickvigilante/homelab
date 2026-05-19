@@ -257,6 +257,29 @@ The Tailscale auth keys it needs are minted via
 - PR template at `.github/pull_request_template.md` lists the
   before-merge checklist (secrets, backup wiring, SPOF impact).
 
+## Tracking open work
+
+Open work — known gaps, deferred features, audit follow-ups — lives
+as **GitHub issues** on this repo. Markdown docs (audit doc, READMEs,
+specs) reference work by issue number (e.g. `#62`) rather than
+describing the work inline. The issue list is the source of truth for
+follow-up status.
+
+**Disclosure screen before filing.** This repo is public. Before
+opening an issue, ask: *would this be the first public mention of a
+known-but-unpatched weakness?* If yes, route privately (Todoist, a
+private notes repo, or resolve before public mention). If no — the
+common case, because the audit doc already documents posture openly —
+file on GitHub.
+
+**What does NOT belong as an issue:**
+- "Things deliberately not done" (accepted risks). Issues imply
+  intent to resolve; these are decisions. Document in the relevant
+  doc's "Things deliberately not done" section instead.
+- Daily-flow tasks not tied to this repo. Those live in Todoist.
+- In-conversation context or implementation details. Those live in
+  the relevant spec or plan doc.
+
 ## Things deliberately not done
 
 - No GitOps controller (Argo CD, Flux). Apply is manual on purpose —
