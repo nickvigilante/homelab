@@ -75,7 +75,7 @@ Two follow-ups remain open and are listed at the bottom.
 | Sub-finding | Status | Reference |
 |---|---|---|
 | 6-i — Authentik recorded `10.42.0.1` (CNI bridge) as the source IP of every request, breaking IP reputation and audit log forensics | **Resolved** | Two-PR fix: **PR #52** sets Traefik `externalTrafficPolicy: Local` via a `HelmChartConfig` so kube-proxy stops SNAT-ing, **PR #53** sets `AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS=127.0.0.0/8,10.42.0.0/16` so Authentik consumes XFF. Both needed for end-to-end real client IPs. PR #52 also benefits Pi-hole, Jellyfin, Coder, Uptime Kuma audit logs |
-| 6-ii — Traefik passes through arbitrary upstream headers (e.g. `X-Forwarded-User`) that a misbehaving downstream could trust | **Open** | Header-stripping middleware listed below |
+| 6-ii — Traefik passes through arbitrary upstream headers (e.g. `X-Forwarded-User`) that a misbehaving downstream could trust | **Resolved** | PR #NN — default Middleware on the `websecure` entryPoint strips `X-Forwarded-User` / `Remote-User` / `X-Authentik-*` families on every HTTPS route |
 | 6-iii — Traefik DaemonSet placement on multi-node cluster could cause `externalTrafficPolicy: Local` to drop traffic on nodes without a Traefik pod | **Accepted** | Documented in PR #52; gandalf is the only Traefik-running node today. Revisit when scaling beyond a single Traefik replica |
 
 ## Cross-cutting work that came out of the audit
@@ -93,19 +93,10 @@ surfaced the underlying need:
 
 ## Open follow-ups
 
-Two items deliberately left open at end of Tier-1. Both have a clear
-shape but need work outside the audit cadence.
+Open work now lives as GitHub issues. This doc references items by
+number.
 
-1. **Header-stripping middleware** (finding 6-ii). Add a Traefik
-   `Middleware` that strips `X-Forwarded-User` and similar
-   client-supplied auth-context headers at the edge, then attach it
-   to the Authentik Ingress (and ideally as a default for every
-   `*.vigihome.net` route). No PR yet.
-2. **Email-based recovery flow** (finding 5-i). Now that SMTP is
-   wired, the recovery flow can be enabled and bound to the
-   authentication flow. Needs user sign-off on UX details (which
-   users / which lockout duration / what the email template looks
-   like) before it lands.
+- **Email-based recovery flow** (finding 5-i) — #62
 
 ## Things deliberately not done
 
@@ -117,7 +108,7 @@ shape but need work outside the audit cadence.
   a single-node homelab; postgres + the key + the restic password
   + Bitwarden export discipline together form the recovery path.
 - **No automated penetration tooling** (ZAP, etc.). The Tier-1 pass
-  was checklist-driven, not fuzzing-driven. If Tier-2 (#86) wants
+  was checklist-driven, not fuzzing-driven. If Tier-2 (#59) wants
   fuzzing, it'll add that explicitly.
 
 ## Pointer to Tier-2
