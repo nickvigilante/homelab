@@ -116,6 +116,19 @@
         group: root
         mode: "0644"
 
+    # The strip-auth-headers Middleware (system/traefik-strip-auth-headers-middleware.yaml)
+    # closes Tier-1 Authentik audit finding 6-ii. k3s's manifests-dir
+    # controller auto-applies non-HelmChart YAML dropped here, so no
+    # separate `kubectl apply` step is needed; this Ansible task is the
+    # whole rollout for the Middleware CRD.
+    - name: Install strip-auth-headers Middleware (websecure header strip)
+      ansible.builtin.copy:
+        src: ../system/traefik-strip-auth-headers-middleware.yaml
+        dest: /var/lib/rancher/k3s/server/manifests/strip-auth-headers-middleware.yaml
+        owner: root
+        group: root
+        mode: "0644"
+
     # ---- k3s secrets encryption at rest ---------------------------------
     #
     # k3s stores Secrets in its embedded SQLite. By default they sit in

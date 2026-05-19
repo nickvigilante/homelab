@@ -1,0 +1,49 @@
+# Traefik Middleware that strips inbound auth-context headers (X-Forwarded-User,
+# Remote-User, X-Authentik-* etc.) so backends behind Traefik can't accidentally
+# trust client-supplied identity claims.
+#
+# Attached as a default middleware on the websecure entryPoint via
+# system/traefik-helmchartconfig.yaml, so every HTTPS route inherits it
+# without per-Ingress annotation.
+#
+# Closes Tier-1 Authentik audit finding 6-ii (see audits/tier-1-authentik.md).
+#
+# Mechanism: headers.customRequestHeaders with empty-string values is the
+# standard Traefik pattern for removing a header from the request before
+# it reaches the backend.
+#
+# NOT stripped: transport headers (X-Forwarded-For/-Proto/-Host/-Port,
+# X-Real-IP) and legitimate client auth material (Authorization, cookies).
+# Stripping XFF would regress PR #53 (real client IPs).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-auth-headers
+  namespace: kube-system
+spec:
+  headers:
+    customRequestHeaders:
+      # oauth2-proxy / traefik-forward-auth family
+      X-Forwarded-User: ""
+      X-Forwarded-Email: ""
+      X-Forwarded-Preferred-Username: ""
+      X-Forwarded-Groups: ""
+      X-Forwarded-Name: ""
+      X-Forwarded-Roles: ""
+      # Authelia / nginx auth_request family
+      Remote-User: ""
+      Remote-Email: ""
+      Remote-Groups: ""
+      Remote-Name: ""
+      # Authentik outpost (proxy provider) family
+      X-Authentik-Username: ""
+      X-Authentik-Groups: ""
+      X-Authentik-Email: ""
+      X-Authentik-Name: ""
+      X-Authentik-Uid: ""
+      X-Authentik-Jwt: ""
+      X-Authentik-Meta-Jwks: ""
+      X-Authentik-Meta-Outpost: ""
+      X-Authentik-Meta-Provider: ""
+      X-Authentik-Meta-App: ""
+      X-Authentik-Meta-Version: ""
