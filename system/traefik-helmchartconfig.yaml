@@ -20,6 +20,17 @@
 # `*.vigihome.net` record). Pinning makes that explicit and renders
 # audit finding 6-iii's concern (Traefik placement drift on a
 # multi-node cluster) moot.
+#
+# Privileged ports — Traefik binds 80/443 directly under hostNetwork.
+# The chart runs Traefik as uid 65532 (non-root); the cap-based
+# approach (NET_BIND_SERVICE in container securityContext) doesn't
+# work because Linux requires file caps or ambient caps for non-root
+# uids to USE the cap. Sidestep with a host sysctl
+# (system/99-unprivileged-ports.conf) that sets
+# net.ipv4.ip_unprivileged_port_start = 0, allowing any user to bind
+# any port. The chart's default container securityContext
+# (drop:[ALL], readOnlyRootFilesystem:true, etc.) is preserved
+# unchanged — we don't override securityContext here.
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
@@ -32,10 +43,9 @@ spec:
     hostNetwork: true
     service:
       type: ClusterIP
-    # Bind Traefik directly to ports 80/443 on the host (chart default
-    # is 8000/8443). NET_BIND_SERVICE capability needed for privileged
-    # ports; chart's default container securityContext drops all caps
-    # so we add it back explicitly.
+    # Bind Traefik directly to 80/443 (chart default is 8000/8443).
+    # The host sysctl ip_unprivileged_port_start=0 makes these bindable
+    # by the chart's default uid 65532. See top-of-file rationale.
     ports:
       web:
         port: 80
@@ -43,10 +53,6 @@ spec:
       websecure:
         port: 443
         exposedPort: 443
-    securityContext:
-      capabilities:
-        add:
-          - NET_BIND_SERVICE
     # Default middleware on the websecure entryPoint: every HTTPS request
     # passes through strip-auth-headers before reaching any backend. Closes
     # Tier-1 Authentik audit finding 6-ii. The middleware itself lives at

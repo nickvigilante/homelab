@@ -95,20 +95,41 @@
         mode: "0644"
       notify: Reload sysctl
 
-    # ---- Traefik externalTrafficPolicy: Local ---------------------------
+    # ---- Unprivileged port binding -------------------------------------
     #
-    # k3s ships Traefik as a LoadBalancer Service with the default
-    # externalTrafficPolicy: Cluster, which makes kube-proxy SNAT incoming
-    # connections to the CNI bridge IP (10.42.0.1). That destroys the real
-    # client IP before Traefik can read it, which in turn poisons
-    # X-Forwarded-For for every service behind Traefik — breaking IP-based
-    # auth policies (e.g. Authentik reputation tracking), forensic audit
-    # logs, and any future geolocation rules.
+    # Traefik runs with hostNetwork: true (so external clients' source IPs
+    # reach it unchanged — see Tier-1 audit finding 6-i) and the chart
+    # default uid 65532. To let that uid bind 80/443, the host's
+    # unprivileged-port boundary is lowered to 0 via a sysctl drop-in.
+    # See system/99-unprivileged-ports.conf for the rationale.
     #
-    # Override via a HelmChartConfig in the k3s manifests dir; k3s's
-    # HelmChart controller picks it up and re-renders the bundled chart
-    # with the new values. See system/traefik-helmchartconfig.yaml.
-    - name: Install Traefik HelmChartConfig override (externalTrafficPolicy)
+    # Flush handlers immediately after the copy so the new sysctl is
+    # active before the Traefik HelmChartConfig below triggers a chart
+    # re-render — otherwise the new Traefik pod tries to bind 80 against
+    # the OLD ip_unprivileged_port_start=1024 and CrashLoopBackOffs.
+    - name: Install unprivileged ports sysctl drop-in
+      ansible.builtin.copy:
+        src: ../system/99-unprivileged-ports.conf
+        dest: /etc/sysctl.d/99-unprivileged-ports.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sysctl
+
+    - name: Apply pending sysctl drop-ins before Traefik chart re-render
+      ansible.builtin.meta: flush_handlers
+
+    # ---- Traefik hostNetwork + ClusterIP via HelmChartConfig -----------
+    #
+    # Traefik binds gandalf:80/443 directly under hostNetwork: true,
+    # bypassing k3s's klipper-lb (which MASQUERADEs source IPs at the
+    # svclb pod's POSTROUTING and breaks real-client-IP delivery). The
+    # Service is ClusterIP so k3s's svccontroller stops creating svclb
+    # pods for it (otherwise svclb would contend for the same host ports).
+    # Pin to gandalf via nodeSelector since DNS only points here.
+    #
+    # See system/traefik-helmchartconfig.yaml for the full rationale.
+    - name: Install Traefik HelmChartConfig override (hostNetwork on gandalf)
       ansible.builtin.copy:
         src: ../system/traefik-helmchartconfig.yaml
         dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
