@@ -65,10 +65,14 @@ Remaining follow-ups are tracked as GitHub issues; see "Open follow-ups" at the 
 
 - The default Authentik recovery flow assumes outbound email exists,
   and at audit time none did. Tracked as finding 5-i (email-based
-  recovery). **Unblocked** by PR #56 (SMTP wiring); the flow itself
-  is now tracked as #62 — it needs user
-  sign-off on the exact UX (who can recover what, lockout window,
-  rate limits) before it lands.
+  recovery). **Resolved** by PR #56 (SMTP wiring) +
+  PR #<BACKFILL_AFTER_PR_CREATE> (flow binding, abuse policies,
+  akadmin runbook). Email-based self-recovery is enabled for
+  `homelab-users` (akadmin out of scope per blast-radius decision);
+  abuse controls are a 3/hr per-IP rate limit plus a reputation deny
+  at score < -3. See `k8s/authentik/README.md` for the wiring and
+  `docs/superpowers/specs/2026-05-20-authentik-recovery-flow-design.md`
+  for the design rationale.
 
 ### Check 6 — network exposure
 
@@ -96,7 +100,7 @@ surfaced the underlying need:
 Tracked as GitHub issues in this repo, not described inline. Items
 currently open:
 
-- **Email-based recovery flow** (finding 5-i) — #62
+_None — all Tier-1 audit findings resolved as of 2026-05-22._
 
 ## Things deliberately not done
 
