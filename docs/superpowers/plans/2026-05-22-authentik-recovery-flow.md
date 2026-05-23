@@ -142,13 +142,22 @@ helm repo update authentik
 
 Expected: `...Successfully got an update from the "authentik" chart repository`.
 
-- [ ] **Step 2: Apply the chart upgrade**
+- [ ] **Step 2: Apply the chart upgrade — PIN THE VERSION**
+
+⚠ **An unpinned `helm upgrade authentik authentik/authentik` pulls the
+latest chart and silently bumps the Authentik + bundled postgres
+images.** On 2026-05-23 that drifted 2026.2.2 → 2026.5.0 and the new
+postgres image `ImagePullBackOff`'d, taking the `auth` namespace down
+(recovered via `helm rollback`). This is a values-only change, so pin
+to the currently-installed chart version:
 
 ```bash
-helm upgrade authentik authentik/authentik -n auth -f k8s/authentik/values.yaml
+CHART_VER="$(helm list -n auth -f '^authentik$' -o json | jq -r '.[0].chart' | sed 's/^authentik-//')"
+echo "pinning to chart $CHART_VER"   # expect 2026.2.2
+helm upgrade authentik authentik/authentik --version "$CHART_VER" -n auth -f k8s/authentik/values.yaml
 ```
 
-Expected: `Release "authentik" has been upgraded. Happy Helming!` and the revision number increments. The server + worker Deployments will roll one pod at a time.
+Expected: `Release "authentik" has been upgraded. Happy Helming!` and the revision number increments. The server Deployment rolls one pod (env-var-only change, no image move).
 
 - [ ] **Step 3: Wait for rollout**
 

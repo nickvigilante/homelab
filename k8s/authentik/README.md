@@ -135,10 +135,22 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
 
 ### Helm upgrade
 
+**Always pin `--version` to the currently-installed chart.** An
+unpinned `helm upgrade authentik authentik/authentik` (especially right
+after `helm repo update`) pulls the *latest* chart, which silently
+bumps both the Authentik image and the bundled postgres image. On
+2026-05-23 that drifted 2026.2.2 → 2026.5.0 and the new postgres image
+hit `ImagePullBackOff`, taking the whole `auth` namespace down. Pin the
+version so a values-only change never moves the images:
+
 ```bash
-helm -n auth upgrade authentik authentik/authentik -f values.yaml
+CHART_VER="$(helm list -n auth -f '^authentik$' -o json | jq -r '.[0].chart' | sed 's/^authentik-//')"
+helm -n auth upgrade authentik authentik/authentik --version "$CHART_VER" -f values.yaml
 kubectl -n auth rollout status deployment/authentik-server
 ```
+
+To intentionally bump Authentik, set `--version` to the target
+explicitly and read the release notes for migration steps first.
 
 ### Outbound SMTP (Forward Email)
 
@@ -166,10 +178,11 @@ Authentik sends mail for password recovery, breach alerts, and event notificatio
    unset BW_SESSION
    ```
 
-4. **Apply via helm upgrade.** The chart's existing values block already references this Secret via env vars; no manifest change is needed once the Secret exists.
+4. **Apply via helm upgrade.** The chart's existing values block already references this Secret via env vars; no manifest change is needed once the Secret exists. (Pin `--version`, per the "Helm upgrade" section above.)
 
    ```bash
-   helm -n auth upgrade authentik authentik/authentik -f values.yaml
+   CHART_VER="$(helm list -n auth -f '^authentik$' -o json | jq -r '.[0].chart' | sed 's/^authentik-//')"
+   helm -n auth upgrade authentik authentik/authentik --version "$CHART_VER" -f values.yaml
    kubectl -n auth rollout status deployment/authentik-server
    ```
 
