@@ -66,7 +66,7 @@ Remaining follow-ups are tracked as GitHub issues; see "Open follow-ups" at the 
 - The default Authentik recovery flow assumes outbound email exists,
   and at audit time none did. Tracked as finding 5-i (email-based
   recovery). **Resolved** by PR #56 (SMTP wiring) +
-  PR #<BACKFILL_AFTER_PR_CREATE> (flow binding, abuse policies,
+  PR #106 (flow binding, abuse policies,
   akadmin runbook). Email-based self-recovery is enabled for
   `homelab-users` (akadmin out of scope per blast-radius decision);
   abuse controls are a 3/hr per-IP rate limit plus a reputation deny
