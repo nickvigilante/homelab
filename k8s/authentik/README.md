@@ -294,3 +294,132 @@ bootstrapped with a local admin (e.g. Coder's first-visit form), the
 OIDC-created user lands as a member and needs manual promotion via the
 downstream's UI from the bootstrap account. See
 `../coder/README.md` step 8 for the exact pattern.
+
+### Self-service password recovery (homelab-users only)
+
+`homelab-users` members can reset their own password via the "Forgot
+password?" link on `https://authentik.vigihome.net/`. The flow is
+**not** available to akadmin or any other admin account — see the
+"akadmin recovery — last-resort paths" section below for the operator
+runbook.
+
+**How it's wired (all UI-managed, lives in postgres):**
+
+| Object | Where | Settings |
+|---|---|---|
+| Group `homelab-users` | Directory → Groups | Membership gates which users see the recovery link |
+| Policy `recovery-allowed-group` | Customization → Policies (Group Membership) | Group: `homelab-users`, negate: OFF |
+| Policy `recovery-rate-limit` | Customization → Policies (Rate Limit) | 3 requests / 3600s, key: `request.context.remote_ip` |
+| Policy `recovery-reputation` | Customization → Policies (Reputation) | Threshold: -3, check IP + username, negate: OFF |
+| Stage `default-email-recovery` | Flows & Stages → Stages | Subject: `vigihome.net — password reset requested`, token_expiry: `hours=1` |
+| Flow `default-recovery-flow` | Flows & Stages → Flows | 3 policy bindings (orders 10/20/30) on the 3 policies above |
+| Flow `default-authentication-flow` | Flows & Stages → Flows | `recovery_flow` field set to `default-recovery-flow` |
+| Helm env `AUTHENTIK_EMAIL__FROM` | `k8s/authentik/values.yaml` | `"vigihome auth <noreply@vigihome.net>"` (display name) |
+
+**Abuse posture:**
+
+- Group membership: non-`homelab-users` accounts (including akadmin)
+  cannot proceed past the identification stage. The on-screen response
+  is generic ("if an account exists…") — same response for valid and
+  invalid identifiers, so the flow doesn't leak account existence.
+- Rate limit: 3 emails per hour per requesting IP. Fourth attempt
+  shows a generic "try again later" message and sends no email.
+- Reputation: after roughly 3 failed logins in a short window, the
+  requesting IP's reputation score drops below -3 and the recovery
+  flow refuses to advance for that IP (same generic response).
+
+**Why these settings (full rationale):**
+
+See `docs/superpowers/specs/2026-05-20-authentik-recovery-flow-design.md`.
+
+**Postgres dependency:**
+
+All of the above (except the Helm env var) lives in the `authentik`
+postgres database. The nightly restic backup captures the postgres
+PVC, so a worst-case rebuild restores everything. A from-scratch
+rebuild **without** the postgres restore (e.g., if `AUTHENTIK_SECRET_KEY`
+is lost and the DB has to be re-initialized) means redoing the UI
+clicks documented above. This is captured by issue #104 (Blueprints
+migration), which would let the same config land as YAML applied by
+the Authentik worker at startup.
+
+**Reapply on rebuild (in order):**
+
+1. `homelab-users` group exists (likely re-created automatically by
+   the OIDC enrollment property mapping).
+2. Create the three policies above.
+3. Edit the `default-email-recovery` stage (subject + token_expiry).
+4. Bind the three policies to `default-recovery-flow` at orders
+   10/20/30.
+5. Set `default-authentication-flow.recovery_flow` to
+   `default-recovery-flow`.
+
+### akadmin recovery — last-resort paths
+
+akadmin is the break-glass account and is deliberately excluded from
+the self-service recovery flow above. When akadmin's password is lost
+or needs rotating, use one of these two paths.
+
+<!-- TODO: mirror this entire section to the Outline wiki when #92 lands -->
+
+**Path A — postgres-direct via `ak shell`** (preferred when ssh +
+kubectl access to the cluster are available, which is the common case
+from gandalf or the operator laptop on tailnet):
+
+```bash
+# On the laptop (kubectl context = homelab):
+
+# 1. Sanity-check akadmin exists
+kubectl -n auth exec -it statefulset/authentik-postgresql -- \
+  bash -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -U authentik -d authentik \
+    -c "SELECT id, username, email FROM authentik_core_user WHERE username = '"'"'akadmin'"'"';"'
+
+# 2. Reset the password via the management shell (Django hashes it
+#    before writing, so the literal here is plaintext)
+kubectl -n auth exec -it deployment/authentik-server -- \
+  ak shell -c "from authentik.core.models import User; \
+    u = User.objects.get(username='akadmin'); \
+    u.set_password('REPLACE_WITH_NEW_PASSWORD'); \
+    u.save()"
+
+# 3. Update Bitwarden item 'Homelab Authentik' with the new password
+```
+
+**Path B — bootstrap-token via the Authentik API** (for when shell
+access is harder than API access, but the bootstrap token cached in
+Bitwarden is available):
+
+```bash
+# On any machine with curl + bw + jq + tailnet access to vigihome:
+
+# 1. Unlock Bitwarden and pull the bootstrap token
+BW_SESSION="$(bw unlock --raw)"
+TOKEN="$(bw get item 'Homelab Authentik' \
+  | jq -r '.fields[] | select(.name=="bootstrap-token") | .value')"
+
+# 2. Look up akadmin's primary key
+AKADMIN_PK="$(curl -sSf -H "Authorization: Bearer $TOKEN" \
+  'https://authentik.vigihome.net/api/v3/core/users/?username=akadmin' \
+  | jq -r '.results[0].pk')"
+
+# 3. Reset the password
+curl -sSf -H "Authorization: Bearer $TOKEN" \
+  -X POST "https://authentik.vigihome.net/api/v3/core/users/$AKADMIN_PK/set_password/" \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"REPLACE_WITH_NEW_PASSWORD"}'
+
+# 4. Update Bitwarden item 'Homelab Authentik' with the new password
+```
+
+**Bootstrap token rotation:** the bootstrap token is admin-equivalent.
+If used during recovery (Path B), rotate it afterward — edit
+`AUTHENTIK_BOOTSTRAP_TOKEN` in chart values and `helm upgrade authentik
+-n auth -f k8s/authentik/values.yaml`. Update Bitwarden in lockstep.
+
+**Testing the recovery flow:**
+
+The five end-to-end scenarios documented in
+`docs/superpowers/specs/2026-05-20-authentik-recovery-flow-design.md`
+(Testing section) are the regression checklist. Re-run them whenever
+the recovery flow is touched (chart upgrade, Authentik upgrade,
+policy change).
