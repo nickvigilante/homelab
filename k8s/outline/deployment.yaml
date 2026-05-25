@@ -59,9 +59,15 @@ spec:
         kubernetes.io/hostname: gandalf
       initContainers:
         # Idempotent schema migration — self-heals on every deploy/upgrade.
+        # Call the sequelize CLI directly, NOT `yarn db:migrate`: the image
+        # ships global Yarn 1.22 but the project pins Yarn 4 via Corepack, so
+        # `yarn` aborts before running anything. `--env=production-ssl-disabled`
+        # is required because server/config/database.js forces TLS in the
+        # `production` env and our in-cluster postgres serves plain TCP
+        # (PGSSLMODE only affects the app runtime, not the sequelize CLI).
         - name: migrate
           image: outlinewiki/outline:1.7.1
-          command: ["yarn", "db:migrate"]
+          command: ["node_modules/.bin/sequelize", "db:migrate", "--env=production-ssl-disabled"]
           envFrom:
             - configMapRef:
                 name: outline-env
