@@ -1,0 +1,168 @@
+# Outline app: ConfigMap (non-secret env) + Deployment + Service.
+# Raw manifests — Outline has no official chart and the app is a single
+# Deployment, so per the chart-vs-raw rule we stay raw.
+#
+# Postgres: bitnami release `postgres` (postgres-values.yaml).
+# Redis: redis.yaml. Uploads: Storj S3 (FILE_STORAGE=s3).
+# Auth: Authentik OIDC only — no local fallback (SPOF exception, see README).
+#
+# IMAGE TAG: pinned. Verify the current stable release at
+# https://github.com/outline/outline/releases and set it before first
+# apply; never use a moving `latest` tag (per the helm/image-pin lesson).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: outline-env
+  namespace: outline
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  URL: "https://docs.vigihome.net"
+  # Cluster-internal postgres has no TLS; Outline must not insist on it.
+  PGSSLMODE: "disable"
+  REDIS_URL: "redis://outline-redis.outline.svc.cluster.local:6379"
+  # ---- Storj S3 (file uploads) ----
+  FILE_STORAGE: "s3"
+  # Max upload size in bytes. Outline's built-in default (var unset) is ~1 MB;
+  # 100 MB here (phone photos can exceed 50 MB). Outline's own .env.sample
+  # suggests 262144000 (250 MB) if you want larger. Uploads go direct-to-S3,
+  # so no Traefik body-size change is needed.
+  FILE_STORAGE_UPLOAD_MAX_SIZE: "104857600"
+  AWS_REGION: "us-east-1"
+  AWS_S3_UPLOAD_BUCKET_URL: "https://gateway.storjshare.io"
+  AWS_S3_UPLOAD_BUCKET_NAME: "outline-uploads"
+  AWS_S3_FORCE_PATH_STYLE: "true"
+  AWS_S3_ACL: "private"
+  # ---- Authentik OIDC ----
+  OIDC_AUTH_URI: "https://authentik.vigihome.net/application/o/authorize/"
+  OIDC_TOKEN_URI: "https://authentik.vigihome.net/application/o/token/"
+  OIDC_USERINFO_URI: "https://authentik.vigihome.net/application/o/userinfo/"
+  OIDC_USERNAME_CLAIM: "preferred_username"
+  OIDC_DISPLAY_NAME: "Authentik"
+  OIDC_SCOPES: "openid profile email"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outline
+  namespace: outline
+  labels:
+    app: outline
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: outline
+  template:
+    metadata:
+      labels:
+        app: outline
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      initContainers:
+        # Idempotent schema migration — self-heals on every deploy/upgrade.
+        # Call the sequelize CLI directly, NOT `yarn db:migrate`: the image
+        # ships global Yarn 1.22 but the project pins Yarn 4 via Corepack, so
+        # `yarn` aborts before running anything. `--env=production-ssl-disabled`
+        # is required because server/config/database.js forces TLS in the
+        # `production` env and our in-cluster postgres serves plain TCP
+        # (PGSSLMODE only affects the app runtime, not the sequelize CLI).
+        - name: migrate
+          image: outlinewiki/outline:1.7.1
+          command: ["node_modules/.bin/sequelize", "db:migrate", "--env=production-ssl-disabled"]
+          envFrom:
+            - configMapRef:
+                name: outline-env
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: database-url
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: secret-key
+            - name: UTILS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: utils-secret
+      containers:
+        - name: outline
+          image: outlinewiki/outline:1.7.1
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: outline-env
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: database-url
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: secret-key
+            - name: UTILS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: utils-secret
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: s3-access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: s3-secret-key
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: oidc-client-id
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: outline-secrets
+                  key: oidc-client-secret
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /_health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /_health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline
+  namespace: outline
+spec:
+  selector:
+    app: outline
+  ports:
+    - port: 3000
+      targetPort: 3000

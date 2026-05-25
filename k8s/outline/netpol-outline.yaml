@@ -1,0 +1,68 @@
+# Lateral-movement hardening for the outline namespace (matches the
+# Authentik posture). k3s's bundled kube-router netpol controller still
+# whitelists local-node->Pod traffic, so kubelet probes keep working.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: outline-app-ingress
+  namespace: outline
+spec:
+  podSelector:
+    matchLabels:
+      app: outline
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: outline
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: outline-postgres-ingress
+  namespace: outline
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: outline
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: outline-redis-ingress
+  namespace: outline
+spec:
+  podSelector:
+    matchLabels:
+      app: outline-redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: outline
+      ports:
+        - port: 6379
+          protocol: TCP

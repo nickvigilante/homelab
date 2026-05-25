@@ -1,0 +1,37 @@
+# Helm values for the bitnami/postgresql chart that backs Outline.
+#
+# Why a separate Helm release: Outline ships no chart and no bundled
+# postgres, so we run postgres standalone (same pattern as Coder) and
+# point Outline at it via DATABASE_URL.
+#
+# Release name MUST be `postgres` so the bitnami StatefulSet auto-names
+# its PVC `data-postgres-postgresql-0`, matching pv-pvc.yaml.
+auth:
+  username: outline
+  database: outline
+  # Bitnami expects keys `password` (user) and `postgres-password`
+  # (superuser). Map them to the keys we store in outline-secrets.
+  existingSecret: outline-secrets
+  secretKeys:
+    adminPasswordKey: postgres-superuser-password
+    userPasswordKey: postgres-password
+
+primary:
+  persistence:
+    enabled: true
+    storageClass: manual
+    existingClaim: data-postgres-postgresql-0
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# kubelet creates the hostPath dir as root:root, but bitnami postgres
+# runs as uid 1001. Without this init container the pod CrashLoopBackOffs
+# on "cannot create directory ... Permission denied" on first start.
+volumePermissions:
+  enabled: true

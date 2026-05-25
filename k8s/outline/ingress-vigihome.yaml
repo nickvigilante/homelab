@@ -1,0 +1,29 @@
+# HTTPS Ingress for Outline at https://docs.vigihome.net.
+# Traefik terminates TLS on websecure (443) and proxies plain HTTP to
+# the outline Service on 3000. vigihome-tls is reflected into the
+# outline namespace by emberstack/reflector (see certificate.yaml).
+# DNS: the Pi-hole *.vigihome.net wildcard already resolves this host.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: outline-vigihome
+  namespace: outline
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - docs.vigihome.net
+      secretName: vigihome-tls
+  rules:
+    - host: docs.vigihome.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: outline
+                port:
+                  number: 3000

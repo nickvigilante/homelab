@@ -7,6 +7,7 @@
 #   - /opt/uptime-kuma/data                         (Uptime Kuma SQLite DB + monitor config)
 #   - /opt/authentik/postgres                       (Authentik PostgreSQL data; useless without AUTHENTIK_SECRET_KEY)
 #   - /opt/coder/postgres                           (Coder PostgreSQL data; workspace home dirs are NOT backed up)
+#   - /opt/outline/postgres                         (Outline PostgreSQL data; uploads live in Storj, not here)
 #   - /mnt/storage/syncthing                        (Syncthing config + Sync folders; the DCIM/Pixel-Downloads
 #                                                    folders are receiveonly from a phone and have no other replica
 #                                                    path, so this backup is the only off-host copy for those files)
@@ -162,6 +163,12 @@ spec:
                     --tag coder-postgres \
                     /backup/coder-postgres
                   echo
+                  echo "=== Outline postgres ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag outline-postgres \
+                    /backup/outline-postgres
+                  echo
                   echo "=== Syncthing data ==="
                   # Excludes Syncthing's database files — they're
                   # the index, which Syncthing rebuilds from the
@@ -235,6 +242,8 @@ spec:
                   readOnly: true
                 - name: coder-postgres
                   mountPath: /backup/coder-postgres
+                - name: outline-postgres
+                  mountPath: /backup/outline-postgres
                   readOnly: true
                 - name: syncthing-data
                   mountPath: /backup/syncthing
@@ -263,6 +272,12 @@ spec:
                 # the PV bind on first apply, but the CronJob change
                 # may land before postgres comes up).
                 path: /opt/coder/postgres
+                type: DirectoryOrCreate
+            - name: outline-postgres
+              hostPath:
+                # DirectoryOrCreate so the backup doesn't fail if this
+                # change lands before the Outline deploy creates the dir.
+                path: /opt/outline/postgres
                 type: DirectoryOrCreate
             - name: syncthing-data
               hostPath:
