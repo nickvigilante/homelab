@@ -71,9 +71,11 @@ global:
     # services may consume the same relay later, with each service
     # holding its own copy of the Secret per RBAC blast-radius hygiene).
     #
-    # The SMTP username also serves as the From address — Forward Email
-    # ties auth to a verified sender at the configured domain, and we
-    # reuse it for FROM rather than tracking a separate field.
+    # SMTP envelope sender (USERNAME) is the bare address — Forward Email
+    # ties SMTP AUTH to a verified sender at the configured domain.
+    # From: display name (FROM) is set independently as a literal below
+    # so recovery emails arrive as "vigihome auth <noreply@vigihome.net>"
+    # rather than the default "authentik <…>".
     - name: AUTHENTIK_EMAIL__HOST
       value: "smtp.forwardemail.net"
     - name: AUTHENTIK_EMAIL__PORT
@@ -95,10 +97,7 @@ global:
           name: smtp-relay
           key: smtp-password
     - name: AUTHENTIK_EMAIL__FROM
-      valueFrom:
-        secretKeyRef:
-          name: smtp-relay
-          key: smtp-username
+      value: "vigihome auth <noreply@vigihome.net>"
 
 authentik:
   log_level: info
