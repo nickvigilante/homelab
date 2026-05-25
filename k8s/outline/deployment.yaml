@@ -60,7 +60,7 @@ spec:
       initContainers:
         # Idempotent schema migration — self-heals on every deploy/upgrade.
         - name: migrate
-          image: outlinewiki/outline:0.85.1
+          image: outlinewiki/outline:1.7.1
           command: ["yarn", "db:migrate"]
           envFrom:
             - configMapRef:
@@ -83,7 +83,7 @@ spec:
                   key: utils-secret
       containers:
         - name: outline
-          image: outlinewiki/outline:0.85.1
+          image: outlinewiki/outline:1.7.1
           ports:
             - containerPort: 3000
           envFrom:
