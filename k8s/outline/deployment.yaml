@@ -23,6 +23,10 @@ data:
   REDIS_URL: "redis://outline-redis.outline.svc.cluster.local:6379"
   # ---- Storj S3 (file uploads) ----
   FILE_STORAGE: "s3"
+  # Max upload size in bytes. Outline's built-in default (var unset) is ~1 MB;
+  # 50 MB here. Outline's own .env.sample suggests 262144000 (250 MB) if you
+  # want larger. Uploads go direct-to-S3, so no Traefik body-size change needed.
+  FILE_STORAGE_UPLOAD_MAX_SIZE: "52428800"
   AWS_REGION: "us-east-1"
   AWS_S3_UPLOAD_BUCKET_URL: "https://gateway.storjshare.io"
   AWS_S3_UPLOAD_BUCKET_NAME: "outline-uploads"
