@@ -1,0 +1,52 @@
+# Throwaway Redis for Outline (cache + websocket pub/sub only). No
+# persistence and no auth on purpose: losing it on restart is harmless,
+# and it's only reachable in-cluster (locked down by networkpolicy.yaml).
+# Reachable at outline-redis.outline.svc.cluster.local:6379.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outline-redis
+  namespace: outline
+  labels:
+    app: outline-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: outline-redis
+  template:
+    metadata:
+      labels:
+        app: outline-redis
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["--save", "", "--appendonly", "no"]  # disable all persistence
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline-redis
+  namespace: outline
+spec:
+  selector:
+    app: outline-redis
+  ports:
+    - port: 6379
+      targetPort: 6379

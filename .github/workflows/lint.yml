@@ -61,6 +61,7 @@ jobs:
               -o -name 'ingress-*.yaml' \
               -o -name 'middleware-*.yaml' \
               -o -name 'netpol-*.yaml' \
+              -o -name redis.yaml \
             \) -print0 \
             | xargs -0 kubeconform \
                 -summary \
