@@ -1,0 +1,44 @@
+# Persistent storage for Outline's PostgreSQL. The bitnami/postgresql
+# StatefulSet adopts the PVC named `data-postgres-postgresql-0` when
+# installed with release name `postgres` in the `outline` namespace.
+#
+# Lose this PV -> lose all Outline content (documents, collections,
+# users). Uploaded files are NOT here — they live in Storj S3.
+# Restic snapshots /opt/outline/postgres nightly under tag
+# `outline-postgres` (see k8s/backup/backup-cronjob.yaml).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: outline-postgres-data
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/outline/postgres
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - gandalf
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-postgres-postgresql-0
+  namespace: outline
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 8Gi
+  volumeName: outline-postgres-data
