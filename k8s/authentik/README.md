@@ -318,32 +318,68 @@ runbook.
 
 **How it's wired (all UI-managed, lives in postgres):**
 
+Authentik ships no recovery flow by default, so this was built from
+scratch. There is **one** policy object — an Expression policy. (Note
+for anyone following an older draft: Authentik 2026.2 has no "Group
+Membership" or "Rate Limit" policy *types* — group gating is done with
+an expression, and there is no rate-limit primitive.)
+
 | Object | Where | Settings |
 |---|---|---|
-| Group `homelab-users` | Directory → Groups | Membership gates which users see the recovery link |
-| Policy `recovery-allowed-group` | Customization → Policies (Group Membership) | Group: `homelab-users`, negate: OFF |
-| Policy `recovery-rate-limit` | Customization → Policies (Rate Limit) | 3 requests / 3600s, key: `request.context.remote_ip` |
-| Policy `recovery-reputation` | Customization → Policies (Reputation) | Threshold: -3, check IP + username, negate: OFF |
-| Stage `default-email-recovery` | Flows & Stages → Stages | Subject: `vigihome.net — password reset requested`, token_expiry: `hours=1` |
-| Flow `default-recovery-flow` | Flows & Stages → Flows | 3 policy bindings (orders 10/20/30) on the 3 policies above |
-| Flow `default-authentication-flow` | Flows & Stages → Flows | `recovery_flow` field set to `default-recovery-flow` |
+| Group `homelab-users` | Directory → Groups | The group the recovery gate checks; non-members (incl. akadmin) can't reset |
+| Policy `recovery-allowed-group` | Customization → Policies (**Expression**) | Code below. Execution logging OFF |
+| Stage `recovery-identification` | Flows & Stages → Stages (Identification) | User fields: username + email; **Pretend user exists: ON**; case-insensitive matching ON |
+| Stage `recovery-email` | Flows & Stages → Stages (Email) | Use global settings: ON; Subject: `vigihome.net — password reset requested`; Template: Password Recovery; Token expiry: `hours=1` |
+| Stage `default-password-change-prompt` | (reused) | New-password prompt |
+| Stage `default-password-change-write` | (reused) | Writes the new password |
+| Flow `recovery` ("Password Recovery") | Flows & Stages → Flows | Designation: Recovery; Authentication: require no authentication. Stage bindings 10/20/30/40 = identification / email / prompt / write |
+| Bindings 20, 30, 40 | Stage bindings on the flow | Each: "Evaluate when flow is planned" **OFF**, "Evaluate when stage is run" **ON**, with `recovery-allowed-group` bound (order 0) |
+| Brand (default) | System → Brands | Recovery flow = `Password Recovery` — this is what surfaces "Forgot password?" on the login screen |
 | Helm env `AUTHENTIK_EMAIL__FROM` | `k8s/authentik/values.yaml` | `"vigihome auth <noreply@vigihome.net>"` (display name) |
+
+The policy (`recovery-allowed-group`):
+
+```python
+pending_user = request.context.get("pending_user")
+if not pending_user:
+    return False
+return ak_is_group_member(pending_user, name="homelab-users")
+```
+
+**How the gate works (and why it's built this way — both points were
+verified the hard way):**
+
+- Recovery users are **anonymous until the identification stage sets
+  `pending_user`**, so the group check cannot be a flow-level policy
+  binding — that evaluates at flow entry against the anonymous user and
+  denies *everyone*. It must read `request.context.get("pending_user")`
+  and run *after* identification, which is why bindings 20/30/40 use
+  "Evaluate when stage is run".
+- It is bound to **all three** post-identification stages, not just the
+  email stage. When the policy denies, Authentik *skips* the bound
+  stage — and if only the email stage were gated, a denied user's
+  skipped email stage cascades straight into the password-change prompt
+  (a full bypass; this was reproduced). Gating prompt + write as well
+  means a denied user runs out of stages and is bounced back to the
+  login flow having changed nothing.
+- `pending_user` **survives the emailed-link flow restore**, so a
+  legitimate member re-passes the gate at the prompt/write stages after
+  clicking through. (Confirmed end-to-end: member resets successfully,
+  akadmin dead-ends after identification.)
 
 **Abuse posture:**
 
-- Group membership: non-`homelab-users` accounts (including akadmin)
-  cannot proceed past the identification stage. The on-screen response
-  is generic ("if an account exists…") — same response for valid and
-  invalid identifiers, so the flow doesn't leak account existence.
-- Rate limit: 3 emails per hour per requesting IP. Fourth attempt
-  shows a generic "try again later" message and sends no email.
-- Reputation: after roughly 3 failed logins in a short window, the
-  requesting IP's reputation score drops below -3 and the recovery
-  flow refuses to advance for that IP (same generic response).
-
-**Why these settings (full rationale):**
-
-See `docs/superpowers/specs/2026-05-20-authentik-recovery-flow-design.md`.
+- Account-existence: the identification stage runs with "Pretend user
+  exists", so valid and invalid identifiers get the same response — the
+  flow doesn't leak which accounts exist.
+- Group gate: non-`homelab-users` accounts (including akadmin) can
+  neither receive a recovery email nor reach the password prompt.
+- **No rate-limit or reputation throttle.** Deliberately deferred (see
+  `audits/tier-1-authentik.md`, "Things deliberately not done"). With a
+  single member the residual risk is inbox spam, not account compromise
+  (completing a reset still requires access to the member's mailbox).
+  Revisit before `homelab-users` grows or recovery is opened more
+  broadly.
 
 **Postgres dependency:**
 
@@ -360,12 +396,15 @@ the Authentik worker at startup.
 
 1. `homelab-users` group exists (likely re-created automatically by
    the OIDC enrollment property mapping).
-2. Create the three policies above.
-3. Edit the `default-email-recovery` stage (subject + token_expiry).
-4. Bind the three policies to `default-recovery-flow` at orders
-   10/20/30.
-5. Set `default-authentication-flow.recovery_flow` to
-   `default-recovery-flow`.
+2. Create the `recovery-allowed-group` Expression policy (code above).
+3. Create the `recovery-identification` and `recovery-email` stages
+   (settings in the table above). `default-password-change-prompt` and
+   `default-password-change-write` already ship by default — reuse them.
+4. Create the `recovery` flow (designation Recovery), bind the four
+   stages at orders 10/20/30/40.
+5. On bindings 20/30/40 set "Evaluate when stage is run" ON /
+   "Evaluate when flow is planned" OFF, and bind `recovery-allowed-group`.
+6. Set the default Brand's Recovery flow to `Password Recovery`.
 
 ### akadmin recovery — last-resort paths
 
@@ -426,13 +465,25 @@ curl -sSf -H "Authorization: Bearer $TOKEN" \
 
 **Bootstrap token rotation:** the bootstrap token is admin-equivalent.
 If used during recovery (Path B), rotate it afterward — edit
-`AUTHENTIK_BOOTSTRAP_TOKEN` in chart values and `helm upgrade authentik
--n auth -f k8s/authentik/values.yaml`. Update Bitwarden in lockstep.
+`AUTHENTIK_BOOTSTRAP_TOKEN` in chart values and re-`helm upgrade`
+(pinned to the installed chart version, per the "Helm upgrade" section
+above). Update Bitwarden in lockstep.
 
 **Testing the recovery flow:**
 
-The five end-to-end scenarios documented in
+The as-built regression checklist — re-run whenever the recovery flow
+is touched (chart upgrade, Authentik upgrade, policy or stage change):
+
+1. **Member happy path:** a `homelab-users` member identifies, receives
+   the email, clicks the link, sets a new password, and the new
+   password authenticates.
+2. **Non-member denied:** akadmin (and any non-member) identifies and
+   then dead-ends — no email, no password prompt — bounced to the login
+   flow. Bind/stage skip must not cascade into the prompt.
+3. **No enumeration:** a non-existent identifier returns the same
+   on-screen response as a real one ("Pretend user exists" ON).
+
+The design rationale is in
 `docs/superpowers/specs/2026-05-20-authentik-recovery-flow-design.md`
-(Testing section) are the regression checklist. Re-run them whenever
-the recovery flow is touched (chart upgrade, Authentik upgrade,
-policy change).
+(see the as-built note at its top — the spec predates implementation
+and some specifics, e.g. rate-limiting, were dropped).

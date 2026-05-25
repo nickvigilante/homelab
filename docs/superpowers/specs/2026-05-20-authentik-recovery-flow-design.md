@@ -3,7 +3,15 @@
 **Date:** 2026-05-20
 **Audit reference:** `audits/tier-1-authentik.md`, finding 5-i
 **Issue:** #62
-**Status:** Design approved; awaiting implementation
+**Status:** Implemented 2026-05-25 — **with deviations.** This spec is
+retained for design rationale only; the **as-built source of truth is
+`k8s/authentik/README.md`**. Notably: Authentik ships no recovery flow
+(it was built from scratch, not "unbound" as stated below); there are no
+"Group Membership" / "Rate Limit" policy types (group gating is a single
+Expression policy on `pending_user`, bound to every post-identification
+stage); and the rate-limit and reputation abuse controls — including any
+rate-limit test scenario below — were dropped (deferred; see the audit
+doc's "Things deliberately not done").
 
 ## Problem
 

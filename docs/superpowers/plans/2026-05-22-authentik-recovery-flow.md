@@ -2,7 +2,33 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Land the email-based password recovery flow for `homelab-users` (akadmin excluded), with rate-limit + reputation abuse controls and a documented akadmin operator runbook.
+> ## ⚠ As-built deviations (2026-05-25)
+>
+> This plan did not survive contact with the live Authentik. It was
+> executed, but several core assumptions were wrong; the **as-built
+> source of truth is `k8s/authentik/README.md`** ("Self-service
+> password recovery" section). Key divergences:
+>
+> - **No recovery flow shipped** — it was built from scratch
+>   (Identification → Email → Prompt → User Write), not edited from a
+>   `default-recovery-flow` (which doesn't exist). The email stage
+>   `default-email-recovery` also doesn't exist; a `recovery-email`
+>   stage was created.
+> - **"Group Membership Policy" and "Rate Limit Policy" types don't
+>   exist** in Authentik 2026.2 (Tasks 4, 5). Group gating is a single
+>   **Expression** policy on `request.context.get("pending_user")`; the
+>   rate-limit was dropped entirely.
+> - **The gate can't bind at the flow level** — recovery users are
+>   anonymous until identification, so it binds to the email/prompt/write
+>   stage bindings with "evaluate when stage is run", and must cover all
+>   three (gating only the email stage lets the skip cascade into the
+>   password prompt — a verified bypass).
+> - **Reputation was dropped too** (Task 6) — deferred as a deliberate
+>   accepted risk for a single-member group (see the audit doc).
+>
+> Treat Tasks 4–9 below as historical intent, not instructions.
+
+**Goal:** Land the email-based password recovery flow for `homelab-users` (akadmin excluded), with a group-gated recovery flow built from scratch and a documented akadmin operator runbook. _(Original goal said "rate-limit + reputation abuse controls"; see the as-built note above — both were dropped.)_
 
 **Architecture:** One Helm values.yaml edit overrides the `AUTHENTIK_EMAIL__FROM` display name. Everything else is UI configuration against the live Authentik (2026.2.2) — group, three policies, one stage edit, two flow bindings — captured in the README so a from-scratch rebuild without the postgres restore can replay the clicks. The PR carries the values.yaml change, two new README sections (recovery + akadmin runbook), and the audit doc resolution.
 
