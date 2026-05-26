@@ -65,6 +65,14 @@ ingress:
 env:
   - name: HOMEPAGE_ALLOWED_HOSTS
     value: "vigihome.net,homepage.homepage.svc.cluster.local"
+  # OctoPrint widget API key — from the homepage-secrets Secret (Bitwarden:
+  # 'Homelab OctoPrint' / api-key). Referenced by the widget below as
+  # {{HOMEPAGE_VAR_OCTOPRINT_API_KEY}}. See README + secret.example.yaml.
+  - name: HOMEPAGE_VAR_OCTOPRINT_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: homepage-secrets
+        key: octoprint-api-key
 
 config:
   # Hand-curated initial list pointing at current *.home services.
@@ -97,6 +105,18 @@ config:
             href: https://syncthing.vigihome.net
             description: File sync
             icon: syncthing.png
+    - 3D Printing:
+        - OctoPrint:
+            href: https://octoprint.vigihome.net
+            description: 3D printer control
+            icon: octoprint.png
+            # Live widget — hits OctoPrint's API directly (Homepage pod → LAN),
+            # not the Ingress. Key injected via HOMEPAGE_VAR_OCTOPRINT_API_KEY
+            # (homepage-secrets Secret). See README.
+            widget:
+              type: octoprint
+              url: http://192.168.50.118:5000
+              key: "{{HOMEPAGE_VAR_OCTOPRINT_API_KEY}}"
 
   widgets:
     - kubernetes:
@@ -131,6 +151,9 @@ config:
         style: row
         columns: 3
       Applications:
+        style: row
+        columns: 3
+      3D Printing:
         style: row
         columns: 3
     theme: dark

@@ -105,6 +105,36 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
   `kubectl delete -f namespace.yaml`. Removing the Pi-hole DNS record
   is a manual cleanup step in the web UI.
 
+## Service widgets & secrets
+
+Integrated services use their **live Homepage widget** (not just a link
+tile). A widget that hits an authenticated API needs a key, injected via the
+`homepage-secrets` Secret → a `HOMEPAGE_VAR_*` env var (in `values.yaml`
+`env:`) → `{{HOMEPAGE_VAR_...}}` in the widget config. Widgets target the
+service's **direct / in-cluster address**, never an Authentik-gated Ingress,
+so forward-auth can't block the widget's API calls.
+
+`secret.example.yaml` documents the keys in `homepage-secrets`.
+
+**OctoPrint widget** (`octoprint.vigihome.net`):
+
+1. Generate an OctoPrint API key (Settings → Application Keys) and store it in
+   Bitwarden item `Homelab OctoPrint`, field `api-key`.
+2. Create the Secret in the `homepage` namespace:
+   ```sh
+   export BW_SESSION="$(bw unlock --raw)"; bw sync
+   kubectl -n homepage create secret generic homepage-secrets \
+     --from-literal=octoprint-api-key="$(bw get item 'Homelab OctoPrint' | jq -r '.fields[]|select(.name=="api-key")|.value')"
+   unset BW_SESSION
+   ```
+3. `helm upgrade` so the new `env` + widget load (pin the version):
+   ```sh
+   helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0 -f values.yaml
+   ```
+
+The widget points at `http://192.168.50.118:5000` directly (Homepage pod →
+LAN), so it works regardless of the public Ingress.
+
 ## Pitfalls
 
 - **`HOMEPAGE_ALLOWED_HOSTS` is mandatory on Homepage v1.x.** Without

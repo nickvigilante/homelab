@@ -1,0 +1,88 @@
+# OctoPrint runs on a separate host at 192.168.50.118:5000, outside the
+# k3s cluster. This file wires it into the vigihome.net TLS/DNS stack with
+# three resources (same pattern as k8s/home-assistant/):
+#
+#   1. Service (no selector) — a ClusterIP with no Pod backing.
+#   2. EndpointSlice — manually points the Service at OctoPrint's IP:port.
+#      The `kubernetes.io/service-name` label is what k8s uses to associate
+#      the slice with its Service.
+#   3. Ingress — terminates TLS at https://octoprint.vigihome.net with the
+#      reflected wildcard vigihome-tls cert and proxies plain HTTP to
+#      OctoPrint. Traefik passes OctoPrint's websockets through fine.
+#
+# Auth: OctoPrint's native login stays ON (it has no OIDC, so there's no
+# Authentik integration here). Access is gated by being LAN/tailnet-only
+# per the vigihome private-only rule. The Homepage widget talks to
+# OctoPrint's API directly (see k8s/homepage), not through this Ingress,
+# so it is unaffected by anything here.
+#
+# OctoPrint is self-managed / off-cluster — its config + SD card are NOT in
+# the restic backup. If the printer host's IP changes, update the
+# EndpointSlice address below and re-apply.
+#
+# OctoPrint-side note: behind a reverse proxy OctoPrint may show a
+# "reverse proxy configured incorrectly" banner and/or build wrong (http)
+# URLs. If so, set `server.reverseProxy` in OctoPrint's config.yaml so it
+# trusts the forwarded headers (X-Forwarded-Proto=https, X-Forwarded-Host)
+# — analogous to Home Assistant's trusted_proxies. The webcam stream is
+# configured separately in OctoPrint (Settings → Webcam); on a raw :5000
+# install it loads client-side and may stay LAN-direct rather than via
+# this Ingress (fine — the Homepage widget doesn't use the webcam).
+apiVersion: v1
+kind: Service
+metadata:
+  name: octoprint
+  namespace: octoprint
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: octoprint-host
+  namespace: octoprint
+  labels:
+    # Required: this is how k8s associates the slice with its Service.
+    kubernetes.io/service-name: octoprint
+addressType: IPv4
+endpoints:
+  - addresses:
+      - 192.168.50.118
+    # No explicit conditions block — kube-proxy treats the endpoint as ready.
+ports:
+  - name: http
+    port: 5000
+    protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: octoprint
+  namespace: octoprint
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - octoprint.vigihome.net
+      # Reflected into the `octoprint` namespace by emberstack/reflector
+      # via cert-manager's secretTemplate annotations on
+      # k8s/cert-manager/certificate.yaml.
+      secretName: vigihome-tls
+  rules:
+    - host: octoprint.vigihome.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: octoprint
+                port:
+                  number: 5000
