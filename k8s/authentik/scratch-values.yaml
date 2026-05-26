@@ -1,0 +1,43 @@
+# Throwaway Authentik for validating blueprints from an EMPTY postgres.
+# Namespace: auth-scratch. ClusterIP only (no ingress, no host ports) —
+# reach it via `kubectl -n auth-scratch port-forward`. Postgres uses the
+# k3s default local-path storageClass (dynamic, disposable) — NOT the
+# hostPath PV that prod uses. Delete the whole namespace when done.
+global:
+  env:
+    - name: AUTHENTIK_SECRET_KEY
+      value: "scratch-only-not-secret-0000000000000000000000000000"
+    - name: AUTHENTIK_BOOTSTRAP_PASSWORD
+      value: "scratch-admin"
+    - name: AUTHENTIK_BOOTSTRAP_TOKEN
+      value: "scratch-token-0000"
+    # The chart auto-wires postgres HOST/NAME/USER/PORT but NOT the
+    # password — prod supplies it via global.env too. Must match
+    # postgresql.auth.password below or the server can't connect.
+    - name: AUTHENTIK_POSTGRESQL__PASSWORD
+      value: "scratch-pg"
+    # Dummy OIDC secrets so the !Env references resolve on scratch.
+    - name: AUTHENTIK_OIDC_CODER_SECRET
+      value: "scratch-coder-secret"
+    - name: AUTHENTIK_OIDC_OUTLINE_SECRET
+      value: "scratch-outline-secret"
+server:
+  ingress:
+    enabled: false
+postgresql:
+  enabled: true
+  auth:
+    username: authentik
+    database: authentik
+    password: scratch-pg
+    postgresPassword: scratch-pg-super
+  primary:
+    persistence:
+      enabled: true
+      # default storageClass (local-path) — dynamic + disposable
+      storageClass: ""
+  # bitnami postgres runs as uid 1001; the local-path-provisioned dir is
+  # created root:root. Mirror prod's init-container chown so the pod
+  # doesn't CrashLoop on "permission denied" at first start.
+  volumePermissions:
+    enabled: true
