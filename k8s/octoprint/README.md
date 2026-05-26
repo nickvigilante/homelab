@@ -29,7 +29,7 @@ care about its settings/printer profiles.
 
 1. **Generate an OctoPrint API key** (Settings → Application Keys, or a user
    API key) and store it in Bitwarden item `Homelab OctoPrint`, field
-   `api-key`. The Homepage widget needs it (see `../homepage/README.md`).
+   `API key`. The Homepage widget needs it (see `../homepage/README.md`).
 
 2. **Reflect the TLS cert in.** Add `octoprint` to
    `reflection-auto-namespaces` on `../cert-manager/certificate.yaml` (done

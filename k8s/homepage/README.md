@@ -119,12 +119,12 @@ so forward-auth can't block the widget's API calls.
 **OctoPrint widget** (`octoprint.vigihome.net`):
 
 1. Generate an OctoPrint API key (Settings → Application Keys) and store it in
-   Bitwarden item `Homelab OctoPrint`, field `api-key`.
+   Bitwarden item `Homelab OctoPrint`, field `API key`.
 2. Create the Secret in the `homepage` namespace:
    ```sh
    export BW_SESSION="$(bw unlock --raw)"; bw sync
    kubectl -n homepage create secret generic homepage-secrets \
-     --from-literal=octoprint-api-key="$(bw get item 'Homelab OctoPrint' | jq -r '.fields[]|select(.name=="api-key")|.value')"
+     --from-literal=octoprint-api-key="$(bw get item 'Homelab OctoPrint' | jq -r '.fields[]|select(.name=="API key")|.value')"
    unset BW_SESSION
    ```
 3. `helm upgrade` so the new `env` + widget load (pin the version):
