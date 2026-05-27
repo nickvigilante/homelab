@@ -20,6 +20,7 @@ without per-namespace Certificate resources or hand-copying.
 ## One-time install
 
 1. **Apply the namespace:**
+
    ```sh
    kubectl apply -f namespace.yaml
    ```
@@ -27,6 +28,7 @@ without per-namespace Certificate resources or hand-copying.
 2. **Confirm the chart version**, then install. (Check
    `helm search repo emberstack/reflector` — version pin below was
    current at install time.)
+
    ```sh
    helm install reflector emberstack/reflector \
      --namespace reflector \
@@ -35,6 +37,7 @@ without per-namespace Certificate resources or hand-copying.
    ```
 
 3. **Wait for the controller pod to be Ready:**
+
    ```sh
    kubectl -n reflector get pod -w
    # reflector-xxxx   1/1   Running
@@ -88,8 +91,7 @@ spec:
   target namespace.
 
 - **Upgrade reflector:** bump the version pin above, then
-  `helm upgrade reflector emberstack/reflector -n reflector \
-  --version XX.YY.ZZ -f values.yaml`. Controller pod restarts; mirrors
+  `helm upgrade reflector emberstack/reflector -n reflector \ --version XX.YY.ZZ -f values.yaml`. Controller pod restarts; mirrors
   are not affected (state lives on the source Secret's annotations).
 
 - **Uninstall:** `helm uninstall reflector -n reflector` then

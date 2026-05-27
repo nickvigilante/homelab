@@ -5,13 +5,13 @@ so a from-scratch rebuild reconstructs them without a postgres restore.
 
 ## What's here
 
-| File | Captures |
-|------|----------|
-| `groups.yaml` | `homelab-users` group |
-| `email-scope-mapping.yaml` | Override the default `email` scope mapping to emit `email_verified: true` |
-| `recovery-flow.yaml` | Password-recovery flow + stages + the `homelab-users` group gate + brand wiring |
-| `applications/coder.yaml` | Coder OIDC provider + application + `homelab-users` gate |
-| `applications/outline.yaml` | Outline OIDC provider + application + `homelab-users` gate |
+| File                        | Captures                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `groups.yaml`               | `homelab-users` group                                                           |
+| `email-scope-mapping.yaml`  | Override the default `email` scope mapping to emit `email_verified: true`       |
+| `recovery-flow.yaml`        | Password-recovery flow + stages + the `homelab-users` group gate + brand wiring |
+| `applications/coder.yaml`   | Coder OIDC provider + application + `homelab-users` gate                        |
+| `applications/outline.yaml` | Outline OIDC provider + application + `homelab-users` gate                      |
 
 The files are flattened **by basename** into the `authentik-blueprints`
 ConfigMap (ConfigMap keys can't contain `/`, so the `applications/`

@@ -70,8 +70,8 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
 
 ## One-time setup
 
-1. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab
-   Authentik` with five custom fields:
+1. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab Authentik` with five custom fields:
+
    - `secret-key` — 60-char base64, Authentik's master encryption key
    - `postgres-password` — password for the `authentik` postgres user
    - `postgres-superuser-password` — password for the `postgres` superuser
@@ -140,8 +140,7 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
    has to initialize, then Authentik's worker runs migrations.
 
 6. **Add `/opt/authentik/postgres` to restic.** Edit `../backup/backup-cronjob.yaml`
-   to add the new hostPath source, then `kubectl apply -f
-   ../backup/backup-cronjob.yaml`. Mirror the `uptime-kuma-data` pattern.
+   to add the new hostPath source, then `kubectl apply -f ../backup/backup-cronjob.yaml`. Mirror the `uptime-kuma-data` pattern.
 
 7. **First login.** Open http://authentik.home/if/flow/initial-setup/ and
    log in as `akadmin` with the bootstrap password. Set a permanent
@@ -177,6 +176,7 @@ Authentik sends mail for password recovery, breach alerts, and event notificatio
 1. **Forward Email dashboard:** verify your sender domain (MX + SPF + DKIM + DMARC records in DNS — Forward Email's UI walks through these). Generate SMTP credentials on the **Outbound Emails** page.
 
 2. **Save to Bitwarden** as item `Homelab Mail Relay` with these custom fields:
+
    - `smtp-host` → `smtp.forwardemail.net`
    - `smtp-port` → `465`
    - `smtp-username` → the verified sender at your domain (e.g. `noreply@vigihome.net`)
@@ -232,7 +232,7 @@ What it does:
 3. Auto-discovers every OAuth2/OIDC provider and PATCHes each `signing_key` to the new keypair.
 4. Restarts `authentik-server` for a clean JWKS cache.
 5. Verifies every Application's JWKS endpoint serves the new key's `kid`.
-6. Optionally emails a run summary (if SMTP_* env vars are set — wire from the Forward Email creds in Bitwarden `Homelab Mail Relay`).
+6. Optionally emails a run summary (if SMTP\_\* env vars are set — wire from the Forward Email creds in Bitwarden `Homelab Mail Relay`).
 
 Flags:
 
@@ -342,18 +342,18 @@ Membership" or "Rate Limit" policy *types* — group gating is done with
 an expression, and there is no rate-limit primitive.) The table below
 documents what the blueprint creates:
 
-| Object | Where | Settings |
-|---|---|---|
-| Group `homelab-users` | Directory → Groups | The group the recovery gate checks; non-members (incl. akadmin) can't reset |
-| Policy `recovery-allowed-group` | Customization → Policies (**Expression**) | Code below. Execution logging OFF |
-| Stage `recovery-identification` | Flows & Stages → Stages (Identification) | User fields: username + email; **Pretend user exists: ON**; case-insensitive matching ON |
-| Stage `recovery-email` | Flows & Stages → Stages (Email) | Use global settings: ON; Subject: `vigihome.net — password reset requested`; Template: Password Recovery; Token expiry: `hours=1` |
-| Stage `default-password-change-prompt` | (reused) | New-password prompt |
-| Stage `default-password-change-write` | (reused) | Writes the new password |
-| Flow `recovery` ("Password Recovery") | Flows & Stages → Flows | Designation: Recovery; Authentication: require no authentication. Stage bindings 10/20/30/40 = identification / email / prompt / write |
-| Bindings 20, 30, 40 | Stage bindings on the flow | Each: "Evaluate when flow is planned" **OFF**, "Evaluate when stage is run" **ON**, with `recovery-allowed-group` bound (order 0) |
-| Brand (default) | System → Brands | Recovery flow = `Password Recovery` — this is what surfaces "Forgot password?" on the login screen |
-| Helm env `AUTHENTIK_EMAIL__FROM` | `k8s/authentik/values.yaml` | `"vigihome auth <noreply@vigihome.net>"` (display name) |
+| Object                                 | Where                                     | Settings                                                                                                                               |
+| -------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Group `homelab-users`                  | Directory → Groups                        | The group the recovery gate checks; non-members (incl. akadmin) can't reset                                                            |
+| Policy `recovery-allowed-group`        | Customization → Policies (**Expression**) | Code below. Execution logging OFF                                                                                                      |
+| Stage `recovery-identification`        | Flows & Stages → Stages (Identification)  | User fields: username + email; **Pretend user exists: ON**; case-insensitive matching ON                                               |
+| Stage `recovery-email`                 | Flows & Stages → Stages (Email)           | Use global settings: ON; Subject: `vigihome.net — password reset requested`; Template: Password Recovery; Token expiry: `hours=1`      |
+| Stage `default-password-change-prompt` | (reused)                                  | New-password prompt                                                                                                                    |
+| Stage `default-password-change-write`  | (reused)                                  | Writes the new password                                                                                                                |
+| Flow `recovery` ("Password Recovery")  | Flows & Stages → Flows                    | Designation: Recovery; Authentication: require no authentication. Stage bindings 10/20/30/40 = identification / email / prompt / write |
+| Bindings 20, 30, 40                    | Stage bindings on the flow                | Each: "Evaluate when flow is planned" **OFF**, "Evaluate when stage is run" **ON**, with `recovery-allowed-group` bound (order 0)      |
+| Brand (default)                        | System → Brands                           | Recovery flow = `Password Recovery` — this is what surfaces "Forgot password?" on the login screen                                     |
+| Helm env `AUTHENTIK_EMAIL__FROM`       | `k8s/authentik/values.yaml`               | `"vigihome auth <noreply@vigihome.net>"` (display name)                                                                                |
 
 The policy (`recovery-allowed-group`):
 

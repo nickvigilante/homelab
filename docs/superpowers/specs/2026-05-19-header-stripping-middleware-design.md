@@ -30,11 +30,11 @@ Single Traefik `Middleware` CRD in `kube-system`, referenced by name from the `w
 
 ### Why entryPoint default and not per-Ingress
 
-| Approach | Pros | Cons |
-|---|---|---|
-| **EntryPoint default middleware** (chosen) | One config change, applies to every HTTPS route automatically, new Ingresses get it for free | Requires HelmChartConfig edit; less visible to a reader skimming a service's `values.yaml` |
-| Per-Ingress annotation | Visible at each Ingress | Requires touching every `values.yaml` / raw Ingress; future Ingresses can silently skip; harder to keep in sync |
-| Cross-namespace single Middleware + each Ingress references it | Same as above, plus one source-of-truth | Requires `--providers.kubernetescrd.allowCrossNamespace=true` *and* still per-Ingress annotation |
+| Approach                                                       | Pros                                                                                         | Cons                                                                                                            |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **EntryPoint default middleware** (chosen)                     | One config change, applies to every HTTPS route automatically, new Ingresses get it for free | Requires HelmChartConfig edit; less visible to a reader skimming a service's `values.yaml`                      |
+| Per-Ingress annotation                                         | Visible at each Ingress                                                                      | Requires touching every `values.yaml` / raw Ingress; future Ingresses can silently skip; harder to keep in sync |
+| Cross-namespace single Middleware + each Ingress references it | Same as above, plus one source-of-truth                                                      | Requires `--providers.kubernetescrd.allowCrossNamespace=true` *and* still per-Ingress annotation                |
 
 The entryPoint approach wins because it's right-by-default. The trade-off (one extra config file to read alongside `values.yaml` to understand what runs on a request) is acceptable given the doc trail this spec leaves.
 
@@ -42,11 +42,11 @@ The entryPoint approach wins because it's right-by-default. The trade-off (one e
 
 Three forward-auth conventions exist in the wild:
 
-| Family | Origin | Headers |
-|---|---|---|
-| `X-Forwarded-*` auth subset | oauth2-proxy, traefik-forward-auth | `X-Forwarded-User`, `-Email`, `-Preferred-Username`, `-Groups`, `-Name`, `-Roles` |
-| `Remote-*` | Authelia, nginx `auth_request` | `Remote-User`, `-Email`, `-Groups`, `-Name` |
-| `X-Authentik-*` | Authentik outpost (proxy provider) | `X-Authentik-Username`, `-Groups`, `-Email`, `-Name`, `-Uid`, `-Jwt`, `-Meta-Jwks`, `-Meta-Outpost`, `-Meta-Provider`, `-Meta-App`, `-Meta-Version` |
+| Family                      | Origin                             | Headers                                                                                                                                             |
+| --------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Forwarded-*` auth subset | oauth2-proxy, traefik-forward-auth | `X-Forwarded-User`, `-Email`, `-Preferred-Username`, `-Groups`, `-Name`, `-Roles`                                                                   |
+| `Remote-*`                  | Authelia, nginx `auth_request`     | `Remote-User`, `-Email`, `-Groups`, `-Name`                                                                                                         |
+| `X-Authentik-*`             | Authentik outpost (proxy provider) | `X-Authentik-Username`, `-Groups`, `-Email`, `-Name`, `-Uid`, `-Jwt`, `-Meta-Jwks`, `-Meta-Outpost`, `-Meta-Provider`, `-Meta-App`, `-Meta-Version` |
 
 A downstream service that trusts *any* of these would be vulnerable. Stripping all three families covers the whole convention space at zero cost — legitimate browsers don't send these inbound.
 
@@ -62,12 +62,12 @@ When forward-auth lands, the route for that service will list both middlewares i
 
 ## File changes
 
-| File | Action | Purpose |
-|---|---|---|
-| `system/traefik-strip-auth-headers-middleware.yaml` | New | The Middleware CRD |
-| `system/traefik-helmchartconfig.yaml` | Modify | Add `ports.websecure.middlewares` reference |
-| `ansible/provision-gandalf.yml` | Modify | One new `copy` task to ship the Middleware to k3s's auto-apply manifest dir |
-| `audits/tier-1-authentik.md` | Modify | Flip finding 6-ii row from "Open" to "Resolved"; drop entry #1 from "Open follow-ups" |
+| File                                                | Action | Purpose                                                                               |
+| --------------------------------------------------- | ------ | ------------------------------------------------------------------------------------- |
+| `system/traefik-strip-auth-headers-middleware.yaml` | New    | The Middleware CRD                                                                    |
+| `system/traefik-helmchartconfig.yaml`               | Modify | Add `ports.websecure.middlewares` reference                                           |
+| `ansible/provision-gandalf.yml`                     | Modify | One new `copy` task to ship the Middleware to k3s's auto-apply manifest dir           |
+| `audits/tier-1-authentik.md`                        | Modify | Flip finding 6-ii row from "Open" to "Resolved"; drop entry #1 from "Open follow-ups" |
 
 ### `system/traefik-strip-auth-headers-middleware.yaml` (new)
 

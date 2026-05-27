@@ -39,10 +39,7 @@
         that:
           - tailscale_authkey | length > 0
         fail_msg: >
-          Set tailscale_authkey via --extra-vars. Generate a one-time
-          pre-authorized key tagged tag:homelab at
-          https://login.tailscale.com/admin/settings/keys.
-
+          Set tailscale_authkey via --extra-vars. Generate a one-time pre-authorized key tagged tag:homelab at https://login.tailscale.com/admin/settings/keys. #magic___^_^___line
     # Read the k3s join token from gandalf via delegate_to so the
     # operator can `--limit <pi>` without also listing gandalf in
     # the limit. `become: true` from the play applies to the
@@ -146,11 +143,7 @@
     - name: Bring up Tailscale with the tag:homelab tag
       ansible.builtin.command:
         cmd: >
-          tailscale up
-          --authkey={{ tailscale_authkey }}
-          --advertise-tags=tag:homelab
-          --hostname={{ inventory_hostname }}
-          --accept-dns=true
+          tailscale up --authkey={{ tailscale_authkey }} --advertise-tags=tag:homelab --hostname={{ inventory_hostname }} --accept-dns=true
       register: tailscale_up
       changed_when: "'Success.' in tailscale_up.stdout or tailscale_up.stdout == ''"
       # If already authed, tailscale up is idempotent; suppress error noise.
@@ -183,11 +176,7 @@
     - name: Apply node labels
       ansible.builtin.command:
         cmd: >
-          kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml label node {{ inventory_hostname }}
-          {% for key, value in k3s_node_labels.items() %}
-          {{ key }}={{ value }}
-          {% endfor %}
-          --overwrite
+          kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml label node {{ inventory_hostname }} {% for key, value in k3s_node_labels.items() %} {{ key }}={{ value }} {% endfor %} --overwrite
       when: k3s_node_labels | length > 0
       delegate_to: gandalf
       # kubectl on gandalf needs the kubeconfig (root-only by default).

@@ -53,7 +53,7 @@ addressType: IPv4
 endpoints:
   - addresses:
       - 192.168.50.118
-    # No explicit conditions block — kube-proxy treats the endpoint as ready.
+      # No explicit conditions block — kube-proxy treats the endpoint as ready.
 ports:
   - name: http
     port: 5000

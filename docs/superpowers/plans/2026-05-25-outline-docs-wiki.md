@@ -14,34 +14,36 @@
 
 **Execution note:** This plan interleaves repo-file authoring (Tasks 1–9, committable with no live impact) with operator-driven external setup (Tasks 10–12: Storj console, Authentik UI, Bitwarden) and live cluster applies (Tasks 13–16). Tag every command with the machine it runs on. `kubectl`/`helm` run from the operator's machine with the homelab kube-context; UI/console steps run in a browser; secret material is sourced from Bitwarden at apply time and never committed.
 
----
+______________________________________________________________________
 
 ## File / state structure
 
-| Path | Action | Task |
-|------|--------|------|
-| `k8s/outline/namespace.yaml` | Create | 1 |
-| `k8s/outline/pv-pvc.yaml` | Create | 1 |
-| `k8s/outline/postgres-values.yaml` | Create | 2 |
-| `k8s/outline/redis.yaml` | Create | 3 |
-| `.github/workflows/lint.yml` | Modify (add `redis.yaml`, `networkpolicy.yaml`) | 3 |
-| `k8s/outline/deployment.yaml` | Create (ConfigMap + Deployment + Service) | 4 |
-| `k8s/outline/ingress-vigihome.yaml` | Create | 5 |
-| `k8s/cert-manager/certificate.yaml` | Modify (add `outline` to reflection list) | 5 |
-| `k8s/outline/networkpolicy.yaml` | Create | 6 |
-| `k8s/outline/secret.example.yaml` | Create | 7 |
-| `k8s/outline/README.md` | Create | 8 |
-| `k8s/backup/backup-cronjob.yaml` | Modify (add `outline-postgres`) | 9 |
-| Storj bucket + S3 gateway creds | Create (external) | 10 |
-| Authentik OIDC provider + application | Create (UI) | 11 |
-| Bitwarden item `Homelab Outline` + `outline-secrets` Secret | Create | 12 |
+| Path                                                        | Action                                          | Task |
+| ----------------------------------------------------------- | ----------------------------------------------- | ---- |
+| `k8s/outline/namespace.yaml`                                | Create                                          | 1    |
+| `k8s/outline/pv-pvc.yaml`                                   | Create                                          | 1    |
+| `k8s/outline/postgres-values.yaml`                          | Create                                          | 2    |
+| `k8s/outline/redis.yaml`                                    | Create                                          | 3    |
+| `.github/workflows/lint.yml`                                | Modify (add `redis.yaml`, `networkpolicy.yaml`) | 3    |
+| `k8s/outline/deployment.yaml`                               | Create (ConfigMap + Deployment + Service)       | 4    |
+| `k8s/outline/ingress-vigihome.yaml`                         | Create                                          | 5    |
+| `k8s/cert-manager/certificate.yaml`                         | Modify (add `outline` to reflection list)       | 5    |
+| `k8s/outline/networkpolicy.yaml`                            | Create                                          | 6    |
+| `k8s/outline/secret.example.yaml`                           | Create                                          | 7    |
+| `k8s/outline/README.md`                                     | Create                                          | 8    |
+| `k8s/backup/backup-cronjob.yaml`                            | Modify (add `outline-postgres`)                 | 9    |
+| Storj bucket + S3 gateway creds                             | Create (external)                               | 10   |
+| Authentik OIDC provider + application                       | Create (UI)                                     | 11   |
+| Bitwarden item `Homelab Outline` + `outline-secrets` Secret | Create                                          | 12   |
 
----
+______________________________________________________________________
 
 ## Task 1: Namespace + postgres PV/PVC
 
 **Files:**
+
 - Create: `k8s/outline/namespace.yaml`
+
 - Create: `k8s/outline/pv-pvc.yaml`
 
 - [ ] **Step 1: Write `k8s/outline/namespace.yaml`**
@@ -105,9 +107,11 @@ spec:
 - [ ] **Step 3: Validate locally with kubeconform**
 
 Run (laptop, repo root):
+
 ```bash
 kubeconform -strict -summary k8s/outline/namespace.yaml k8s/outline/pv-pvc.yaml
 ```
+
 Expected: `Valid: 3, Invalid: 0` (Namespace + PV + PVC).
 
 - [ ] **Step 4: Commit**
@@ -117,11 +121,12 @@ git add k8s/outline/namespace.yaml k8s/outline/pv-pvc.yaml
 git commit -m "Outline: namespace + postgres PV/PVC (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 2: Postgres Helm values
 
 **Files:**
+
 - Create: `k8s/outline/postgres-values.yaml`
 
 - [ ] **Step 1: Write `k8s/outline/postgres-values.yaml`**
@@ -173,12 +178,14 @@ git add k8s/outline/postgres-values.yaml
 git commit -m "Outline: bitnami postgres values (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 3: Redis manifest + lint filter
 
 **Files:**
+
 - Create: `k8s/outline/redis.yaml`
+
 - Modify: `.github/workflows/lint.yml`
 
 - [ ] **Step 1: Write `k8s/outline/redis.yaml`**
@@ -253,9 +260,11 @@ Modify `.github/workflows/lint.yml` — the file-name filter (around line 53-61)
 - [ ] **Step 3: Validate Redis manifest**
 
 Run (laptop):
+
 ```bash
 kubeconform -strict -summary k8s/outline/redis.yaml
 ```
+
 Expected: `Valid: 2, Invalid: 0` (Deployment + Service).
 
 - [ ] **Step 4: Commit**
@@ -265,11 +274,12 @@ git add k8s/outline/redis.yaml .github/workflows/lint.yml
 git commit -m "Outline: ephemeral Redis + lint filter (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 4: Outline ConfigMap + Deployment + Service
 
 **Files:**
+
 - Create: `k8s/outline/deployment.yaml`
 
 Env is split: non-secret values in a ConfigMap (`outline-env`); secret values mapped individually from the `outline-secrets` Secret (created in Task 12) via `secretKeyRef` — NOT `envFrom`, because the Secret also holds postgres keys whose hyphenated names are invalid env vars. The `migrate` initContainer runs `yarn db:migrate` (idempotent) before the app starts.
@@ -439,9 +449,11 @@ spec:
 - [ ] **Step 2: Validate**
 
 Run (laptop):
+
 ```bash
 kubeconform -strict -summary k8s/outline/deployment.yaml
 ```
+
 Expected: `Valid: 3, Invalid: 0` (ConfigMap + Deployment + Service).
 
 - [ ] **Step 3: Commit**
@@ -451,12 +463,14 @@ git add k8s/outline/deployment.yaml
 git commit -m "Outline: app Deployment, Service, env ConfigMap (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 5: Ingress + TLS reflection
 
 **Files:**
+
 - Create: `k8s/outline/ingress-vigihome.yaml`
+
 - Modify: `k8s/cert-manager/certificate.yaml`
 
 - [ ] **Step 1: Write `k8s/outline/ingress-vigihome.yaml`**
@@ -496,10 +510,13 @@ spec:
 - [ ] **Step 2: Add `outline` to the reflection list in `k8s/cert-manager/certificate.yaml`**
 
 Find the line (≈41):
+
 ```yaml
       reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "homepage,networking,auth,monitoring,media,syncthing,coder,home-assistant"
 ```
+
 Append `,outline`:
+
 ```yaml
       reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "homepage,networking,auth,monitoring,media,syncthing,coder,home-assistant,outline"
 ```
@@ -507,9 +524,11 @@ Append `,outline`:
 - [ ] **Step 3: Validate**
 
 Run (laptop):
+
 ```bash
 kubeconform -strict -summary k8s/outline/ingress-vigihome.yaml k8s/cert-manager/certificate.yaml
 ```
+
 Expected: `Valid: 2, Invalid: 0` (Ingress + Certificate).
 
 - [ ] **Step 4: Commit**
@@ -519,11 +538,12 @@ git add k8s/outline/ingress-vigihome.yaml k8s/cert-manager/certificate.yaml
 git commit -m "Outline: vigihome Ingress + TLS reflection (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 6: NetworkPolicy
 
 **Files:**
+
 - Create: `k8s/outline/networkpolicy.yaml`
 
 Three policies: Outline app reachable on 3000 only from Traefik + same-namespace; postgres (5432) and redis (6379) reachable only from same-namespace.
@@ -604,9 +624,11 @@ spec:
 - [ ] **Step 2: Validate**
 
 Run (laptop):
+
 ```bash
 kubeconform -strict -summary k8s/outline/networkpolicy.yaml
 ```
+
 Expected: `Valid: 3, Invalid: 0`.
 
 - [ ] **Step 3: Commit**
@@ -616,11 +638,12 @@ git add k8s/outline/networkpolicy.yaml
 git commit -m "Outline: NetworkPolicies for app/postgres/redis (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 7: secret.example.yaml
 
 **Files:**
+
 - Create: `k8s/outline/secret.example.yaml`
 
 - [ ] **Step 1: Write `k8s/outline/secret.example.yaml`**
@@ -662,11 +685,12 @@ git add k8s/outline/secret.example.yaml
 git commit -m "Outline: secret.example.yaml (key shape) (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 8: README runbook
 
 **Files:**
+
 - Create: `k8s/outline/README.md`
 
 - [ ] **Step 1: Write `k8s/outline/README.md`**
@@ -680,16 +704,18 @@ git add k8s/outline/README.md
 git commit -m "Outline: setup runbook + SPOF exception note (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 9: Backup wiring
 
 **Files:**
+
 - Modify: `k8s/backup/backup-cronjob.yaml`
 
 - [ ] **Step 1: Add the restic backup block**
 
 In `k8s/backup/backup-cronjob.yaml`, after the Coder postgres `restic backup` block (≈line 163), add:
+
 ```bash
                   echo "=== Outline postgres ==="
                   restic backup \
@@ -700,6 +726,7 @@ In `k8s/backup/backup-cronjob.yaml`, after the Coder postgres `restic backup` bl
 - [ ] **Step 2: Add the volumeMount**
 
 After the `coder-postgres` volumeMount (≈line 237):
+
 ```yaml
                 - name: outline-postgres
                   mountPath: /backup/outline-postgres
@@ -708,6 +735,7 @@ After the `coder-postgres` volumeMount (≈line 237):
 - [ ] **Step 3: Add the volume**
 
 After the `coder-postgres` volume (≈line 265):
+
 ```yaml
             - name: outline-postgres
               hostPath:
@@ -720,6 +748,7 @@ After the `coder-postgres` volume (≈line 265):
 - [ ] **Step 4: Update the header comment**
 
 In the top comment block listing backed-up paths (≈line 9), add after the coder line:
+
 ```
 #   - /opt/outline/postgres                         (Outline PostgreSQL data; uploads live in Storj, not here)
 ```
@@ -727,9 +756,11 @@ In the top comment block listing backed-up paths (≈line 9), add after the code
 - [ ] **Step 5: Validate**
 
 Run (laptop):
+
 ```bash
 kubeconform -strict -summary k8s/backup/backup-cronjob.yaml
 ```
+
 Expected: `Valid: 1, Invalid: 0`.
 
 - [ ] **Step 6: Commit**
@@ -739,7 +770,7 @@ git add k8s/backup/backup-cronjob.yaml
 git commit -m "Outline: add postgres to nightly restic backup (#92)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 10: Create Storj bucket + S3 gateway credentials (operator, external)
 
@@ -761,27 +792,37 @@ Add fields `s3-access-key` and `s3-secret-key` to Bitwarden item **`Homelab Outl
 AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret> \
   aws --endpoint-url https://gateway.storjshare.io s3 ls s3://outline-uploads
 ```
+
 Expected: no error (empty listing is fine).
 
----
+______________________________________________________________________
 
 ## Task 11: Create the Authentik OIDC provider + application (operator, UI)
 
 - [ ] **Step 1: Create an OAuth2/OpenID provider**
 
 Authentik admin → Applications → Providers → Create → **OAuth2/OpenID Provider**:
+
 - Name: `outline`
+
 - Authorization flow: the default implicit-consent authorization flow
+
 - Client type: Confidential
+
 - Redirect URIs (Strict): `https://docs.vigihome.net/auth/oidc.callback` (byte-exact)
+
 - Signing Key: the configured signing certificate
+
 - Scopes: openid, profile, email
+
 - Copy the generated **Client ID** and **Client Secret**.
 
 - [ ] **Step 2: Create the application**
 
 Applications → Applications → Create:
+
 - Name: `Outline`, Slug: `outline` (the slug appears in the issuer URL)
+
 - Provider: `outline` (from Step 1)
 
 - [ ] **Step 3: Restrict to `homelab-users`**
@@ -797,9 +838,10 @@ Add fields `oidc-client-id` and `oidc-client-secret` to Bitwarden item **`Homela
 ```bash
 curl -sSf https://authentik.vigihome.net/application/o/outline/.well-known/openid-configuration | jq '.issuer, .authorization_endpoint, .token_endpoint, .userinfo_endpoint'
 ```
+
 Expected: the four URLs, with `authorization_endpoint`/`token_endpoint`/`userinfo_endpoint` matching the `OIDC_*_URI` values in `outline-env`.
 
----
+______________________________________________________________________
 
 ## Task 12: Generate secrets + create the `outline-secrets` Secret (operator)
 
@@ -811,6 +853,7 @@ UTILS_SECRET="$(openssl rand -hex 32)"
 PG_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=')"
 PG_SUPER_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=')"
 ```
+
 Record `SECRET_KEY`, `UTILS_SECRET`, `PG_PASSWORD`, `PG_SUPER_PASSWORD` as fields `secret-key`, `utils-secret`, `postgres-password`, `postgres-superuser-password` in Bitwarden item **`Homelab Outline`**.
 
 - [ ] **Step 2: Pull S3 + OIDC creds from Bitwarden and assemble the Secret (laptop)**
@@ -842,9 +885,10 @@ unset BW_SESSION SECRET_KEY UTILS_SECRET PG_PASSWORD PG_SUPER_PASSWORD S3_KEY S3
 ```bash
 kubectl -n outline get secret outline-secrets -o jsonpath='{.data}' | jq 'keys'
 ```
+
 Expected: `["database-url","oidc-client-id","oidc-client-secret","postgres-password","postgres-superuser-password","s3-access-key","s3-secret-key","secret-key","utils-secret"]`.
 
----
+______________________________________________________________________
 
 ## Task 13: Apply base resources + postgres + redis (live)
 
@@ -864,6 +908,7 @@ kubectl apply -f k8s/outline/networkpolicy.yaml
 ```bash
 kubectl -n outline get secret vigihome-tls
 ```
+
 Expected: the secret exists (reflector copies it within ~5s).
 
 - [ ] **Step 3: Install postgres (pinned version)**
@@ -876,6 +921,7 @@ echo "Pinning postgresql chart to $CHART_VER"
 helm -n outline install postgres bitnami/postgresql --version "$CHART_VER" -f k8s/outline/postgres-values.yaml
 kubectl -n outline rollout status statefulset/postgres-postgresql --timeout=180s
 ```
+
 Expected: `statefulset rolling update complete`, pod `postgres-postgresql-0` is `1/1`.
 
 - [ ] **Step 4: Confirm redis is up**
@@ -883,15 +929,17 @@ Expected: `statefulset rolling update complete`, pod `postgres-postgresql-0` is 
 ```bash
 kubectl -n outline rollout status deployment/outline-redis
 ```
+
 Expected: `deployment "outline-redis" successfully rolled out`.
 
----
+______________________________________________________________________
 
 ## Task 14: Apply Outline app + run migrations (live)
 
 - [ ] **Step 1: Pin the image tag, then apply**
 
 Confirm the `outlinewiki/outline:<tag>` in `deployment.yaml` is the current stable release (https://github.com/outline/outline/releases). Then (laptop):
+
 ```bash
 kubectl apply -f k8s/outline/deployment.yaml
 ```
@@ -901,10 +949,13 @@ kubectl apply -f k8s/outline/deployment.yaml
 ```bash
 kubectl -n outline get pods -w
 ```
+
 Expected: the `outline-…` pod shows `Init:0/1` → the migrate container completes → app container becomes `1/1 Running`. If it sticks in `Init`, inspect:
+
 ```bash
 kubectl -n outline logs deploy/outline -c migrate
 ```
+
 Expected migrate log: sequelize migrations run to completion with no error.
 
 - [ ] **Step 3: Apply the Ingress and confirm rollout**
@@ -913,9 +964,10 @@ Expected migrate log: sequelize migrations run to completion with no error.
 kubectl apply -f k8s/outline/ingress-vigihome.yaml
 kubectl -n outline rollout status deployment/outline --timeout=180s
 ```
+
 Expected: `deployment "outline" successfully rolled out`.
 
----
+______________________________________________________________________
 
 ## Task 15: Apply backup wiring (live)
 
@@ -932,9 +984,10 @@ kubectl -n backup create job --from=cronjob/restic-backup outline-backup-test
 kubectl -n backup wait --for=condition=complete job/outline-backup-test --timeout=300s
 kubectl -n backup logs job/outline-backup-test | grep -A2 'Outline postgres'
 ```
+
 Expected: the `=== Outline postgres ===` block runs and restic reports a snapshot saved for tag `outline-postgres`. Clean up: `kubectl -n backup delete job outline-backup-test`.
 
----
+______________________________________________________________________
 
 ## Task 16: End-to-end acceptance tests (live)
 
@@ -945,6 +998,7 @@ Maps to the spec's acceptance criteria.
 ```bash
 curl -sSI https://docs.vigihome.net/ | head -1
 ```
+
 Expected: `HTTP/2 200` (or a redirect to the OIDC login), served with a trusted `vigihome-tls` cert (no cert warning in a browser).
 
 - [ ] **Step 2: OIDC login as admin (browser)**
@@ -958,15 +1012,19 @@ In a private window, attempt sign-in as akadmin (not in `homelab-users`). Expect
 - [ ] **Step 4: Upload persists to Storj**
 
 In Outline, create a document and paste/insert an image. Then restart the app and confirm the image still renders:
+
 ```bash
 kubectl -n outline rollout restart deployment/outline
 kubectl -n outline rollout status deployment/outline
 ```
+
 Expected: after restart, the document's image still loads (served from Storj). Confirm the object exists:
+
 ```bash
 AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret> \
   aws --endpoint-url https://gateway.storjshare.io s3 ls --recursive s3://outline-uploads | head
 ```
+
 Expected: at least one uploaded object listed.
 
 - [ ] **Step 5: Postgres data survives pod restart**
@@ -975,9 +1033,10 @@ Expected: at least one uploaded object listed.
 kubectl -n outline delete pod postgres-postgresql-0
 kubectl -n outline rollout status statefulset/postgres-postgresql
 ```
+
 Expected: pod returns `1/1`; the document created in Step 4 is still present in Outline (data persisted on the PV).
 
----
+______________________________________________________________________
 
 ## Task 17: Finalize — repurpose #92, open + merge PR
 
@@ -1003,9 +1062,10 @@ gh pr create --base main --head outline-docs \
 gh pr checks; gh pr view --json mergeable,mergeStateStatus
 gh pr merge --squash
 ```
+
 Expected: PR merged, #92 closed.
 
----
+______________________________________________________________________
 
 ## Self-review notes
 

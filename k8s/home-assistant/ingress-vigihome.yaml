@@ -62,9 +62,9 @@ addressType: IPv4
 endpoints:
   - addresses:
       - 192.168.50.42
-    # No `conditions.ready: false` — assume HAOS is reachable.
-    # Without an explicit conditions block, kube-proxy treats the
-    # endpoint as ready.
+      # No `conditions.ready: false` — assume HAOS is reachable.
+      # Without an explicit conditions block, kube-proxy treats the
+      # endpoint as ready.
 ports:
   - name: http
     port: 8123

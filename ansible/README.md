@@ -33,13 +33,13 @@ ansible-playbook provision-gandalf.yml \
 
 ## What's in here
 
-| File | What it does |
-|------|--------------|
-| `ansible.cfg` | Defaults: inventory path, SSH multiplexing, YAML output, fact caching |
-| `inventory.yml` | Hosts grouped by role (`cluster_servers`, `cluster_agents`, `tailscale_only`). Pi entries are commented out until you image one. |
-| `provision-pi.yml` | Image-a-Pi-as-k3s-agent flow. Reads the k3s join token from gandalf, brings the Pi up on Tailscale with `tag:homelab`, installs the agent, joins the cluster. |
-| `provision-gandalf.yml` | Idempotent host-config maintenance for gandalf (the control plane). Covers baseline packages, the unattended-upgrades drop-in, and the k3s `secrets-encryption` flag. Not a from-scratch bootstrap — gandalf was set up by hand and this playbook intentionally avoids the risky bits (k3s install, rclone mount, LVM, fstab). |
-| `bin/mint-tailscale-authkey.sh` | Mints a single-use Tailscale auth key via the `opentofu-homelab` OAuth client and writes it to `~/.tailscale-authkey`. Run before each `provision-pi.yml` invocation. |
+| File                            | What it does                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ansible.cfg`                   | Defaults: inventory path, SSH multiplexing, YAML output, fact caching                                                                                                                                                                                                                                                          |
+| `inventory.yml`                 | Hosts grouped by role (`cluster_servers`, `cluster_agents`, `tailscale_only`). Pi entries are commented out until you image one.                                                                                                                                                                                               |
+| `provision-pi.yml`              | Image-a-Pi-as-k3s-agent flow. Reads the k3s join token from gandalf, brings the Pi up on Tailscale with `tag:homelab`, installs the agent, joins the cluster.                                                                                                                                                                  |
+| `provision-gandalf.yml`         | Idempotent host-config maintenance for gandalf (the control plane). Covers baseline packages, the unattended-upgrades drop-in, and the k3s `secrets-encryption` flag. Not a from-scratch bootstrap — gandalf was set up by hand and this playbook intentionally avoids the risky bits (k3s install, rclone mount, LVM, fstab). |
+| `bin/mint-tailscale-authkey.sh` | Mints a single-use Tailscale auth key via the `opentofu-homelab` OAuth client and writes it to `~/.tailscale-authkey`. Run before each `provision-pi.yml` invocation.                                                                                                                                                          |
 
 ## When you image a new Pi
 
@@ -68,6 +68,7 @@ ansible-playbook provision-gandalf.yml \
 2. **Image the SD card.**
 
    **OS choice:**
+
    - **Ubuntu Server 26.04 LTS (ARM64)** — default for cluster workers
      (frodo, samwise, future merry/pippin). Matches gandalf, so the same
      `provision-pi.yml` + `ansible.cfg` apply uniformly. Triggers the
@@ -79,6 +80,7 @@ ansible-playbook provision-gandalf.yml \
      `ansible_become_exe` override in the inventory entry.
 
    **Pi Imager preconfig (gear icon, set BEFORE writing):**
+
    - Hostname: matches the inventory entry (e.g., `samwise`)
    - Username: `nickv` + paste your SSH public key
    - Disable password authentication
@@ -94,10 +96,8 @@ ansible-playbook provision-gandalf.yml \
    / your router. Pi Zero exit node is already live on `.123`.
 
 4. **Add to inventory.** Edit `inventory.yml` and uncomment / add the
-   entry under `cluster_agents`. Include `ansible_become_exe:
-   /usr/bin/sudo.ws` if the host runs Ubuntu 26.04+. For a Pi 4B
-   acting as the dedicated Pi-hole host, add `k3s_node_labels: { role:
-   pihole }` so Pi-hole pods can target it via nodeSelector.
+   entry under `cluster_agents`. Include `ansible_become_exe: /usr/bin/sudo.ws` if the host runs Ubuntu 26.04+. For a Pi 4B
+   acting as the dedicated Pi-hole host, add `k3s_node_labels: { role: pihole }` so Pi-hole pods can target it via nodeSelector.
 
 5. **Run the playbook from a workstation** (MacBook or laptop) — *not* from
    gandalf or another homelab host. Running from a workstation keeps the

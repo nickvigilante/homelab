@@ -43,151 +43,152 @@ workspace).
 
 ## One-time setup
 
-1. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab
-   Coder` with four custom fields:
-   - `postgres-password` — password for the `coder` postgres user
-   - `postgres-superuser-password` — password for the `postgres` superuser
-   - `oidc-client-id` — filled in after step 4
-   - `oidc-client-secret` — filled in after step 4
+01. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab Coder` with four custom fields:
 
-   Generate the postgres passwords now with
-   `openssl rand -base64 24 | tr -d '/+='`. Leave the OIDC fields empty
-   until step 4.
+    - `postgres-password` — password for the `coder` postgres user
+    - `postgres-superuser-password` — password for the `postgres` superuser
+    - `oidc-client-id` — filled in after step 4
+    - `oidc-client-secret` — filled in after step 4
 
-2. **Apply the namespace + PV/PVC**:
+    Generate the postgres passwords now with
+    `openssl rand -base64 24 | tr -d '/+='`. Leave the OIDC fields empty
+    until step 4.
 
-   ```bash
-   kubectl apply -f namespace.yaml -f pv-pvc.yaml
-   ```
+02. **Apply the namespace + PV/PVC**:
 
-3. **No Pi-hole DNS edits needed.** `coder.vigihome.net` is resolved
-   by the wildcard `address=/vigihome.net/...` directive in Pi-hole's
-   `misc.dnsmasq_lines` (see `k8s/pihole/values.yaml`).
+    ```bash
+    kubectl apply -f namespace.yaml -f pv-pvc.yaml
+    ```
 
-4. **Create the Authentik OIDC provider.** In the Authentik UI:
+03. **No Pi-hole DNS edits needed.** `coder.vigihome.net` is resolved
+    by the wildcard `address=/vigihome.net/...` directive in Pi-hole's
+    `misc.dnsmasq_lines` (see `k8s/pihole/values.yaml`).
 
-   - **Applications → Providers → Create → OAuth2/OpenID Provider**
-     - Name: `coder`
-     - Authorization flow: `default-provider-authorization-explicit-consent`
-     - Client type: Confidential
-     - Redirect URIs:
-       - `https://coder.vigihome.net/api/v2/users/oidc/callback`
-     - Signing key: leave default
-   - Copy the **Client ID** and **Client Secret** into the Bitwarden
-     item from step 1.
-   - **Applications → Applications → Create**
-     - Name: `Coder`
-     - Slug: `coder` (must match the issuer URL in values.yaml)
-     - Provider: `coder`
-     - Launch URL: `https://coder.vigihome.net`
+04. **Create the Authentik OIDC provider.** In the Authentik UI:
 
-5. **Create the Secret.** With Bitwarden CLI session active:
+    - **Applications → Providers → Create → OAuth2/OpenID Provider**
+      - Name: `coder`
+      - Authorization flow: `default-provider-authorization-explicit-consent`
+      - Client type: Confidential
+      - Redirect URIs:
+        - `https://coder.vigihome.net/api/v2/users/oidc/callback`
+      - Signing key: leave default
+    - Copy the **Client ID** and **Client Secret** into the Bitwarden
+      item from step 1.
+    - **Applications → Applications → Create**
+      - Name: `Coder`
+      - Slug: `coder` (must match the issuer URL in values.yaml)
+      - Provider: `coder`
+      - Launch URL: `https://coder.vigihome.net`
 
-   > **Gotcha:** if the Bitwarden item or its fields were created/edited
-   > earlier in the same shell session, `bw get item` may still see the
-   > stale local cache and return `Not found` (or empty field values).
-   > Run `bw sync` before the block below if the item is brand new or
-   > was just modified.
+05. **Create the Secret.** With Bitwarden CLI session active:
 
-   ```bash
-   export BW_SESSION="$(bw unlock --raw)"
-   bw sync
-   PG_PASSWORD="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="postgres-password") | .value')"
-   PG_SUPER_PASSWORD="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="postgres-superuser-password") | .value')"
-   OIDC_ID="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="oidc-client-id") | .value')"
-   OIDC_SECRET="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="oidc-client-secret") | .value')"
-   PG_URL="postgres://coder:${PG_PASSWORD}@postgres-postgresql.coder.svc.cluster.local:5432/coder?sslmode=disable"
+    > **Gotcha:** if the Bitwarden item or its fields were created/edited
+    > earlier in the same shell session, `bw get item` may still see the
+    > stale local cache and return `Not found` (or empty field values).
+    > Run `bw sync` before the block below if the item is brand new or
+    > was just modified.
 
-   kubectl -n coder create secret generic coder-secrets \
-     --from-literal=postgres-password="$PG_PASSWORD" \
-     --from-literal=postgres-superuser-password="$PG_SUPER_PASSWORD" \
-     --from-literal=pg-connection-url="$PG_URL" \
-     --from-literal=oidc-client-id="$OIDC_ID" \
-     --from-literal=oidc-client-secret="$OIDC_SECRET"
+    ```bash
+    export BW_SESSION="$(bw unlock --raw)"
+    bw sync
+    PG_PASSWORD="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="postgres-password") | .value')"
+    PG_SUPER_PASSWORD="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="postgres-superuser-password") | .value')"
+    OIDC_ID="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="oidc-client-id") | .value')"
+    OIDC_SECRET="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="oidc-client-secret") | .value')"
+    PG_URL="postgres://coder:${PG_PASSWORD}@postgres-postgresql.coder.svc.cluster.local:5432/coder?sslmode=disable"
 
-   unset BW_SESSION PG_PASSWORD PG_SUPER_PASSWORD OIDC_ID OIDC_SECRET PG_URL
-   ```
+    kubectl -n coder create secret generic coder-secrets \
+      --from-literal=postgres-password="$PG_PASSWORD" \
+      --from-literal=postgres-superuser-password="$PG_SUPER_PASSWORD" \
+      --from-literal=pg-connection-url="$PG_URL" \
+      --from-literal=oidc-client-id="$OIDC_ID" \
+      --from-literal=oidc-client-secret="$OIDC_SECRET"
 
-6. **Install postgres**:
+    unset BW_SESSION PG_PASSWORD PG_SUPER_PASSWORD OIDC_ID OIDC_SECRET PG_URL
+    ```
 
-   ```bash
-   helm repo add bitnami https://charts.bitnami.com/bitnami
-   helm repo update bitnami
-   helm install postgres bitnami/postgresql \
-     -n coder \
-     -f postgres-values.yaml
-   ```
+06. **Install postgres**:
 
-   Wait for `postgres-postgresql-0` to reach `Ready`. First start runs
-   the volumePermissions init container (chowns the hostPath mount),
-   then postgres initializes.
+    ```bash
+    helm repo add bitnami https://charts.bitnami.com/bitnami
+    helm repo update bitnami
+    helm install postgres bitnami/postgresql \
+      -n coder \
+      -f postgres-values.yaml
+    ```
 
-7. **Install Coder**:
+    Wait for `postgres-postgresql-0` to reach `Ready`. First start runs
+    the volumePermissions init container (chowns the hostPath mount),
+    then postgres initializes.
 
-   ```bash
-   helm repo add coder-v2 https://helm.coder.com/v2
-   helm repo update coder-v2
-   helm install coder coder-v2/coder \
-     -n coder \
-     -f values.yaml
-   ```
+07. **Install Coder**:
 
-   First start runs DB migrations. The `coder` deployment should be
-   Ready in 1–2 minutes.
+    ```bash
+    helm repo add coder-v2 https://helm.coder.com/v2
+    helm repo update coder-v2
+    helm install coder coder-v2/coder \
+      -n coder \
+      -f values.yaml
+    ```
 
-   > **Prereq:** Coder rejects OIDC logins when the IdP returns
-   > `email_verified: False`. Authentik's default `email` scope mapping
-   > does exactly that (no SMTP / verification flow is configured). See
-   > `../authentik/README.md` → "Customize the `email` scope mapping"
-   > before opening Coder, or first-time OIDC sign-in will land on a
-   > `Verify your email address on your OIDC provider` error page.
+    First start runs DB migrations. The `coder` deployment should be
+    Ready in 1–2 minutes.
 
-8. **Seed both an OIDC owner and a local-only owner.** Coder's first
-   visit shows a "Create your first user" form *and* the "Sign in
-   with Authentik" button side by side. Which one you click first
-   determines the flow; both paths end at the same final state (one
-   OIDC owner + one local-password owner) so pick whichever fits.
+    > **Prereq:** Coder rejects OIDC logins when the IdP returns
+    > `email_verified: False`. Authentik's default `email` scope mapping
+    > does exactly that (no SMTP / verification flow is configured). See
+    > `../authentik/README.md` → "Customize the `email` scope mapping"
+    > before opening Coder, or first-time OIDC sign-in will land on a
+    > `Verify your email address on your OIDC provider` error page.
 
-   **Path A — OIDC first (recommended for a clean cluster):**
+08. **Seed both an OIDC owner and a local-only owner.** Coder's first
+    visit shows a "Create your first user" form *and* the "Sign in
+    with Authentik" button side by side. Which one you click first
+    determines the flow; both paths end at the same final state (one
+    OIDC owner + one local-password owner) so pick whichever fits.
 
-   1. On the first-visit page, click **Sign in with Authentik** (do
-      *not* fill out "Create your first user"). The first user to sign
-      in via OIDC is auto-promoted to owner. Confirm the role in
-      **Deployment → Users**.
-   2. Create the local-password parachute via CLI:
+    **Path A — OIDC first (recommended for a clean cluster):**
 
-      ```bash
-      kubectl -n coder exec deployment/coder -- \
-        coder users create \
-          --username=admin-local \
-          --email=admin-local@vigiemail.com \
-          --password="<from Bitwarden>"
-      kubectl -n coder exec deployment/coder -- \
-        coder users edit admin-local --roles=owner
-      ```
+    1. On the first-visit page, click **Sign in with Authentik** (do
+       *not* fill out "Create your first user"). The first user to sign
+       in via OIDC is auto-promoted to owner. Confirm the role in
+       **Deployment → Users**.
 
-   **Path B — bootstrap user first (what you get if you click "Create
-   your first user" before noticing the OIDC button):**
+    2. Create the local-password parachute via CLI:
 
-   1. Fill out the form. The bootstrap user is local-password and
-      auto-promoted to owner — congratulations, this *is* your
-      `admin-local` fallback, just with a different username. Rename
-      it to `admin-local` in **Deployment → Users → Edit** if you
-      want the name to match the convention; purely cosmetic.
-   2. Sign in via Authentik in an incognito window. Coder auto-creates
-      an OIDC user, but because a user already exists it lands as a
-      **member**, not owner. Switch back to the bootstrap tab and
-      promote it: **Deployment → Users →** select the OIDC user **→
-      Edit → Roles → Owner**.
+       ```bash
+       kubectl -n coder exec deployment/coder -- \
+         coder users create \
+           --username=admin-local \
+           --email=admin-local@vigiemail.com \
+           --password="<from Bitwarden>"
+       kubectl -n coder exec deployment/coder -- \
+         coder users edit admin-local --roles=owner
+       ```
 
-   Save the local-fallback password to Bitwarden as a new field
-   `local-admin-password` on the `Homelab Coder` item.
+    **Path B — bootstrap user first (what you get if you click "Create
+    your first user" before noticing the OIDC button):**
 
-9. **Create a workspace template.** Coder's docs cover this end-to-end
-   — start with the [`kubernetes` starter template](https://coder.com/docs/templates/tutorial)
-   and tweak resources to match what gandalf can spare (start with 2
-   CPU / 4 Gi memory per workspace, drop further if scheduling
-   conflicts with other workloads).
+    1. Fill out the form. The bootstrap user is local-password and
+       auto-promoted to owner — congratulations, this *is* your
+       `admin-local` fallback, just with a different username. Rename
+       it to `admin-local` in **Deployment → Users → Edit** if you
+       want the name to match the convention; purely cosmetic.
+    2. Sign in via Authentik in an incognito window. Coder auto-creates
+       an OIDC user, but because a user already exists it lands as a
+       **member**, not owner. Switch back to the bootstrap tab and
+       promote it: **Deployment → Users →** select the OIDC user **→
+       Edit → Roles → Owner**.
+
+    Save the local-fallback password to Bitwarden as a new field
+    `local-admin-password` on the `Homelab Coder` item.
+
+09. **Create a workspace template.** Coder's docs cover this end-to-end
+    — start with the [`kubernetes` starter template](https://coder.com/docs/templates/tutorial)
+    and tweak resources to match what gandalf can spare (start with 2
+    CPU / 4 Gi memory per workspace, drop further if scheduling
+    conflicts with other workloads).
 
 10. **Apply the updated restic CronJob.** `../backup/backup-cronjob.yaml`
     already lists `/opt/coder/postgres` under tag `coder-postgres`

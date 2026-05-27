@@ -35,7 +35,7 @@ all:
       hosts:
         gandalf:
           ansible_host: 192.168.50.135
-          ansible_become_exe: /usr/bin/sudo.ws  # sudo-rs workaround (see top of file)
+          ansible_become_exe: /usr/bin/sudo.ws # sudo-rs workaround (see top of file)
 
     # Cluster workers — Pi 5 + Pi 4Bs. Uncomment a host below when you
     # image it, then run `ansible-playbook provision-pi.yml --limit <name>`.
@@ -45,19 +45,19 @@ all:
           ansible_host: 192.168.50.12
           # Running Ubuntu Server 26.04 LTS ARM64 — needs sudo-rs override.
           ansible_become_exe: /usr/bin/sudo.ws
-        frodo:                           # Pi 5, Ubuntu Server 26.04 ARM64
+        frodo: # Pi 5, Ubuntu Server 26.04 ARM64
           ansible_host: 192.168.50.11
           ansible_become_exe: /usr/bin/sudo.ws
-        # merry:                           # next Pi 4B
-        #   ansible_host: 192.168.50.13
-        #   ansible_become_exe: /usr/bin/sudo.ws
-        # pippin:                          # next Pi 4B
-        #   ansible_host: 192.168.50.14
-        #   ansible_become_exe: /usr/bin/sudo.ws
-        # pihole-standby:                  # dedicated Pi-hole appliance
-        #   ansible_host: 192.168.50.15    # likely Pi OS Lite — drop the
-        #   k3s_node_labels:               # become_exe override if so.
-        #     role: pihole
+          # merry:                           # next Pi 4B
+          #   ansible_host: 192.168.50.13
+          #   ansible_become_exe: /usr/bin/sudo.ws
+          # pippin:                          # next Pi 4B
+          #   ansible_host: 192.168.50.14
+          #   ansible_become_exe: /usr/bin/sudo.ws
+          # pihole-standby:                  # dedicated Pi-hole appliance
+          #   ansible_host: 192.168.50.15    # likely Pi OS Lite — drop the
+          #   k3s_node_labels:               # become_exe override if so.
+          #     role: pihole
       vars:
         # K3s agent join target — control plane on gandalf.
         k3s_url: https://192.168.50.135:6443
@@ -71,5 +71,5 @@ all:
     # which doesn't exist yet.
     tailscale_only:
       hosts:
-        # pi-zero-exit:
-        #   ansible_host: 192.168.50.123
+# pi-zero-exit:
+#   ansible_host: 192.168.50.123

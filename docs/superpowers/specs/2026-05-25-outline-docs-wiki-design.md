@@ -19,13 +19,13 @@ break-glass runbooks that must stay in git.
 
 ## Scope decisions (settled during brainstorming)
 
-| Decision | Choice | Why |
-|---|---|---|
-| Deployment shape | Raw Outline `Deployment` + `bitnami/postgresql` release + raw ephemeral Redis | Outline app is a single Deployment and only community Outline charts exist → chart-vs-raw rule says raw. Postgres mirrors the Coder precedent exactly. |
-| File/upload storage | Storj S3 (gateway) | Reuses existing object storage; no new PV, no extra restic path; offsite-durable. Outline has first-class S3 support. |
-| Hostname | `docs.vigihome.net` | Reads as published reference material (the stated purpose). |
-| SMTP / email | **Deferred** | Only needed for invites/notifications/magic-link. Login is via Authentik OIDC and there is one user. Trivial to add later via the existing `smtp-relay` Secret. |
-| Auth | Authentik OIDC only (no local fallback) | Outline has no native password auth. See "SPOF exception" below. |
+| Decision            | Choice                                                                        | Why                                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deployment shape    | Raw Outline `Deployment` + `bitnami/postgresql` release + raw ephemeral Redis | Outline app is a single Deployment and only community Outline charts exist → chart-vs-raw rule says raw. Postgres mirrors the Coder precedent exactly.          |
+| File/upload storage | Storj S3 (gateway)                                                            | Reuses existing object storage; no new PV, no extra restic path; offsite-durable. Outline has first-class S3 support.                                           |
+| Hostname            | `docs.vigihome.net`                                                           | Reads as published reference material (the stated purpose).                                                                                                     |
+| SMTP / email        | **Deferred**                                                                  | Only needed for invites/notifications/magic-link. Login is via Authentik OIDC and there is one user. Trivial to add later via the existing `smtp-relay` Secret. |
+| Auth                | Authentik OIDC only (no local fallback)                                       | Outline has no native password auth. See "SPOF exception" below.                                                                                                |
 
 ## Architecture
 
@@ -37,16 +37,16 @@ Namespace `outline`, three workloads:
 
 ### File layout (`k8s/outline/`)
 
-| File | Purpose |
-|------|---------|
-| `namespace.yaml` | Namespace `outline` |
-| `pv-pvc.yaml` | PV `outline-postgres-data` (hostPath `/opt/outline/postgres`, gandalf) + PVC `data-postgres-postgresql-0` |
-| `postgres-values.yaml` | bitnami/postgresql values (release `postgres`) |
-| `deployment.yaml` | Outline `Deployment` + `Service` (+ migrate initContainer) |
-| `redis.yaml` | Redis `Deployment` + `Service` (added to the kubeconform lint filter) |
-| `ingress-vigihome.yaml` | Ingress for `docs.vigihome.net` (websecure, `vigihome-tls`) |
-| `secret.example.yaml` | Documents `outline-secrets` keys (`REPLACE_WITH_*` placeholders) |
-| `README.md` | One-time setup runbook + ops notes |
+| File                    | Purpose                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `namespace.yaml`        | Namespace `outline`                                                                                       |
+| `pv-pvc.yaml`           | PV `outline-postgres-data` (hostPath `/opt/outline/postgres`, gandalf) + PVC `data-postgres-postgresql-0` |
+| `postgres-values.yaml`  | bitnami/postgresql values (release `postgres`)                                                            |
+| `deployment.yaml`       | Outline `Deployment` + `Service` (+ migrate initContainer)                                                |
+| `redis.yaml`            | Redis `Deployment` + `Service` (added to the kubeconform lint filter)                                     |
+| `ingress-vigihome.yaml` | Ingress for `docs.vigihome.net` (websecure, `vigihome-tls`)                                               |
+| `secret.example.yaml`   | Documents `outline-secrets` keys (`REPLACE_WITH_*` placeholders)                                          |
+| `README.md`             | One-time setup runbook + ops notes                                                                        |
 
 ## Configuration (env)
 
@@ -57,6 +57,7 @@ Namespace `outline`, three workloads:
 **Storj S3:** `FILE_STORAGE=s3`, `AWS_S3_UPLOAD_BUCKET_URL=https://gateway.storjshare.io` (Storj S3 gateway endpoint), `AWS_S3_UPLOAD_BUCKET_NAME=<bucket>`, `AWS_S3_FORCE_PATH_STYLE=true`, `AWS_S3_ACL=private`, `AWS_REGION=us-east-1` (Storj accepts any region string), `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (Storj S3 gateway credentials). The Storj bucket is created out of band (Storj console or `uplink`/`rclone`). Exact env-var spellings verified against Outline's `.env.sample` at implementation time.
 
 **OIDC (generic) → Authentik:**
+
 - `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
 - `OIDC_AUTH_URI=https://authentik.vigihome.net/application/o/authorize/`
 - `OIDC_TOKEN_URI=https://authentik.vigihome.net/application/o/token/`
@@ -70,29 +71,26 @@ Namespace `outline`, three workloads:
 ## Secrets
 
 A single `outline-secrets` Secret in the `outline` namespace, created via
-`kubectl create secret generic` sourced from Bitwarden item **`Homelab
-Outline`** plus generated values. Keys:
+`kubectl create secret generic` sourced from Bitwarden item **`Homelab Outline`** plus generated values. Keys:
 
-| Key | Source |
-|-----|--------|
-| `secret-key` | generated `openssl rand -hex 32` |
-| `utils-secret` | generated `openssl rand -hex 32` |
-| `postgres-password` | generated; the `outline` DB user |
-| `postgres-superuser-password` | generated; the `postgres` superuser |
-| `oidc-client-id` / `oidc-client-secret` | from the Authentik provider |
-| `s3-access-key` / `s3-secret-key` | Storj S3 gateway credentials |
+| Key                                     | Source                              |
+| --------------------------------------- | ----------------------------------- |
+| `secret-key`                            | generated `openssl rand -hex 32`    |
+| `utils-secret`                          | generated `openssl rand -hex 32`    |
+| `postgres-password`                     | generated; the `outline` DB user    |
+| `postgres-superuser-password`           | generated; the `postgres` superuser |
+| `oidc-client-id` / `oidc-client-secret` | from the Authentik provider         |
+| `s3-access-key` / `s3-secret-key`       | Storj S3 gateway credentials        |
 
 `postgres-values.yaml` maps `existingSecret: outline-secrets` with
-`secretKeys.{adminPasswordKey: postgres-superuser-password,
-userPasswordKey: postgres-password}`. Secrets never enter the repo
+`secretKeys.{adminPasswordKey: postgres-superuser-password, userPasswordKey: postgres-password}`. Secrets never enter the repo
 (public, gitleaks pre-commit); `secret.example.yaml` documents shape only.
 
 ## Networking & TLS
 
 - Add `outline` to `reflection-auto-namespaces` in
   `k8s/cert-manager/certificate.yaml` → reflector mirrors `vigihome-tls`
-  into the namespace in < 5s. Ingress references `secretName:
-  vigihome-tls` on the `websecure` entrypoint.
+  into the namespace in < 5s. Ingress references `secretName: vigihome-tls` on the `websecure` entrypoint.
 - DNS: nothing per-service — the Pi-hole `*.vigihome.net` wildcard
   already resolves `docs.vigihome.net` to gandalf on LAN + tailnet.
 - **NetworkPolicy** (matches the Authentik hardening posture): postgres
@@ -103,8 +101,7 @@ userPasswordKey: postgres-password}`. Secrets never enter the repo
 ## Persistence & backup
 
 - Postgres data: hostPath `/opt/outline/postgres`, added to
-  `k8s/backup/backup-cronjob.yaml` (new volume + mount + `restic backup
-  --tag outline-postgres`), following the raw-hostPath-copy pattern
+  `k8s/backup/backup-cronjob.yaml` (new volume + mount + `restic backup --tag outline-postgres`), following the raw-hostPath-copy pattern
   already used for the Authentik and Coder postgres dirs. (Raw copy of a
   live postgres dir is crash-consistent; accepted repo-wide trade-off.)
 - Uploads: in Storj, already durable — not backed up by restic.

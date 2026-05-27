@@ -7,8 +7,7 @@ Guidance for agents and future-you working in this repo.
 The k3s manifest + host-config repo for the home lab running on
 `gandalf` (192.168.50.135, Ubuntu Server 26.04, single-node k3s control
 plane + worker, Traefik default ingress). Apply pattern is **manual**:
-`kubectl apply -f …` for raw manifests, `helm install/upgrade -f
-values.yaml` for charted services. No GitOps controller — the repo is
+`kubectl apply -f …` for raw manifests, `helm install/upgrade -f values.yaml` for charted services. No GitOps controller — the repo is
 the source of truth, but applying changes is a deliberate human step.
 
 Sibling repo for IaC (Tailscale ACLs, GitHub branch protection, OAuth
@@ -20,15 +19,15 @@ cluster."
 
 Each service under `k8s/<service>/` follows the same layout:
 
-| File | Purpose |
-|------|---------|
-| `namespace.yaml` | The k8s Namespace |
-| `pv-pvc.yaml` | Pre-created PV (hostPath, gandalf-pinned) + PVC for any persistent data the chart can't manage with its own dynamic provisioning |
-| `values.yaml` | Helm values (when chart-managed) — Ingress lives inside the chart's `ingress` key, not as a separate file |
-| `deployment.yaml` | Raw `Deployment` + `Service` (when raw-managed) |
-| `secret.example.yaml` | **Template only** — documents which keys must live in the real Secret. Never applied; the real Secret is created via `kubectl create secret generic` sourced from a Bitwarden item |
+| File                    | Purpose                                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `namespace.yaml`        | The k8s Namespace                                                                                                                                                                                |
+| `pv-pvc.yaml`           | Pre-created PV (hostPath, gandalf-pinned) + PVC for any persistent data the chart can't manage with its own dynamic provisioning                                                                 |
+| `values.yaml`           | Helm values (when chart-managed) — Ingress lives inside the chart's `ingress` key, not as a separate file                                                                                        |
+| `deployment.yaml`       | Raw `Deployment` + `Service` (when raw-managed)                                                                                                                                                  |
+| `secret.example.yaml`   | **Template only** — documents which keys must live in the real Secret. Never applied; the real Secret is created via `kubectl create secret generic` sourced from a Bitwarden item               |
 | `ingress-vigihome.yaml` | Raw `Ingress` at `https://<service>.vigihome.net`, **only for raw-managed services** (chart-managed services keep the Ingress in `values.yaml`). See `k8s/syncthing/` for the canonical example. |
-| `README.md` | One-time setup runbook + day-to-day ops notes |
+| `README.md`             | One-time setup runbook + day-to-day ops notes                                                                                                                                                    |
 
 When adding a new service, mirror this layout. See `k8s/authentik/`
 and `k8s/coder/` for chart-managed examples; `k8s/syncthing/` for the
@@ -57,11 +56,11 @@ Every internal service moves onto HTTPS at `*.vigihome.net` (cleanly
 separated from the public `nickvigilante.com`). The supporting infra
 runs in three namespaces:
 
-| Namespace | What | PR |
-|-----------|------|----|
+| Namespace      | What                                                                                                                                                       | PR            |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | `cert-manager` | cert-manager controller + LE staging/prod ClusterIssuers using native Cloudflare DNS-01 + the wildcard `Certificate` for `vigihome.net` + `*.vigihome.net` | #23, #24, #25 |
-| `reflector` | emberstack/reflector — mirrors annotated Secrets across namespaces | #26 |
-| `homepage` | First end-to-end exercise of the stack at the apex | #27 |
+| `reflector`    | emberstack/reflector — mirrors annotated Secrets across namespaces                                                                                         | #26           |
+| `homepage`     | First end-to-end exercise of the stack at the apex                                                                                                         | #27           |
 
 **The flow:** cert-manager issues `vigihome-tls` (ECDSA P-256, 90d /
 30d-renew) into `cert-manager/vigihome-tls`. Reflector reads the
@@ -73,8 +72,7 @@ and copies the Secret into every namespace listed in
 **Migrating a service onto HTTPS:**
 
 1. Add the consumer namespace to `reflection-auto-namespaces` in
-   `k8s/cert-manager/certificate.yaml` (comma-separated). `kubectl
-   apply` it. Reflector mirrors `vigihome-tls` into the namespace in
+   `k8s/cert-manager/certificate.yaml` (comma-separated). `kubectl apply` it. Reflector mirrors `vigihome-tls` into the namespace in
    < 5s.
 2. **Chart-managed service:** modify `values.yaml`'s `ingress` block
    to set the vigihome host with
@@ -82,8 +80,7 @@ and copies the Secret into every namespace listed in
    `tls.secretName: vigihome-tls`. Each chart's Ingress shape varies
    slightly — singular `host` (Coder) vs `hosts[]` (Authentik,
    Uptime Kuma, Jellyfin), flat `tls.{enable, secretName}` (Coder)
-   vs `tls[].{hosts, secretName}` (others). Render with `helm
-   template ... --show-only templates/ingress.yaml` before applying
+   vs `tls[].{hosts, secretName}` (others). Render with `helm template ... --show-only templates/ingress.yaml` before applying
    to verify the chart consumes the values as expected.
    **Raw-managed service:** add `k8s/<service>/ingress-vigihome.yaml`
    with the same Traefik annotation + TLS block. See
@@ -95,8 +92,7 @@ and copies the Secret into every namespace listed in
    `k8s/pihole/values.yaml`'s big DNS comment) resolve any new
    `*.vigihome.net` host to gandalf automatically on both LAN and
    tailnet.
-4. Apply: `helm upgrade` for chart-managed, `kubectl apply -f
-   ingress-vigihome.yaml` for raw. For chart-managed services that
+4. Apply: `helm upgrade` for chart-managed, `kubectl apply -f ingress-vigihome.yaml` for raw. For chart-managed services that
    previously had both a raw `ingress-vigihome.yaml` *and* a chart
    Ingress on the legacy `*.home` host, the chart's Ingress takes
    over the vigihome host on `helm upgrade`; the orphaned raw
@@ -135,19 +131,19 @@ it silently bypass validation.
 
 ## Secrets discipline
 
-- **Secrets never enter the repo.** The repo is public; gitleaks runs
-  as a pre-commit hook.
+- **Secrets never enter the repo.** The repo is public; betterleaks
+  (the maintained gitleaks successor) runs as a pre-commit hook via the
+  pre-commit framework (`.pre-commit-config.yaml`), and again in CI.
 - Source of truth for every secret is Bitwarden. Items are named
-  `Homelab <Service>` (e.g., `Homelab Restic Repository`, `Homelab
-  Authentik`, `Homelab Coder`).
+  `Homelab <Service>` (e.g., `Homelab Restic Repository`, `Homelab Authentik`, `Homelab Coder`).
 - k8s Secrets are created via `kubectl create secret generic` invocations
   that read values from Bitwarden CLI at apply time. Each service's
   README walks through its specific Secret keys.
-- `secret.example.yaml` files document the *shape* of each Secret (keys
-  + their roles) but use `REPLACE_WITH_*` placeholders. Don't apply
+- `secret.example.yaml` files document the *shape* of each Secret
+  (keys and their roles) but use `REPLACE_WITH_*` placeholders. Don't apply
   them — they exist for documentation only.
 - Storj S3 access keys live ONLY in `/etc/rclone/rclone.conf` (root:root
-  0600) and `~/.homelab-opentofu.env`. The cluster gets them via
+  0600\) and `~/.homelab-opentofu.env`. The cluster gets them via
   `kubectl create secret` from sourced env vars.
 
 ## DNS pattern (recurring gotcha)
@@ -196,8 +192,8 @@ service DNS for pod-to-pod traffic:
 The nightly restic CronJob at `k8s/backup/backup-cronjob.yaml` mounts
 persistent dirs from gandalf via hostPath and pushes encrypted
 snapshots to Storj. **Any new persistent dir under `/opt/<service>/`
-needs adding to that CronJob** — pattern: new `volume` + `volumeMount`
-+ `restic backup --tag <service>` block. Repo password lives in
+needs adding to that CronJob** — pattern: new `volume`, `volumeMount`, and
+`restic backup --tag <service>` block. Repo password lives in
 Bitwarden item `Homelab Restic Repository` — losing it loses every
 snapshot.
 
@@ -261,6 +257,18 @@ The Tailscale auth keys it needs are minted via
 - PR template at `.github/pull_request_template.md` lists the
   before-merge checklist (secrets, backup wiring, SPOF impact).
 
+## Markdown / doc style
+
+- **Semantic line breaks** — break source lines at sentence/clause
+  boundaries, not arbitrary column wraps. mdformat (`--wrap keep`)
+  preserves them, and clause-intact lines never get a stray `+`/`-`/`N)`
+  at a line-start that a CommonMark formatter would misread as a list item.
+- **Write "and"/"&", never `+`, to mean "and" in prose** — more accessible
+  to screen readers, and avoids the line-start ambiguity above.
+- Markdown is formatted by **mdformat** (see `.pre-commit-config.yaml`), not
+  prettier — prettier rewrites embedded code blocks and mangles
+  snake_case-near-emphasis in these identifier-heavy docs.
+
 ## Tracking open work
 
 Open work — known gaps, deferred features, audit follow-ups — lives
@@ -277,6 +285,7 @@ common case, because the audit doc already documents posture openly —
 file on GitHub.
 
 **What does NOT belong as an issue:**
+
 - "Things deliberately not done" (accepted risks). Issues imply
   intent to resolve; these are decisions. Document in the relevant
   doc's "Things deliberately not done" section instead.

@@ -26,23 +26,27 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
 
 1. **Apply the cert-manager Certificate update** so reflector mirrors
    `vigihome-tls` into the `homepage` namespace:
+
    ```sh
    kubectl apply -f ../cert-manager/certificate.yaml
    # cert-manager rolls the Secret's annotations onto next reconcile.
    ```
 
 2. **Apply the namespace:**
+
    ```sh
    kubectl apply -f namespace.yaml
    ```
 
 3. **Verify the Secret has been mirrored** into `homepage`:
+
    ```sh
    kubectl -n homepage get secret vigihome-tls
    # Should appear within ~5s of reflector picking up the annotation.
    ```
 
 4. **Install Homepage via Helm:**
+
    ```sh
    helm install homepage jameswynn/homepage \
      --namespace homepage \
@@ -51,12 +55,14 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
    ```
 
 5. **Wait for the Deployment to be Ready:**
+
    ```sh
    kubectl -n homepage rollout status deploy/homepage
    ```
 
 6. **Add the Pi-hole local DNS record for the apex.** Pi-hole on v6
    stores local records in `pihole.toml`, managed via the web UI:
+
    - Open the Pi-hole admin UI.
    - **Settings → Local DNS Records → Add**:
      - Domain: `vigihome.net`
@@ -67,10 +73,13 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
 
 7. **Verify HTTPS end-to-end** from any LAN client whose DNS goes
    through Pi-hole:
+
    ```sh
    curl -sv https://vigihome.net 2>&1 | grep -E "(subject|issuer|HTTP/)"
    ```
+
    Expect:
+
    - `subject: CN=vigihome.net`
    - `issuer: ... O = Let's Encrypt, CN = E7` (real LE intermediate,
      not Fake LE Root)
@@ -81,8 +90,7 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
 ## Day-to-day ops
 
 - **Edit the services list / widgets:** modify `values.yaml`, then
-  `helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0
-  -f values.yaml`. The Deployment is restarted; Homepage re-reads its
+  `helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0 -f values.yaml`. The Deployment is restarted; Homepage re-reads its
   ConfigMap on boot (~5s). No data loss — Homepage is stateless.
 
 - **Add a new service after a Phase 3 cutover.** When a `*.home`

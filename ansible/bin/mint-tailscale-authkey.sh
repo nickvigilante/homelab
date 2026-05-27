@@ -65,9 +65,9 @@ done
 to_seconds() {
   local v="$1"
   case "$v" in
-    *h) echo "$(( ${v%h} * 3600 ))" ;;
-    *m) echo "$(( ${v%m} * 60 ))" ;;
-    *d) echo "$(( ${v%d} * 86400 ))" ;;
+    *h) echo "$((${v%h} * 3600))" ;;
+    *m) echo "$((${v%m} * 60))" ;;
+    *d) echo "$((${v%d} * 86400))" ;;
     *s) echo "${v%s}" ;;
     *[!0-9]*)
       echo "Invalid expiry: $v (expected like 1h, 30m, 7d, or seconds)" >&2
@@ -153,7 +153,7 @@ fi
 
 # ---- Write to file -----------------------------------------------------
 umask 077
-printf '%s\n' "$KEY" > "$OUT_PATH"
+printf '%s\n' "$KEY" >"$OUT_PATH"
 chmod 600 "$OUT_PATH"
 
 # ---- Report ------------------------------------------------------------

@@ -11,35 +11,37 @@
 **Spec:** `docs/superpowers/specs/2026-05-25-authentik-blueprints-design.md`
 
 **Conventions for this plan:**
+
 - Branch `authentik-blueprints` already exists (the spec is committed there). Do all work on it.
 - "Verify reconcile" = the object exists after applying. Inspect via `ak shell` or the API; the per-task commands show how.
 - Raw exports may contain real client secrets — **never commit a raw export**. They are local scratch only; the committed files carry `!Env` references instead.
 - Tag every live command with the host it runs on (laptop with kubectl context = homelab, or gandalf). Live prod-mutating commands (Task 10) are handed to the operator to run, with `git checkout`/`pull` included.
 - Scratch-instance curls below use `$TOK` for the scratch bootstrap token — run `export TOK=scratch-token-0000` (the value set in `scratch-values.yaml`) once before them.
 
----
+______________________________________________________________________
 
 ## File structure
 
-| File | Responsibility |
-|------|----------------|
-| `k8s/authentik/blueprints/groups.yaml` | `homelab-users` group |
-| `k8s/authentik/blueprints/email-scope-mapping.yaml` | Override built-in `email` scope mapping → `email_verified: True` |
-| `k8s/authentik/blueprints/recovery-flow.yaml` | Recovery policy + stages + flow + stage/policy bindings + brand assignment |
-| `k8s/authentik/blueprints/applications/coder.yaml` | Coder OIDC provider + application + group binding |
-| `k8s/authentik/blueprints/applications/outline.yaml` | Outline OIDC provider + application + group binding |
-| `k8s/authentik/blueprints/README.md` | How blueprints are rendered into the ConfigMap + applied |
-| `k8s/authentik/scratch-values.yaml` | Helm values overlay for the throwaway validation instance |
-| `k8s/authentik/values.yaml` (modify) | Add `blueprints.configMaps` + two `global.env` OIDC-secret entries |
-| `k8s/authentik/secret.example.yaml` (modify) | Document `authentik-oidc-secrets` keys |
-| `k8s/authentik/README.md` (modify) | Replace "click in the UI" sections with blueprint references + add the oidc-secrets create-secret step |
-| `.github/workflows/lint.yml` (modify, if needed) | Cover the new file types |
+| File                                                 | Responsibility                                                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `k8s/authentik/blueprints/groups.yaml`               | `homelab-users` group                                                                                  |
+| `k8s/authentik/blueprints/email-scope-mapping.yaml`  | Override built-in `email` scope mapping → `email_verified: True`                                       |
+| `k8s/authentik/blueprints/recovery-flow.yaml`        | Recovery policy + stages + flow + stage/policy bindings + brand assignment                             |
+| `k8s/authentik/blueprints/applications/coder.yaml`   | Coder OIDC provider + application + group binding                                                      |
+| `k8s/authentik/blueprints/applications/outline.yaml` | Outline OIDC provider + application + group binding                                                    |
+| `k8s/authentik/blueprints/README.md`                 | How blueprints are rendered into the ConfigMap + applied                                               |
+| `k8s/authentik/scratch-values.yaml`                  | Helm values overlay for the throwaway validation instance                                              |
+| `k8s/authentik/values.yaml` (modify)                 | Add `blueprints.configMaps` + two `global.env` OIDC-secret entries                                     |
+| `k8s/authentik/secret.example.yaml` (modify)         | Document `authentik-oidc-secrets` keys                                                                 |
+| `k8s/authentik/README.md` (modify)                   | Replace "click in the UI" sections with blueprint references + add the oidc-secrets create-secret step |
+| `.github/workflows/lint.yml` (modify, if needed)     | Cover the new file types                                                                               |
 
----
+______________________________________________________________________
 
 ## Task 1: Stand up the throwaway scratch instance
 
 **Files:**
+
 - Create: `k8s/authentik/scratch-values.yaml`
 
 - [ ] **Step 1: Write the scratch values overlay**
@@ -112,7 +114,7 @@ git add k8s/authentik/scratch-values.yaml
 git commit -m "Authentik: scratch instance values for blueprint validation"
 ```
 
----
+______________________________________________________________________
 
 ## Task 2: Export the live prod objects as reference blueprints
 
@@ -146,6 +148,7 @@ Expected: a blueprint containing the `recovery` flow plus `recovery-identificati
 - [ ] **Step 3: Record the authoritative field shapes**
 
 Skim both exports and note, for use in later tasks, the exact:
+
 - model dotted-paths (e.g. `authentik_providers_oauth2.models.OAuth2Provider`, `authentik_core.models.Application`, `authentik_providers_oauth2.models.ScopeMapping`, `authentik_policies.models.PolicyBinding`, `authentik_stages_identification.models.IdentificationStage`, `authentik_stages_email.models.EmailStage`, `authentik_flows.models.Flow`, `authentik_flows.models.FlowStageBinding`, `authentik_brands.models.Brand`);
 - the `redirect_uris` shape for the providers (current Authentik uses a list of `{matching_mode, url}` objects);
 - the providers' `authorization_flow` / `invalidation_flow` slugs, `signing_key` name, `property_mappings` (the openid/email/profile scope mappings), `client_id`, `sub_mode`;
@@ -153,11 +156,12 @@ Skim both exports and note, for use in later tasks, the exact:
 
 These exports are the source of truth for field names in Tasks 3–7. No commit.
 
----
+______________________________________________________________________
 
 ## Task 3: Author `groups.yaml`
 
 **Files:**
+
 - Create: `k8s/authentik/blueprints/groups.yaml`
 
 - [ ] **Step 1: Write the blueprint**
@@ -203,11 +207,12 @@ git add k8s/authentik/blueprints/groups.yaml
 git commit -m "Authentik blueprint: homelab-users group"
 ```
 
----
+______________________________________________________________________
 
 ## Task 4: Author `email-scope-mapping.yaml`
 
 **Files:**
+
 - Create: `k8s/authentik/blueprints/email-scope-mapping.yaml`
 
 - [ ] **Step 1: Write the blueprint** (override the built-in mapping by its managed id)
@@ -262,16 +267,18 @@ git add k8s/authentik/blueprints/email-scope-mapping.yaml
 git commit -m "Authentik blueprint: email scope mapping returns email_verified=true"
 ```
 
----
+______________________________________________________________________
 
 ## Task 5: Author `recovery-flow.yaml`
 
 **Files:**
+
 - Create: `k8s/authentik/blueprints/recovery-flow.yaml`
 
 - [ ] **Step 1: Adapt the flow export into the committed blueprint**
 
 Start from `/tmp/ak-recovery-flow-export.yaml` and transform it:
+
 1. Set `metadata.name: "homelab - recovery flow"`.
 2. Add `state: present` to every entry; set `identifiers` to natural keys (flow `slug: recovery`; stages by `name`; policy by `name: recovery-allowed-group`; flow-stage-bindings by `{target: !KeyOf flow, order: N}`; policy-bindings by `{target: !KeyOf binding, policy: !KeyOf policy}`).
 3. Replace any embedded pk/UUID cross-references with `!KeyOf <id>` (give each entry an `id:`), and reference the shipped prompt/write stages via `!Find [authentik_flows.models.Stage, [name, default-password-change-prompt]]` and `default-password-change-write`.
@@ -318,11 +325,12 @@ git add k8s/authentik/blueprints/recovery-flow.yaml
 git commit -m "Authentik blueprint: password-recovery flow + group gate"
 ```
 
----
+______________________________________________________________________
 
 ## Task 6: Author `applications/coder.yaml`
 
 **Files:**
+
 - Create: `k8s/authentik/blueprints/applications/coder.yaml`
 
 - [ ] **Step 1: Write the blueprint** (fill bracketed values from `/tmp/ak-prod-export.yaml`)
@@ -401,11 +409,12 @@ git add k8s/authentik/blueprints/applications/coder.yaml
 git commit -m "Authentik blueprint: Coder OIDC application"
 ```
 
----
+______________________________________________________________________
 
 ## Task 7: Author `applications/outline.yaml`
 
 **Files:**
+
 - Create: `k8s/authentik/blueprints/applications/outline.yaml`
 
 - [ ] **Step 1: Write the blueprint**
@@ -476,11 +485,12 @@ git add k8s/authentik/blueprints/applications/outline.yaml
 git commit -m "Authentik blueprint: Outline OIDC application"
 ```
 
----
+______________________________________________________________________
 
 ## Task 8: Full reconstruction test on a wiped scratch instance
 
 **Files:**
+
 - Create: `k8s/authentik/blueprints/README.md`
 
 - [ ] **Step 1: Write the blueprints README (render + apply instructions)**
@@ -560,13 +570,16 @@ git add k8s/authentik/blueprints/README.md
 git commit -m "Authentik blueprints: render/apply README + validated from-zero reconstruction"
 ```
 
----
+______________________________________________________________________
 
 ## Task 9: Wire prod values + secret template
 
 **Files:**
+
 - Modify: `k8s/authentik/values.yaml`
+
 - Modify: `k8s/authentik/secret.example.yaml`
+
 - Modify: `.github/workflows/lint.yml` (only if the new files fall outside the current globs)
 
 - [ ] **Step 1: Add the OIDC-secret env + blueprints mount to `values.yaml`**
@@ -643,7 +656,7 @@ git add k8s/authentik/values.yaml k8s/authentik/secret.example.yaml .github/work
 git commit -m "Authentik: wire blueprints ConfigMap + oidc-secrets env into values"
 ```
 
----
+______________________________________________________________________
 
 ## Task 10: Prod cutover (operator-run, live)
 
@@ -711,12 +724,14 @@ Per `k8s/authentik/README.md` "Testing the recovery flow": (1) a `homelab-users`
 
 Expected: all pass. **If anything breaks:** restore `/opt/authentik/postgres` from the pre-cutover snapshot (README "Postgres backup / restore"), then investigate on scratch.
 
----
+______________________________________________________________________
 
 ## Task 11: Documentation
 
 **Files:**
+
 - Modify: `k8s/authentik/README.md`
+
 - Modify: `CLAUDE.md` (the "What we don't back up" Authentik note)
 
 - [ ] **Step 1: Replace the "click in the UI" sections in `k8s/authentik/README.md`**
@@ -745,7 +760,7 @@ git add k8s/authentik/README.md CLAUDE.md
 git commit -m "Authentik docs: point UI-config sections at blueprints (#104)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 12: Finish the development branch
 
@@ -753,7 +768,7 @@ git commit -m "Authentik docs: point UI-config sections at blueprints (#104)"
 
 Announce and use **superpowers:finishing-a-development-branch** to verify all tasks are committed, open the PR (title referencing #104), and confirm the recovery regression + scratch reconstruction evidence is in the PR body. Follow the repo's PR conventions (squash-merge, no Co-Authored-By trailer).
 
----
+______________________________________________________________________
 
 ## Self-review notes
 

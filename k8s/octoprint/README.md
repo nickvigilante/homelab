@@ -34,20 +34,24 @@ care about its settings/printer profiles.
 2. **Reflect the TLS cert in.** Add `octoprint` to
    `reflection-auto-namespaces` on `../cert-manager/certificate.yaml` (done
    in this change), then apply so reflector mirrors `vigihome-tls`:
+
    ```sh
    kubectl apply -f ../cert-manager/certificate.yaml
    ```
 
 3. **Apply the namespace + proxy resources:**
+
    ```sh
    kubectl apply -f namespace.yaml -f ingress-vigihome.yaml
    ```
 
 4. **Verify the cert reflected + the site serves:**
+
    ```sh
    kubectl -n octoprint get secret vigihome-tls          # appears within ~5s
    curl -sv https://octoprint.vigihome.net 2>&1 | grep -E "issuer|HTTP/"
    ```
+
    Expect a Let's Encrypt cert and the OctoPrint login.
 
 5. **Wire the Homepage widget** — see `../homepage/README.md`

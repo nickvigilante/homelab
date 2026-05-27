@@ -10,16 +10,16 @@ Design: `docs/superpowers/specs/2026-05-25-outline-docs-wiki-design.md`.
 
 ## Files
 
-| File | Purpose |
-|------|---------|
-| `namespace.yaml` | Namespace `outline` |
-| `pv-pvc.yaml` | PV `outline-postgres-data` → hostPath `/opt/outline/postgres` (gandalf) + PVC `data-postgres-postgresql-0` |
-| `postgres-values.yaml` | `bitnami/postgresql` values (release name MUST be `postgres`) |
-| `redis.yaml` | Ephemeral Redis `Deployment` + `Service` (no persistence, no auth) |
-| `deployment.yaml` | `outline-env` ConfigMap + Outline `Deployment` (with migrate initContainer) + `Service` |
-| `ingress-vigihome.yaml` | Ingress for `docs.vigihome.net` (websecure, `vigihome-tls`) |
-| `netpol-outline.yaml` | NetworkPolicies: app reachable from Traefik only; postgres/redis same-namespace only |
-| `secret.example.yaml` | Template documenting the `outline-secrets` keys (never applied) |
+| File                    | Purpose                                                                                                    |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `namespace.yaml`        | Namespace `outline`                                                                                        |
+| `pv-pvc.yaml`           | PV `outline-postgres-data` → hostPath `/opt/outline/postgres` (gandalf) + PVC `data-postgres-postgresql-0` |
+| `postgres-values.yaml`  | `bitnami/postgresql` values (release name MUST be `postgres`)                                              |
+| `redis.yaml`            | Ephemeral Redis `Deployment` + `Service` (no persistence, no auth)                                         |
+| `deployment.yaml`       | `outline-env` ConfigMap + Outline `Deployment` (with migrate initContainer) + `Service`                    |
+| `ingress-vigihome.yaml` | Ingress for `docs.vigihome.net` (websecure, `vigihome-tls`)                                                |
+| `netpol-outline.yaml`   | NetworkPolicies: app reachable from Traefik only; postgres/redis same-namespace only                       |
+| `secret.example.yaml`   | Template documenting the `outline-secrets` keys (never applied)                                            |
 
 ## ⚠ SPOF exception — Outline is OIDC-only
 

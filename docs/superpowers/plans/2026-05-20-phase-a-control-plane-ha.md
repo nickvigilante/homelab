@@ -12,17 +12,18 @@
 
 **Estimated downtime:** ~1–2 hours total. Cluster API and ingress unavailable from cluster-teardown through "all services verified working."
 
----
+______________________________________________________________________
 
 ## File Structure
 
 This plan changes **no repo files**. It runs operations against the live cluster. The repo's existing structure (Helm `values.yaml` per service, `system/*.yaml` manifests applied by Ansible, READMEs documenting per-service Secret creation) is what gets reapplied during the rebuild.
 
 Optional post-rebuild repo changes (out of scope for this plan, separate small PRs):
+
 - Add k3s install arguments to `ansible/provision-gandalf.yml` (currently the k3s install is shell-history only — Phase A surfaces this gap).
 - Add an `ansible/provision-pi.yml` server-mode variant if Phase A reveals that the current playbook only handles agent joins.
 
----
+______________________________________________________________________
 
 ## Pre-flight checklist (run BEFORE teardown)
 
@@ -76,6 +77,7 @@ The cluster's authoritative secret list is whatever currently exists in the clus
   ```
 
   Open the file and remove auto-managed Secrets that the cluster recreates on its own:
+
   - `*-token-*` from default service accounts
   - cert-manager-issued `*-tls` Secrets (cert-manager will re-issue)
   - `sh.helm.release.v1.*` (helm tracking, recreated by `helm install`)
@@ -83,18 +85,18 @@ The cluster's authoritative secret list is whatever currently exists in the clus
 
   What remains is the list of Secrets to manually re-create. Expected entries (cross-check against each service's README):
 
-  | Namespace | Secret | Source |
-  |---|---|---|
-  | auth | authentik-secrets | Bitwarden item "Homelab Authentik" |
-  | auth | smtp-relay | Bitwarden item "Homelab Forward Email SMTP" |
-  | backup | restic-secrets | Bitwarden item "Homelab Restic Repository" |
-  | backup | uptime-kuma-push-urls | Bitwarden item "Homelab Uptime Kuma Push URLs" |
-  | cert-manager | cloudflare-api-token | Bitwarden item "Homelab Cloudflare DNS-01 Token" |
-  | coder | coder-secrets | Bitwarden item "Homelab Coder" |
-  | home-assistant | (if any custom secrets) | Bitwarden item "Homelab Home Assistant" |
-  | media | jellyfin-secrets (if any) | Bitwarden item "Homelab Jellyfin" |
-  | networking | pihole-secrets | Bitwarden item "Pi-Hole" |
-  | syncthing | (if any custom secrets) | Bitwarden item "Homelab Syncthing" |
+  | Namespace      | Secret                    | Source                                           |
+  | -------------- | ------------------------- | ------------------------------------------------ |
+  | auth           | authentik-secrets         | Bitwarden item "Homelab Authentik"               |
+  | auth           | smtp-relay                | Bitwarden item "Homelab Forward Email SMTP"      |
+  | backup         | restic-secrets            | Bitwarden item "Homelab Restic Repository"       |
+  | backup         | uptime-kuma-push-urls     | Bitwarden item "Homelab Uptime Kuma Push URLs"   |
+  | cert-manager   | cloudflare-api-token      | Bitwarden item "Homelab Cloudflare DNS-01 Token" |
+  | coder          | coder-secrets             | Bitwarden item "Homelab Coder"                   |
+  | home-assistant | (if any custom secrets)   | Bitwarden item "Homelab Home Assistant"          |
+  | media          | jellyfin-secrets (if any) | Bitwarden item "Homelab Jellyfin"                |
+  | networking     | pihole-secrets            | Bitwarden item "Pi-Hole"                         |
+  | syncthing      | (if any custom secrets)   | Bitwarden item "Homelab Syncthing"               |
 
   Adjust the list to match your actual cluster. If a service shows a Secret not in the table, find the matching Bitwarden item and add it.
 
@@ -177,7 +179,7 @@ The cluster's authoritative secret list is whatever currently exists in the clus
 
   These are pre/post comparison anchors. Keep them around for the verification phase.
 
----
+______________________________________________________________________
 
 ## Cluster teardown and rebuild
 
@@ -188,11 +190,13 @@ The cluster's authoritative secret list is whatever currently exists in the clus
 - [ ] **Step 1: Confirm what `k3s-uninstall.sh` does NOT touch**
 
   Per the k3s docs, `k3s-uninstall.sh` removes:
+
   - k3s binary, systemd service, state DB
   - `/etc/rancher/k3s`, `/var/lib/rancher/k3s`
   - Network interfaces (cni0, flannel.1)
 
   It does NOT remove:
+
   - `/opt/<service>/` hostPath PV data (Authentik postgres, Pi-hole config, Jellyfin media, etc.)
   - User-installed packages
   - Anything outside k3s-managed directories
@@ -209,7 +213,7 @@ The cluster's authoritative secret list is whatever currently exists in the clus
   ssh gandalf 'sudo /usr/local/bin/k3s-uninstall.sh'
   ```
 
-  Expected: script completes in <30s. `kubectl` from your laptop will start failing as soon as the API server stops.
+  Expected: script completes in \<30s. `kubectl` from your laptop will start failing as soon as the API server stops.
 
 - [ ] **Step 3: Verify /opt/ data is intact**
 
@@ -235,6 +239,7 @@ The cluster's authoritative secret list is whatever currently exists in the clus
   ```
 
   Notes:
+
   - `--cluster-init` initializes a new embedded etcd cluster (vs. joining an existing one).
   - `--disable=servicelb` — preempts Phase C work; klipper-lb is not needed because Traefik is `hostNetwork: true` (per PR #70). Leaving it disabled also simplifies the eventual MetalLB cutover.
   - `--tls-san` flags pre-register both the LAN IP and the tailnet IP on the cluster cert, so kubectl from either network works without cert errors.
@@ -363,7 +368,7 @@ The cluster's authoritative secret list is whatever currently exists in the clus
 
   Expected: 5 nodes, 3 with role `control-plane,etcd,master` (gandalf/frodo/samwise) and 2 with role `<none>` (merry/pippin). All `Ready`.
 
----
+______________________________________________________________________
 
 ## Re-deploy cluster manifests and services
 
@@ -566,7 +571,7 @@ Recommended order (lowest blast-radius first):
 
   Expected: clean exit, success ping fires to Uptime Kuma.
 
----
+______________________________________________________________________
 
 ## Verification
 
@@ -637,7 +642,7 @@ This is the actual HA validation. Skip if you'd rather not; the etcd quorum shou
 
   Expected: gandalf rejoins the cluster. Etcd resyncs.
 
----
+______________________________________________________________________
 
 ## Commit pre-rebuild artifacts (optional)
 
@@ -651,7 +656,7 @@ This is the actual HA validation. Skip if you'd rather not; the etcd quorum shou
 
   Otherwise, no commit needed — the plan's existence in git plus the spec is the durable artifact.
 
----
+______________________________________________________________________
 
 ## Rollback
 
