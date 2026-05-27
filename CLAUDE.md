@@ -215,11 +215,15 @@ and on failure (via `trap ERR`). Push URLs live in Secret
   `local-path` re-provision dynamic PVCs from restored hostPaths.
 - **Coder workspace home directories**. Considered ephemeral; rebuild
   via the workspace template from git + dotfiles inside the workspace.
-- **Authentik UI-only configuration state**. Property mappings,
-  application/provider bindings etc. live inside the `authentik`
-  postgres DB which *is* backed up — but a from-scratch rebuild
-  without the postgres restore (e.g. lost `AUTHENTIK_SECRET_KEY`)
-  means redoing UI clicks. See `k8s/authentik/README.md`.
+- **Authentik UI-only configuration state**. The recovery flow, the
+  Coder/Outline OIDC providers + apps + group bindings, the groups, and
+  the `email` scope-mapping override are now captured as Blueprints in
+  `k8s/authentik/blueprints/` (#104) — a from-scratch rebuild
+  reconstructs them from the `authentik-blueprints` ConfigMap without a
+  postgres restore. Remaining DB-only state (lost with the DB if
+  `AUTHENTIK_SECRET_KEY` is gone): users, group *memberships*, sessions,
+  and event history. The postgres PVC is still in the nightly restic
+  backup. See `k8s/authentik/README.md` and `blueprints/README.md`.
 
 ## SPOF discipline (Authentik is a SPOF)
 
