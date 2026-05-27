@@ -17,7 +17,7 @@ cd ~/git/nickvigilante/homelab/ansible   # commands assume this CWD —
 ansible-playbook provision-gandalf.yml --ask-become-pass
 ```
 
-`ansible.cfg` is in `ansible/` and uses a _relative_ inventory path,
+`ansible.cfg` is in `ansible/` and uses a *relative* inventory path,
 so running from anywhere else silently falls back to implicit
 localhost (no hosts matched). Always `cd` in first.
 
@@ -68,6 +68,7 @@ ansible-playbook provision-gandalf.yml \
 2. **Image the SD card.**
 
    **OS choice:**
+
    - **Ubuntu Server 26.04 LTS (ARM64)** — default for cluster workers
      (frodo, samwise, future merry/pippin). Matches gandalf, so the same
      `provision-pi.yml` + `ansible.cfg` apply uniformly. Triggers the
@@ -79,6 +80,7 @@ ansible-playbook provision-gandalf.yml \
      `ansible_become_exe` override in the inventory entry.
 
    **Pi Imager preconfig (gear icon, set BEFORE writing):**
+
    - Hostname: matches the inventory entry (e.g., `samwise`)
    - Username: `nickv` + paste your SSH public key
    - Disable password authentication
@@ -94,12 +96,10 @@ ansible-playbook provision-gandalf.yml \
    / your router. Pi Zero exit node is already live on `.123`.
 
 4. **Add to inventory.** Edit `inventory.yml` and uncomment / add the
-   entry under `cluster_agents`. Include `ansible_become_exe:
-/usr/bin/sudo.ws` if the host runs Ubuntu 26.04+. For a Pi 4B
-   acting as the dedicated Pi-hole host, add `k3s_node_labels: { role:
-pihole }` so Pi-hole pods can target it via nodeSelector.
+   entry under `cluster_agents`. Include `ansible_become_exe: /usr/bin/sudo.ws` if the host runs Ubuntu 26.04+. For a Pi 4B
+   acting as the dedicated Pi-hole host, add `k3s_node_labels: { role: pihole }` so Pi-hole pods can target it via nodeSelector.
 
-5. **Run the playbook from a workstation** (MacBook or laptop) — _not_ from
+5. **Run the playbook from a workstation** (MacBook or laptop) — *not* from
    gandalf or another homelab host. Running from a workstation keeps the
    cluster machines unable to SSH each other, which is a small but real
    blast-radius reduction. Each homelab host trusts the workstation's
@@ -126,7 +126,7 @@ pihole }` so Pi-hole pods can target it via nodeSelector.
    `unattended-upgrades` cycle catching up on pending security patches.
    That can hold `/var/lib/dpkg/lock-frontend` for several minutes. The
    playbook's apt tasks set `lock_timeout: 600` (10 min) to wait through
-   it, but if your image is _months_ stale you may still hit the timeout.
+   it, but if your image is *months* stale you may still hit the timeout.
    Diagnose with `ssh nickv@<pi> 'ps -ef | grep -E "apt|unattended"'` —
    wait for those processes to finish, then re-run the playbook
    (idempotent — already-applied tasks are skipped).

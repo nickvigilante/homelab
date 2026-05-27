@@ -59,7 +59,7 @@ Remaining follow-ups are tracked as GitHub issues; see "Open follow-ups" at the 
 | 4a — Home Assistant OIDC user UX               | Blank Username + "no HA credentials" warning for OIDC-only users                                                                   | **Not a bug**     | HA design quirk — verified by confirming OIDC sign-in actually worked. User subsequently abandoned the HA-Authentik integration on unrelated grounds; Authentik-side artifacts cleaned up via API. Memory: `feedback_ha_oidc_user_ux`       |
 | 4b — OIDC signing-cert rotation                | Annual rotation was a manual click-through per provider; no tooling                                                                | **Resolved**      | PR #55 ships `scripts/rotate-authentik-signing-cert.sh` (auto-discovers providers, generates ECDSA P-256, PATCHes signing_key, restarts server, verifies JWKS) plus `scripts/cleanup-old-authentik-signing-certs.sh`. CI gains `shellcheck` |
 | 4c — property mappings                         | Default `email` scope mapping returns `email_verified: False` because no SMTP/verification flow exists; breaks strict OIDC clients | **Resolved (UI)** | Mapping edited in Authentik UI to return `email_verified: True` unconditionally. Documented in `k8s/authentik/README.md` since the mapping lives in postgres, not the repo. Re-apply on from-scratch rebuild                                |
-| 4d — group bindings on Coder + HA applications | Applications were exposed to _all_ authenticated users; no group-scoped allow rule                                                 | **Resolved (UI)** | Per-application policy bindings added against the `homelab-users` group. Applied directly to the cluster; README still pending the explicit "how to add a new group binding" note (low priority; pattern is the same as 4c)                 |
+| 4d — group bindings on Coder + HA applications | Applications were exposed to *all* authenticated users; no group-scoped allow rule                                                 | **Resolved (UI)** | Per-application policy bindings added against the `homelab-users` group. Applied directly to the cluster; README still pending the explicit "how to add a new group binding" note (low priority; pattern is the same as 4c)                 |
 
 ### Check 5 — self-service flows
 
@@ -115,8 +115,8 @@ _None — all Tier-1 audit findings resolved as of 2026-05-22._
   switching postgres charts. Accepted as a known gap; `audit/warn`
   surfaces drift toward the tighter standard without enforcing it.
 - **No external KMS for `AUTHENTIK_SECRET_KEY`.** Out of scope for
-  a single-node homelab; postgres + the key + the restic password
-  - Bitwarden export discipline together form the recovery path.
+  a single-node homelab; postgres, the key, the restic password, and
+  Bitwarden export discipline together form the recovery path.
 - **No automated penetration tooling** (ZAP, etc.). The Tier-1 pass
   was checklist-driven, not fuzzing-driven. If Tier-2 (#59) wants
   fuzzing, it'll add that explicitly.

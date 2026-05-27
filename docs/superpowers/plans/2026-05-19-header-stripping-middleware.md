@@ -12,9 +12,9 @@
 
 **Working branch:** `traefik-strip-auth-headers-middleware` (already exists, spec already committed there)
 
-**Dependency:** PR #61 (audit doc issue-ref fix) is in flight. Task 4 must rebase the branch onto main _after_ #61 merges, otherwise the audit doc update conflicts. Tasks 1-3 are independent of #61 and can proceed immediately.
+**Dependency:** PR #61 (audit doc issue-ref fix) is in flight. Task 4 must rebase the branch onto main *after* #61 merges, otherwise the audit doc update conflicts. Tasks 1-3 are independent of #61 and can proceed immediately.
 
----
+______________________________________________________________________
 
 ## File Structure
 
@@ -25,7 +25,7 @@
 | `ansible/provision-gandalf.yml`                     | Modify | Copies the Middleware manifest to k3s's auto-apply directory    |
 | `audits/tier-1-authentik.md`                        | Modify | Flips finding 6-ii to Resolved + trims the open-follow-ups list |
 
----
+______________________________________________________________________
 
 ## Task 1: Create the Middleware CRD manifest
 
@@ -101,7 +101,7 @@ git add system/traefik-strip-auth-headers-middleware.yaml
 git commit -m "Traefik: add strip-auth-headers Middleware CRD"
 ```
 
----
+______________________________________________________________________
 
 ## Task 2: Wire the entryPoint default middleware in the HelmChartConfig
 
@@ -152,7 +152,7 @@ git add system/traefik-helmchartconfig.yaml
 git commit -m "Traefik: default strip-auth-headers on websecure entryPoint"
 ```
 
----
+______________________________________________________________________
 
 ## Task 3: Add Ansible copy task for the new manifest
 
@@ -165,11 +165,11 @@ git commit -m "Traefik: default strip-auth-headers on websecure entryPoint"
 The existing task is at approximately line 110-114 in `ansible/provision-gandalf.yml`:
 
 ```yaml
-# with the new values. See system/traefik-helmchartconfig.yaml.
-- name: Copy Traefik HelmChartConfig to k3s manifests dir
-  copy:
-    src: ../system/traefik-helmchartconfig.yaml
-    dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
+    # with the new values. See system/traefik-helmchartconfig.yaml.
+    - name: Copy Traefik HelmChartConfig to k3s manifests dir
+      copy:
+        src: ../system/traefik-helmchartconfig.yaml
+        dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
 ```
 
 (The exact task name and `mode`/`owner` lines may differ — match what's there.)
@@ -179,17 +179,17 @@ The existing task is at approximately line 110-114 in `ansible/provision-gandalf
 Insert this block right after the existing HelmChartConfig `copy` task ends (preserving the same indentation as the other tasks in the file):
 
 ```yaml
-# The Middleware CRD strips inbound auth-context headers on the
-# websecure entryPoint; see system/traefik-strip-auth-headers-middleware.yaml.
-# k3s's manifests-dir controller auto-applies non-HelmChart YAML dropped
-# here, so no kubectl apply is needed.
-- name: Copy strip-auth-headers Middleware to k3s manifests dir
-  copy:
-    src: ../system/traefik-strip-auth-headers-middleware.yaml
-    dest: /var/lib/rancher/k3s/server/manifests/strip-auth-headers-middleware.yaml
-    owner: root
-    group: root
-    mode: "0600"
+    # The Middleware CRD strips inbound auth-context headers on the
+    # websecure entryPoint; see system/traefik-strip-auth-headers-middleware.yaml.
+    # k3s's manifests-dir controller auto-applies non-HelmChart YAML dropped
+    # here, so no kubectl apply is needed.
+    - name: Copy strip-auth-headers Middleware to k3s manifests dir
+      copy:
+        src: ../system/traefik-strip-auth-headers-middleware.yaml
+        dest: /var/lib/rancher/k3s/server/manifests/strip-auth-headers-middleware.yaml
+        owner: root
+        group: root
+        mode: '0600'
 ```
 
 If the existing HelmChartConfig task includes `become: true` or `tags:` at the task level (not just play-level), match those too.
@@ -211,7 +211,7 @@ git add ansible/provision-gandalf.yml
 git commit -m "Ansible: ship strip-auth-headers Middleware to k3s manifests dir"
 ```
 
----
+______________________________________________________________________
 
 ## Task 4: Update audit doc — finding 6-ii Resolved
 
@@ -314,7 +314,7 @@ git add audits/tier-1-authentik.md
 git commit -m "Audit: flip finding 6-ii to Resolved"
 ```
 
----
+______________________________________________________________________
 
 ## Task 5: Push branch and open PR
 
@@ -365,7 +365,7 @@ git commit -m "Audit: backfill PR number in finding 6-ii"
 git push
 ```
 
----
+______________________________________________________________________
 
 ## Task 6: Apply on cluster and verify (post-merge)
 
@@ -481,7 +481,7 @@ If the IP is wrong, the new middleware may have inadvertently shadowed XFF handl
 
 Mark Task #3 ("Plan + implement header-stripping middleware") as completed once all steps 1-8 pass.
 
----
+______________________________________________________________________
 
 ## Rollback procedure
 

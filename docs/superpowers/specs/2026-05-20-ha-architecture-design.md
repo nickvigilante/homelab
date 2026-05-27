@@ -20,7 +20,7 @@ Reach a state where gandalf's loss (or any single node's loss) is tolerable — 
 
 ## Non-goals
 
-- **Multi-node simultaneous failure tolerance.** The HA design targets _single_ node loss. Surviving two-of-five-down requires more replicas, larger etcd quorums, and is not part of this design.
+- **Multi-node simultaneous failure tolerance.** The HA design targets *single* node loss. Surviving two-of-five-down requires more replicas, larger etcd quorums, and is not part of this design.
 - **Zero-downtime migration paths.** Each phase has a defined downtime window. Brief cluster restarts during k3s reinstallation, ingress IP cutover, etc. are acceptable on a homelab.
 - **External-facing exposure.** vigihome.net stays internal-only (LAN + tailnet). HA does not change the public-exposure posture; that's a separate decision.
 - **Migrating storage to enterprise-grade systems** (Ceph). Longhorn is the chosen storage layer for Phase E; Ceph is out of scope (see Phase E rationale).
@@ -78,15 +78,15 @@ CLAUDE.md already notes that "k3s itself is not under IaC" and "a from-scratch r
 
 Outline (full procedure goes into the Phase A implementation plan, not this spec):
 
-1. **Pre-flight:** verify restic backup is fresh (Storj snapshot of last ~24h). Export all Secrets from Bitwarden into laptop's session shell so they're ready to re-create via `kubectl create secret`. Confirm all `values.yaml` files committed and pulled to gandalf.
-2. **Tear down current cluster** on gandalf: `/usr/local/bin/k3s-uninstall.sh`. This stops k3s and removes its state, but leaves `/opt/<service>/` hostPath PV data intact on gandalf's disk (k3s uninstall doesn't touch user data dirs).
-3. **Re-install k3s on gandalf with `--cluster-init`** plus `--tls-san <gandalf-tailnet-IP>` so the cert covers cross-tailnet API access.
-4. **Capture node-join token:** `cat /var/lib/rancher/k3s/server/node-token`.
-5. **Install k3s on frodo + samwise as servers** with `--server https://gandalf:6443 --token <node-token>`. Both join the etcd quorum.
-6. **Verify etcd health:** `kubectl get nodes` shows all 3 servers Ready; `k3s etcd-snapshot ls` lists snapshots.
-7. **Install k3s on merry + pippin as agents** (`K3S_URL=https://gandalf:6443 K3S_TOKEN=…` — agent role, not server).
-8. **Re-apply manifests:** Ansible drops the `system/*.yaml` files into `/var/lib/rancher/k3s/server/manifests/` (HelmChartConfig override, strip-auth-headers Middleware, sysctl drop-ins). k3s's HelmChart controller picks them up and renders.
-9. **Re-create k8s Secrets** for each service via `kubectl create secret generic` sourced from Bitwarden (per each service's README — Authentik, Coder, restic, smtp-relay, etc.).
+01. **Pre-flight:** verify restic backup is fresh (Storj snapshot of last ~24h). Export all Secrets from Bitwarden into laptop's session shell so they're ready to re-create via `kubectl create secret`. Confirm all `values.yaml` files committed and pulled to gandalf.
+02. **Tear down current cluster** on gandalf: `/usr/local/bin/k3s-uninstall.sh`. This stops k3s and removes its state, but leaves `/opt/<service>/` hostPath PV data intact on gandalf's disk (k3s uninstall doesn't touch user data dirs).
+03. **Re-install k3s on gandalf with `--cluster-init`** plus `--tls-san <gandalf-tailnet-IP>` so the cert covers cross-tailnet API access.
+04. **Capture node-join token:** `cat /var/lib/rancher/k3s/server/node-token`.
+05. **Install k3s on frodo + samwise as servers** with `--server https://gandalf:6443 --token <node-token>`. Both join the etcd quorum.
+06. **Verify etcd health:** `kubectl get nodes` shows all 3 servers Ready; `k3s etcd-snapshot ls` lists snapshots.
+07. **Install k3s on merry + pippin as agents** (`K3S_URL=https://gandalf:6443 K3S_TOKEN=…` — agent role, not server).
+08. **Re-apply manifests:** Ansible drops the `system/*.yaml` files into `/var/lib/rancher/k3s/server/manifests/` (HelmChartConfig override, strip-auth-headers Middleware, sysctl drop-ins). k3s's HelmChart controller picks them up and renders.
+09. **Re-create k8s Secrets** for each service via `kubectl create secret generic` sourced from Bitwarden (per each service's README — Authentik, Coder, restic, smtp-relay, etc.).
 10. **`helm install`** each chart-managed service from its `k8s/<service>/values.yaml`. Apply raw manifests for Syncthing and any non-chart services.
 11. **Verify each service end-to-end:** OIDC sign-ins, ingress paths, Authentik audit log shows real client IPs (regression-check for the post-Phase-C ingress changes).
 
@@ -124,11 +124,11 @@ Expected scope (to be finalized during execution, but a starting list):
 | Jellyfin       | Yes (media hostPath)            | Keep pinned                                                              | Stateful media library                                  |
 | Pi-hole        | Yes (gravity + config hostPath) | Keep pinned                                                              | Stateful until Phase D                                  |
 | Syncthing      | Yes (data hostPath)             | Keep pinned                                                              | Stateful                                                |
-| homepage       | Likely yes                      | **Unpin** if no PV — config is in `values.yaml` and is rebuildable       |
+| homepage       | Likely yes                      | **Unpin** if no PV — config is in `values.yaml` and is rebuildable       |                                                         |
 | restic CronJob | Yes                             | Keep pinned                                                              | Needs hostPath access to backup-source dirs             |
 | cert-manager   | No                              | n/a                                                                      | Already unpinned                                        |
 | reflector      | No                              | n/a                                                                      | Already unpinned                                        |
-| Traefik        | Yes via hostNetwork (PR #70)    | Defer to Phase C — Traefik gets unpinned when MetalLB takes over ingress |
+| Traefik        | Yes via hostNetwork (PR #70)    | Defer to Phase C — Traefik gets unpinned when MetalLB takes over ingress |                                                         |
 
 ### Acceptance criteria
 
@@ -181,7 +181,7 @@ Replace k3s's bundled klipper-lb (svcLB) with MetalLB. Goal: a LAN-routable virt
 
 ## Phase D — DNS HA (deferred)
 
-Spec'd separately when chosen. The two candidate architectures and their trade-offs are noted under the earlier brainstorm; no commitment yet. Pi-hole remains a SPOF on gandalf in the interim. Acceptable because (a) LAN clients fall back to upstream DNS for non-`*.vigihome.net` lookups, and (b) the gandalf-down failure window is the same as it was pre-HA work for DNS, so this phase is _additive_ survival, not a regression risk.
+Spec'd separately when chosen. The two candidate architectures and their trade-offs are noted under the earlier brainstorm; no commitment yet. Pi-hole remains a SPOF on gandalf in the interim. Acceptable because (a) LAN clients fall back to upstream DNS for non-`*.vigihome.net` lookups, and (b) the gandalf-down failure window is the same as it was pre-HA work for DNS, so this phase is *additive* survival, not a regression risk.
 
 ## Phase E — Longhorn deployment + stateful service migration (deferred, hardware-gated)
 

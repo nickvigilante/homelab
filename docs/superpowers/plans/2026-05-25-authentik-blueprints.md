@@ -18,7 +18,7 @@
 - Tag every live command with the host it runs on (laptop with kubectl context = homelab, or gandalf). Live prod-mutating commands (Task 10) are handed to the operator to run, with `git checkout`/`pull` included.
 - Scratch-instance curls below use `$TOK` for the scratch bootstrap token — run `export TOK=scratch-token-0000` (the value set in `scratch-values.yaml`) once before them.
 
----
+______________________________________________________________________
 
 ## File structure
 
@@ -36,7 +36,7 @@
 | `k8s/authentik/README.md` (modify)                   | Replace "click in the UI" sections with blueprint references + add the oidc-secrets create-secret step |
 | `.github/workflows/lint.yml` (modify, if needed)     | Cover the new file types                                                                               |
 
----
+______________________________________________________________________
 
 ## Task 1: Stand up the throwaway scratch instance
 
@@ -114,7 +114,7 @@ git add k8s/authentik/scratch-values.yaml
 git commit -m "Authentik: scratch instance values for blueprint validation"
 ```
 
----
+______________________________________________________________________
 
 ## Task 2: Export the live prod objects as reference blueprints
 
@@ -156,7 +156,7 @@ Skim both exports and note, for use in later tasks, the exact:
 
 These exports are the source of truth for field names in Tasks 3–7. No commit.
 
----
+______________________________________________________________________
 
 ## Task 3: Author `groups.yaml`
 
@@ -207,7 +207,7 @@ git add k8s/authentik/blueprints/groups.yaml
 git commit -m "Authentik blueprint: homelab-users group"
 ```
 
----
+______________________________________________________________________
 
 ## Task 4: Author `email-scope-mapping.yaml`
 
@@ -267,7 +267,7 @@ git add k8s/authentik/blueprints/email-scope-mapping.yaml
 git commit -m "Authentik blueprint: email scope mapping returns email_verified=true"
 ```
 
----
+______________________________________________________________________
 
 ## Task 5: Author `recovery-flow.yaml`
 
@@ -325,7 +325,7 @@ git add k8s/authentik/blueprints/recovery-flow.yaml
 git commit -m "Authentik blueprint: password-recovery flow + group gate"
 ```
 
----
+______________________________________________________________________
 
 ## Task 6: Author `applications/coder.yaml`
 
@@ -350,35 +350,14 @@ entries:
     attrs:
       client_type: confidential
       client_id: "[COPY client_id FROM EXPORT]"
-      client_secret: !Env AUTHENTIK_OIDC_CODER_SECRET # confirm !Env arg syntax
-      authorization_flow:
-        !Find [
-          authentik_flows.models.Flow,
-          [slug, default-provider-authorization-implicit-consent],
-        ]
-      invalidation_flow:
-        !Find [
-          authentik_flows.models.Flow,
-          [slug, default-provider-invalidation-flow],
-        ]
-      signing_key:
-        !Find [
-          authentik_crypto.models.CertificateKeyPair,
-          [name, "authentik Self-signed Certificate"],
-        ]
+      client_secret: !Env AUTHENTIK_OIDC_CODER_SECRET   # confirm !Env arg syntax
+      authorization_flow: !Find [authentik_flows.models.Flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.models.Flow, [slug, default-provider-invalidation-flow]]
+      signing_key: !Find [authentik_crypto.models.CertificateKeyPair, [name, "authentik Self-signed Certificate"]]
       property_mappings:
-        - !Find [
-            authentik_providers_oauth2.models.ScopeMapping,
-            [managed, goauthentik.io/providers/oauth2/scope-openid],
-          ]
-        - !Find [
-            authentik_providers_oauth2.models.ScopeMapping,
-            [managed, goauthentik.io/providers/oauth2/scope-email],
-          ]
-        - !Find [
-            authentik_providers_oauth2.models.ScopeMapping,
-            [managed, goauthentik.io/providers/oauth2/scope-profile],
-          ]
+        - !Find [authentik_providers_oauth2.models.ScopeMapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !Find [authentik_providers_oauth2.models.ScopeMapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+        - !Find [authentik_providers_oauth2.models.ScopeMapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
       redirect_uris: "[COPY redirect_uris STRUCTURE FROM EXPORT]"
       sub_mode: "[COPY FROM EXPORT, e.g. hashed_user_id]"
   - id: coder-app
@@ -430,7 +409,7 @@ git add k8s/authentik/blueprints/applications/coder.yaml
 git commit -m "Authentik blueprint: Coder OIDC application"
 ```
 
----
+______________________________________________________________________
 
 ## Task 7: Author `applications/outline.yaml`
 
@@ -458,34 +437,13 @@ entries:
       client_type: confidential
       client_id: "[COPY client_id FROM EXPORT]"
       client_secret: !Env AUTHENTIK_OIDC_OUTLINE_SECRET
-      authorization_flow:
-        !Find [
-          authentik_flows.models.Flow,
-          [slug, default-provider-authorization-implicit-consent],
-        ]
-      invalidation_flow:
-        !Find [
-          authentik_flows.models.Flow,
-          [slug, default-provider-invalidation-flow],
-        ]
-      signing_key:
-        !Find [
-          authentik_crypto.models.CertificateKeyPair,
-          [name, "authentik Self-signed Certificate"],
-        ]
+      authorization_flow: !Find [authentik_flows.models.Flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.models.Flow, [slug, default-provider-invalidation-flow]]
+      signing_key: !Find [authentik_crypto.models.CertificateKeyPair, [name, "authentik Self-signed Certificate"]]
       property_mappings:
-        - !Find [
-            authentik_providers_oauth2.models.ScopeMapping,
-            [managed, goauthentik.io/providers/oauth2/scope-openid],
-          ]
-        - !Find [
-            authentik_providers_oauth2.models.ScopeMapping,
-            [managed, goauthentik.io/providers/oauth2/scope-email],
-          ]
-        - !Find [
-            authentik_providers_oauth2.models.ScopeMapping,
-            [managed, goauthentik.io/providers/oauth2/scope-profile],
-          ]
+        - !Find [authentik_providers_oauth2.models.ScopeMapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !Find [authentik_providers_oauth2.models.ScopeMapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+        - !Find [authentik_providers_oauth2.models.ScopeMapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
       redirect_uris: "[COPY redirect_uris STRUCTURE FROM EXPORT]"
       sub_mode: "[COPY FROM EXPORT]"
   - id: outline-app
@@ -527,7 +485,7 @@ git add k8s/authentik/blueprints/applications/outline.yaml
 git commit -m "Authentik blueprint: Outline OIDC application"
 ```
 
----
+______________________________________________________________________
 
 ## Task 8: Full reconstruction test on a wiped scratch instance
 
@@ -612,14 +570,16 @@ git add k8s/authentik/blueprints/README.md
 git commit -m "Authentik blueprints: render/apply README + validated from-zero reconstruction"
 ```
 
----
+______________________________________________________________________
 
 ## Task 9: Wire prod values + secret template
 
 **Files:**
 
 - Modify: `k8s/authentik/values.yaml`
+
 - Modify: `k8s/authentik/secret.example.yaml`
+
 - Modify: `.github/workflows/lint.yml` (only if the new files fall outside the current globs)
 
 - [ ] **Step 1: Add the OIDC-secret env + blueprints mount to `values.yaml`**
@@ -627,20 +587,20 @@ git commit -m "Authentik blueprints: render/apply README + validated from-zero r
 In `k8s/authentik/values.yaml`, append two entries to the existing `global.env` list (after `AUTHENTIK_EMAIL__FROM`):
 
 ```yaml
-# OIDC provider client secrets for the blueprinted apps (#104). The
-# blueprint references these via !Env; values come from the
-# authentik-oidc-secrets Secret (Bitwarden-backed). One Bitwarden
-# field per app feeds both this env and the downstream service Secret.
-- name: AUTHENTIK_OIDC_CODER_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: authentik-oidc-secrets
-      key: oidc-coder-client-secret
-- name: AUTHENTIK_OIDC_OUTLINE_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: authentik-oidc-secrets
-      key: oidc-outline-client-secret
+    # OIDC provider client secrets for the blueprinted apps (#104). The
+    # blueprint references these via !Env; values come from the
+    # authentik-oidc-secrets Secret (Bitwarden-backed). One Bitwarden
+    # field per app feeds both this env and the downstream service Secret.
+    - name: AUTHENTIK_OIDC_CODER_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: authentik-oidc-secrets
+          key: oidc-coder-client-secret
+    - name: AUTHENTIK_OIDC_OUTLINE_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: authentik-oidc-secrets
+          key: oidc-outline-client-secret
 ```
 
 And add the top-level blueprints mount (sibling of `server:` / `worker:`):
@@ -696,7 +656,7 @@ git add k8s/authentik/values.yaml k8s/authentik/secret.example.yaml .github/work
 git commit -m "Authentik: wire blueprints ConfigMap + oidc-secrets env into values"
 ```
 
----
+______________________________________________________________________
 
 ## Task 10: Prod cutover (operator-run, live)
 
@@ -764,13 +724,14 @@ Per `k8s/authentik/README.md` "Testing the recovery flow": (1) a `homelab-users`
 
 Expected: all pass. **If anything breaks:** restore `/opt/authentik/postgres` from the pre-cutover snapshot (README "Postgres backup / restore"), then investigate on scratch.
 
----
+______________________________________________________________________
 
 ## Task 11: Documentation
 
 **Files:**
 
 - Modify: `k8s/authentik/README.md`
+
 - Modify: `CLAUDE.md` (the "What we don't back up" Authentik note)
 
 - [ ] **Step 1: Replace the "click in the UI" sections in `k8s/authentik/README.md`**
@@ -799,7 +760,7 @@ git add k8s/authentik/README.md CLAUDE.md
 git commit -m "Authentik docs: point UI-config sections at blueprints (#104)"
 ```
 
----
+______________________________________________________________________
 
 ## Task 12: Finish the development branch
 
@@ -807,10 +768,10 @@ git commit -m "Authentik docs: point UI-config sections at blueprints (#104)"
 
 Announce and use **superpowers:finishing-a-development-branch** to verify all tasks are committed, open the PR (title referencing #104), and confirm the recovery regression + scratch reconstruction evidence is in the PR body. Follow the repo's PR conventions (squash-merge, no Co-Authored-By trailer).
 
----
+______________________________________________________________________
 
 ## Self-review notes
 
 - **Spec coverage:** mount ConfigMap (T9) · identifier adoption (T3–7 identifiers, verified T10.4) · `!Env`/Bitwarden secret injection (T6/T7/T9/T10.2) · scratch-first validation (T1/T8) · email mapping in-place override (T4) · file layout incl. `applications/` (T3–8) · scratch→prod rollout + rollback (T8/T10) · docs (T11) · acceptance criteria (T8.4 + T10.4–5) · lint coverage (T9.3). All spec sections map to a task.
 - **Open items the spec flagged** (`!Env` arg syntax; chart mount path/discovery; exact model/field names) are resolved empirically: model/field names come from the Task 2 export; `!Env` and discovery are proven on the Task 1/8 scratch instance before prod.
-- **Bracketed `[COPY … FROM EXPORT]` markers** in T6/T7 are deliberate — the authoritative values live in the per-version export from Task 2, not in this plan; copying invented client*ids/redirect_uris would be wrong. Every \_structural* field is shown.
+- **Bracketed `[COPY … FROM EXPORT]` markers** in T6/T7 are deliberate — the authoritative values live in the per-version export from Task 2, not in this plan; copying invented client_ids/redirect_uris would be wrong. Every *structural* field is shown.

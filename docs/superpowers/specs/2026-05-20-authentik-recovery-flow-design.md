@@ -67,7 +67,7 @@ Limit policy (3 emails/hour per `remote_ip`) and a Reputation policy
 
 ### Why bind to the authentication flow vs. a standalone URL
 
-Authentik's recovery-flow primitive _is_ the authentication flow's
+Authentik's recovery-flow primitive *is* the authentication flow's
 `recovery_flow` field. Setting it surfaces the "Forgot password?" link
 on the login page automatically. The alternative — a standalone
 `/if/flow/default-recovery-flow/` URL with no link from login — works
@@ -87,7 +87,7 @@ Three reasons, in order of weight:
 2. **Email address.** akadmin's recorded email is the operator's
    personal address. The recovery flow assumes the recipient is the
    account owner; for akadmin, that's also the operator, but the
-   operator already has a _better_ recovery path (cluster shell).
+   operator already has a *better* recovery path (cluster shell).
 3. **Audit posture.** Recovery flows that include the highest-
    privilege account widen the trust boundary to include the mail
    relay. Excluding akadmin keeps the trust boundary at "shell
@@ -197,7 +197,7 @@ captures the canonical settings.
   (`passing=true`) when reputation is **bad** (below threshold).
   Bind the policy to a Deny stage with `negate=OFF`. Do not
   misread `passing=true` as "good reputation." (See memory:
-  [[feedback_authentik_reputation_policy_semantics]].)
+  \[[feedback_authentik_reputation_policy_semantics]\].)
 
 **5. Stage: `default-email-recovery`** (built-in, edit)
 

@@ -25,12 +25,12 @@ For the original D1→D2→D3 cutover sequence (kept here as the runbook for any
 
 ## ⚠️ SPOF discipline
 
-Authentik _is_ the login system. When it's down, every service behind it is
+Authentik *is* the login system. When it's down, every service behind it is
 locked out. **Always preserve a local-fallback credential for every service
 you put behind Authentik** so you can get in via the service's native login
 when Authentik is broken.
 
-- Jellyfin: keep a local admin account with username/password in Bitwarden, configure OIDC as an _additional_ identity provider rather than replacing local auth.
+- Jellyfin: keep a local admin account with username/password in Bitwarden, configure OIDC as an *additional* identity provider rather than replacing local auth.
 - Pi-hole admin: native password stays in Bitwarden item `Pi-Hole`. Don't put it solely behind forward-auth.
 - Uptime Kuma: same — local admin in Bitwarden, OIDC as an alternative login.
 
@@ -70,8 +70,8 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
 
 ## One-time setup
 
-1. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab
-Authentik` with five custom fields:
+1. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab Authentik` with five custom fields:
+
    - `secret-key` — 60-char base64, Authentik's master encryption key
    - `postgres-password` — password for the `authentik` postgres user
    - `postgres-superuser-password` — password for the `postgres` superuser
@@ -140,8 +140,7 @@ Authentik` with five custom fields:
    has to initialize, then Authentik's worker runs migrations.
 
 6. **Add `/opt/authentik/postgres` to restic.** Edit `../backup/backup-cronjob.yaml`
-   to add the new hostPath source, then `kubectl apply -f
-../backup/backup-cronjob.yaml`. Mirror the `uptime-kuma-data` pattern.
+   to add the new hostPath source, then `kubectl apply -f ../backup/backup-cronjob.yaml`. Mirror the `uptime-kuma-data` pattern.
 
 7. **First login.** Open http://authentik.home/if/flow/initial-setup/ and
    log in as `akadmin` with the bootstrap password. Set a permanent
@@ -153,7 +152,7 @@ Authentik` with five custom fields:
 
 **Always pin `--version` to the currently-installed chart.** An
 unpinned `helm upgrade authentik authentik/authentik` (especially right
-after `helm repo update`) pulls the _latest_ chart, which silently
+after `helm repo update`) pulls the *latest* chart, which silently
 bumps both the Authentik image and the bundled postgres image. On
 2026-05-23 that drifted 2026.2.2 → 2026.5.0 and the new postgres image
 hit `ImagePullBackOff`, taking the whole `auth` namespace down. Pin the
@@ -177,6 +176,7 @@ Authentik sends mail for password recovery, breach alerts, and event notificatio
 1. **Forward Email dashboard:** verify your sender domain (MX + SPF + DKIM + DMARC records in DNS — Forward Email's UI walks through these). Generate SMTP credentials on the **Outbound Emails** page.
 
 2. **Save to Bitwarden** as item `Homelab Mail Relay` with these custom fields:
+
    - `smtp-host` → `smtp.forwardemail.net`
    - `smtp-port` → `465`
    - `smtp-username` → the verified sender at your domain (e.g. `noreply@vigihome.net`)
@@ -316,7 +316,7 @@ self-heals on every worker start.
 ### Promoting an OIDC user to owner/admin in a downstream
 
 Authentik's first OIDC sign-in to a brand-new downstream creates a
-user with the downstream's default role. If the downstream was _already_
+user with the downstream's default role. If the downstream was *already*
 bootstrapped with a local admin (e.g. Coder's first-visit form), the
 OIDC-created user lands as a member and needs manual promotion via the
 downstream's UI from the bootstrap account. See
@@ -338,7 +338,7 @@ scratch and is now a blueprint — the worker reconstructs the whole stack
 from the `authentik-blueprints` ConfigMap on startup, no postgres restore
 needed. There is **one** policy object — an Expression policy. (Note for
 anyone following an older draft: Authentik 2026.2 has no "Group
-Membership" or "Rate Limit" policy _types_ — group gating is done with
+Membership" or "Rate Limit" policy *types* — group gating is done with
 an expression, and there is no rate-limit primitive.) The table below
 documents what the blueprint creates:
 
@@ -370,11 +370,11 @@ verified the hard way):**
 - Recovery users are **anonymous until the identification stage sets
   `pending_user`**, so the group check cannot be a flow-level policy
   binding — that evaluates at flow entry against the anonymous user and
-  denies _everyone_. It must read `request.context.get("pending_user")`
-  and run _after_ identification, which is why bindings 20/30/40 use
+  denies *everyone*. It must read `request.context.get("pending_user")`
+  and run *after* identification, which is why bindings 20/30/40 use
   "Evaluate when stage is run".
 - It is bound to **all three** post-identification stages, not just the
-  email stage. When the policy denies, Authentik _skips_ the bound
+  email stage. When the policy denies, Authentik *skips* the bound
   stage — and if only the email stage were gated, a denied user's
   skipped email stage cascades straight into the password-change prompt
   (a full bypass; this was reproduced). Gating prompt + write as well

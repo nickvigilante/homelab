@@ -9,20 +9,20 @@ on:
 jobs:
   # Runs the exact same hooks as the local pre-commit setup
   # (.pre-commit-config.yaml) so local and CI can't drift — formatters
-  # (prettier/yamlfmt/shfmt), linters (yamllint/shellcheck), and the
+  # (mdformat/yamlfmt/shfmt), linters (yamllint/shellcheck), and the
   # betterleaks secret scan. Fails if any hook would modify a committed file.
+  # (mdformat + betterleaks + the hygiene hooks are managed by pre-commit
+  # itself; only the language:system hooks below need tools on PATH.)
   pre-commit:
     name: pre-commit (format + lint + secrets)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-      - uses: actions/setup-node@v4
-      - name: Install the tools the repo:local hooks call (match the local brew set)
+      - name: Install the tools the repo:local hooks call
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y shellcheck
-          npm install -g prettier@3
           go install github.com/google/yamlfmt/cmd/yamlfmt@v0.21.0
           go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
           pip install yamllint==1.35.1 pre-commit

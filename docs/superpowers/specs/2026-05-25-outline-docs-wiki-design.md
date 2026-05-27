@@ -71,8 +71,7 @@ Namespace `outline`, three workloads:
 ## Secrets
 
 A single `outline-secrets` Secret in the `outline` namespace, created via
-`kubectl create secret generic` sourced from Bitwarden item **`Homelab
-Outline`** plus generated values. Keys:
+`kubectl create secret generic` sourced from Bitwarden item **`Homelab Outline`** plus generated values. Keys:
 
 | Key                                     | Source                              |
 | --------------------------------------- | ----------------------------------- |
@@ -84,16 +83,14 @@ Outline`** plus generated values. Keys:
 | `s3-access-key` / `s3-secret-key`       | Storj S3 gateway credentials        |
 
 `postgres-values.yaml` maps `existingSecret: outline-secrets` with
-`secretKeys.{adminPasswordKey: postgres-superuser-password,
-userPasswordKey: postgres-password}`. Secrets never enter the repo
+`secretKeys.{adminPasswordKey: postgres-superuser-password, userPasswordKey: postgres-password}`. Secrets never enter the repo
 (public, gitleaks pre-commit); `secret.example.yaml` documents shape only.
 
 ## Networking & TLS
 
 - Add `outline` to `reflection-auto-namespaces` in
   `k8s/cert-manager/certificate.yaml` → reflector mirrors `vigihome-tls`
-  into the namespace in < 5s. Ingress references `secretName:
-vigihome-tls` on the `websecure` entrypoint.
+  into the namespace in < 5s. Ingress references `secretName: vigihome-tls` on the `websecure` entrypoint.
 - DNS: nothing per-service — the Pi-hole `*.vigihome.net` wildcard
   already resolves `docs.vigihome.net` to gandalf on LAN + tailnet.
 - **NetworkPolicy** (matches the Authentik hardening posture): postgres
@@ -104,8 +101,7 @@ vigihome-tls` on the `websecure` entrypoint.
 ## Persistence & backup
 
 - Postgres data: hostPath `/opt/outline/postgres`, added to
-  `k8s/backup/backup-cronjob.yaml` (new volume + mount + `restic backup
---tag outline-postgres`), following the raw-hostPath-copy pattern
+  `k8s/backup/backup-cronjob.yaml` (new volume + mount + `restic backup --tag outline-postgres`), following the raw-hostPath-copy pattern
   already used for the Authentik and Coder postgres dirs. (Raw copy of a
   live postgres dir is crash-consistent; accepted repo-wide trade-off.)
 - Uploads: in Storj, already durable — not backed up by restic.

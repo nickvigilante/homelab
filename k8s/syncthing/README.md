@@ -4,7 +4,7 @@ Peer-to-peer file sync across the user's devices (Framework16,
 Framework12, Main PC, MacBook Pro, Pixel phone), with this in-cluster
 instance acting as the always-on rendezvous that the previous (now
 retired) standalone Pi used to play. Architecture follows **Approach
-C** from the [[homelab service candidates]] memory:
+C** from the \[[homelab service candidates]\] memory:
 
 - Pod runs in k3s with a local hostPath PV on gandalf — fast, simple,
   Syncthing's index DB doesn't fight object storage.
@@ -192,7 +192,7 @@ Syncthing's web UI is fronted by the GUI password you set in step 5,
 - Authentik forward-auth via Traefik can be layered on later in a
   follow-up PR — same pattern as Pi-hole's planned integration.
 - When that happens, **keep the native admin password** in Bitwarden
-  as the local-fallback per [[k3s home lab plan]] SPOF discipline.
+  as the local-fallback per \[[k3s home lab plan]\] SPOF discipline.
 
 For now: native auth is sufficient.
 
@@ -240,18 +240,15 @@ restic restore <snapshot-id> --target /restore \
   which then mismatches with Traefik's plain HTTP upstream route. If
   `https://syncthing.vigihome.net` returns 502 or "protocol error,"
   shell into the pod and edit `config/config.xml`: under `<gui ...>`
-  change `tls="true"` to `tls="false"`, then `kubectl -n syncthing
-rollout restart deploy/syncthing`. Or add the
-  `traefik.ingress.kubernetes.io/service.serverstransport:
-insecureskipverify@file` annotation to the Ingress and let Traefik
+  change `tls="true"` to `tls="false"`, then `kubectl -n syncthing rollout restart deploy/syncthing`. Or add the
+  `traefik.ingress.kubernetes.io/service.serverstransport: insecureskipverify@file` annotation to the Ingress and let Traefik
   skip cert verification on the upstream (Traefik still terminates
   the public TLS with the wildcard vigihome cert; this only affects
   the in-cluster hop).
 
 - **`hostNetwork: true` means port collisions are fatal.** Anything
   else on gandalf binding 22000, 21027, or 8384 will block the pod
-  from starting. Check with `sudo ss -tunlp '( sport = :22000 or
-sport = :21027 or sport = :8384 )'` before applying.
+  from starting. Check with `sudo ss -tunlp '( sport = :22000 or sport = :21027 or sport = :8384 )'` before applying.
 
 - **Empty-folder propagation risk.** When adding the pod to an
   existing peer, **make sure the pod's folder has the recovery data

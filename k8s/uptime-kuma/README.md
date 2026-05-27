@@ -42,10 +42,10 @@ Open https://uptime-kuma.vigihome.net/ — Uptime Kuma will prompt for:
 ### Monitor URLs must use cluster-internal DNS, not `*.home`
 
 Uptime Kuma's pod uses CoreDNS as its resolver. CoreDNS forwards external
-queries to the node's upstream DNS — which is _not_ Pi-hole. So
+queries to the node's upstream DNS — which is *not* Pi-hole. So
 `jellyfin.home` and friends are `NXDOMAIN` from inside the pod.
 
-Use cluster Service DNS instead. This is also the _better_ monitor URL
+Use cluster Service DNS instead. This is also the *better* monitor URL
 because it tests the actual pod rather than the ingress chain, and it
 keeps working while Pi-hole is broken (otherwise: chicken-and-egg).
 

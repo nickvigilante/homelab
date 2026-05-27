@@ -37,6 +37,7 @@ without per-namespace Certificate resources or hand-copying.
    ```
 
 3. **Wait for the controller pod to be Ready:**
+
    ```sh
    kubectl -n reflector get pod -w
    # reflector-xxxx   1/1   Running
@@ -44,7 +45,7 @@ without per-namespace Certificate resources or hand-copying.
 
 ## Annotating a Secret to be mirrored
 
-Reflector reads annotations on the _source_ Secret. Two annotations
+Reflector reads annotations on the *source* Secret. Two annotations
 do the heavy lifting:
 
 ```yaml
@@ -66,8 +67,8 @@ Secret).
 
 ### Driving this from cert-manager
 
-For TLS Secrets specifically, set the annotations on the _Certificate
-resource_ via `secretTemplate` — cert-manager will copy them to the
+For TLS Secrets specifically, set the annotations on the *Certificate
+resource* via `secretTemplate` — cert-manager will copy them to the
 issued Secret on every reconcile. Per-service PRs in this repo add a
 namespace to the auto-namespaces list via this mechanism:
 
@@ -90,8 +91,7 @@ spec:
   target namespace.
 
 - **Upgrade reflector:** bump the version pin above, then
-  `helm upgrade reflector emberstack/reflector -n reflector \
---version XX.YY.ZZ -f values.yaml`. Controller pod restarts; mirrors
+  `helm upgrade reflector emberstack/reflector -n reflector \ --version XX.YY.ZZ -f values.yaml`. Controller pod restarts; mirrors
   are not affected (state lives on the source Secret's annotations).
 
 - **Uninstall:** `helm uninstall reflector -n reflector` then
@@ -122,5 +122,5 @@ spec:
   you remove a namespace from `reflection-auto-namespaces`, reflector
   removes its mirror in that namespace. If you remove the
   `reflection-allowed: "true"` annotation entirely, reflector removes
-  _all_ mirrors. This is correct behavior but can surprise on
+  *all* mirrors. This is correct behavior but can surprise on
   refactors — be deliberate.

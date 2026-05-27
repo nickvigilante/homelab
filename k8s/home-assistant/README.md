@@ -91,7 +91,7 @@ In HAOS, open the **File Editor** add-on (or SSH in) and edit
 http:
   use_x_forwarded_for: true
   trusted_proxies:
-    - 192.168.50.0/24 # LAN — covers all k3s node IPs
+    - 192.168.50.0/24   # LAN — covers all k3s node IPs
 ```
 
 Then **Developer Tools → YAML → Check Configuration**, then
@@ -101,7 +101,7 @@ Then **Developer Tools → YAML → Check Configuration**, then
 
 Traefik proxies the request out of a pod on whichever k3s node
 the scheduler placed it on, and Linux NATs pod-outbound through
-the node's IP. HA at .42 sees the source IP as the _node IP_
+the node's IP. HA at .42 sees the source IP as the *node IP*
 (192.168.50.11 / .12 / .135 / any future worker), not the pod
 IP. A `/24` on the LAN covers all current and future cluster
 nodes without enumerating them. The pod CIDR (10.42.0.0/16)
@@ -153,8 +153,8 @@ Endpoints, `kubectl apply`, and the cutover is complete.
   HA's `auth_providers` to add an OIDC provider pointing at
   Authentik. **Critical SPOF caveat:** HA controls real-world things
   (lights, climate, alarms). When Authentik is down, you can't sign
-  in via OIDC, which is fine _only if HA's native auth is preserved
-  as a fallback_. The operator's native HA account stays in
+  in via OIDC, which is fine *only if HA's native auth is preserved
+  as a fallback*. The operator's native HA account stays in
   Bitwarden; OIDC is additive, not a replacement. Standard SPOF
   discipline per the repo's CLAUDE.md.
 
@@ -165,7 +165,7 @@ Endpoints, `kubectl apply`, and the cutover is complete.
   OneDrive / Storj backup add-ons are the right path; the restic
   CronJob in this repo is for cluster-side data only.
 - **No nabu.casa removal.** Subscription stays — covers Alexa /
-  Google Assistant / IFTTT integrations _and_ serves the household
+  Google Assistant / IFTTT integrations *and* serves the household
   members who don't have Tailscale. Dropping nabu.casa is a separate
   decision that would force every family member to install Tailscale.
 - **No HA-side `configuration.yaml` enforcement.** The

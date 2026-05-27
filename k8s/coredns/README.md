@@ -20,7 +20,7 @@ kubectl -n kube-system rollout restart deployment coredns
 ```
 
 The rollout is belt-and-suspenders — CoreDNS has the `reload` plugin
-in the main Corefile so new imported files _should_ pick up within
+in the main Corefile so new imported files *should* pick up within
 ~30s — but forcing a fresh pod removes ambiguity.
 
 ## Verify

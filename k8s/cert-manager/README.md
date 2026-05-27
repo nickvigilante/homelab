@@ -9,7 +9,7 @@ This PR (A) installs cert-manager + two ClusterIssuers (staging + prod).
 The actual wildcard Certificate resource lands in a follow-up PR (B)
 once the DNS-01 flow is validated end-to-end against staging.
 
-## Why staging _and_ prod
+## Why staging *and* prod
 
 Let's Encrypt prod has a 5-duplicate-certs-per-week rate limit for an
 exact name set; misconfigured DNS-01 (wrong token scope, wrong zone,
@@ -83,12 +83,14 @@ to `letsencrypt-prod`.
 
 6. **Verify both register an ACME account with Let's Encrypt** (takes
    a few seconds each):
+
    ```sh
    kubectl get clusterissuer
    # NAME                  READY   AGE
    # letsencrypt-staging   True    1m
    # letsencrypt-prod      True    1m
    ```
+
    `kubectl describe clusterissuer letsencrypt-staging` should show
    `The ACME account was registered with the ACME server`. Same for
    prod.
@@ -120,12 +122,15 @@ to prod and is the expected path.
    ```
 
 2. **Inspect the cert chain** to confirm prod issuance:
+
    ```sh
    kubectl -n cert-manager get secret vigihome-tls \
      -o jsonpath='{.data.tls\.crt}' | base64 -d \
      | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
    ```
+
    Expect:
+
    - `subject = CN = vigihome.net`
    - `issuer = ... O = Let's Encrypt, CN = E7` (or whatever LE's
      current ECDSA intermediate is — `E7` and `E5` for ECDSA, `R10`
@@ -160,8 +165,7 @@ Secret rotates without an Ingress restart.
   cert-manager re-reads the Secret on next reconcile; no restart needed.
 
 - **Upgrade cert-manager:** bump the version pin above, then
-  `helm upgrade cert-manager jetstack/cert-manager -n cert-manager
---version vX.Y.Z -f values.yaml`. Cert renewals happen on their own
+  `helm upgrade cert-manager jetstack/cert-manager -n cert-manager --version vX.Y.Z -f values.yaml`. Cert renewals happen on their own
   schedule; force one with `cmctl renew <cert-name>` if needed.
 
 - **Force a renewal manually** (e.g. after rotating the token to

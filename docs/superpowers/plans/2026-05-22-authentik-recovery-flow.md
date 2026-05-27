@@ -42,7 +42,7 @@
 
 **Commands run from:** The operator's laptop unless tagged otherwise. `kubectl` context must be the homelab cluster. Authentik UI is `https://authentik.vigihome.net`, signed in as akadmin.
 
----
+______________________________________________________________________
 
 ## File / state structure
 
@@ -59,7 +59,7 @@
 | Authentik flow `default-recovery-flow` (bind 3 policies)                                                           | Modify                                    | Task 8                    |
 | Authentik flow `default-authentication-flow` (set recovery_flow)                                                   | Modify                                    | Task 9 — **live cutover** |
 
----
+______________________________________________________________________
 
 ## Execution ordering rationale
 
@@ -73,7 +73,7 @@ UI clicks must happen in this order to avoid a window where the "Forgot password
 
 The Helm change (Task 1 file edit + Task 2 apply) is independent of the UI work and can run in parallel with Tasks 3-8. It does need to land before testing (Task 13's email shows the new From: header).
 
----
+______________________________________________________________________
 
 ## Task 1: Add display-name override to AUTHENTIK_EMAIL\_\_FROM
 
@@ -88,19 +88,19 @@ Current state: `AUTHENTIK_EMAIL__FROM` pulls from the `smtp-relay` Secret's `smt
 Replace lines 73-76 of `k8s/authentik/values.yaml`:
 
 ```yaml
-# The SMTP username also serves as the From address — Forward Email
-# ties auth to a verified sender at the configured domain, and we
-# reuse it for FROM rather than tracking a separate field.
+    # The SMTP username also serves as the From address — Forward Email
+    # ties auth to a verified sender at the configured domain, and we
+    # reuse it for FROM rather than tracking a separate field.
 ```
 
 with:
 
 ```yaml
-# SMTP envelope sender (USERNAME) is the bare address — Forward Email
-# ties SMTP AUTH to a verified sender at the configured domain.
-# From: display name (FROM) is set independently as a literal below
-# so recovery emails arrive as "vigihome auth <noreply@vigihome.net>"
-# rather than the default "authentik <…>".
+    # SMTP envelope sender (USERNAME) is the bare address — Forward Email
+    # ties SMTP AUTH to a verified sender at the configured domain.
+    # From: display name (FROM) is set independently as a literal below
+    # so recovery emails arrive as "vigihome auth <noreply@vigihome.net>"
+    # rather than the default "authentik <…>".
 ```
 
 - [ ] **Step 2: Replace the FROM env entry with a literal value**
@@ -108,18 +108,18 @@ with:
 Replace lines 97-101 of `k8s/authentik/values.yaml`:
 
 ```yaml
-- name: AUTHENTIK_EMAIL__FROM
-  valueFrom:
-    secretKeyRef:
-      name: smtp-relay
-      key: smtp-username
+    - name: AUTHENTIK_EMAIL__FROM
+      valueFrom:
+        secretKeyRef:
+          name: smtp-relay
+          key: smtp-username
 ```
 
 with:
 
 ```yaml
-- name: AUTHENTIK_EMAIL__FROM
-  value: "vigihome auth <noreply@vigihome.net>"
+    - name: AUTHENTIK_EMAIL__FROM
+      value: "vigihome auth <noreply@vigihome.net>"
 ```
 
 - [ ] **Step 3: Render the chart locally and diff against the live ConfigMap/Deployment**
@@ -155,7 +155,7 @@ From: display name (FROM, literal). Recovery emails now arrive as
 'authentik <noreply@vigihome.net>'."
 ```
 
----
+______________________________________________________________________
 
 ## Task 2: Apply the Helm change to the live cluster
 
@@ -209,7 +209,7 @@ vigihome auth <noreply@vigihome.net>
 
 If the output is just the bare address, the rollout hasn't picked up the new values — re-run Step 2 or check `helm history authentik -n auth`.
 
----
+______________________________________________________________________
 
 ## Task 3: Confirm (or create) the homelab-users group
 
@@ -249,7 +249,7 @@ Re-run Step 1 to confirm.
 
 Note the PK from Step 1 in a scratchpad — useful if you need to grep logs later. Not committed anywhere.
 
----
+______________________________________________________________________
 
 ## Task 4: Create the recovery-allowed-group policy
 
@@ -262,9 +262,13 @@ A Group Membership policy gates the entire recovery flow on membership in `homel
 Navigate: Admin interface → Customization → Policies → "Create" → "Group Membership Policy"
 
 - Name: `recovery-allowed-group`
+
 - Group: `homelab-users`
+
 - **Negate result:** OFF (unchecked)
+
 - **Execution logging:** ON (checked) — leave on for the first month, turn off after; useful during the testing phase to confirm the policy is firing
+
 - Save.
 
 - [ ] **Step 2: Verify via API**
@@ -289,7 +293,7 @@ Expected:
 }
 ```
 
----
+______________________________________________________________________
 
 ## Task 5: Create the recovery-rate-limit policy
 
@@ -333,7 +337,7 @@ Expected:
 
 If the `rate_limit` endpoint 404s, your Authentik version may have renamed it — confirm by running `curl -sSf -H "Authorization: Bearer $TOKEN" 'https://authentik.vigihome.net/api/v3/policies/' | jq '.results | unique_by(.component) | .[].component'` and pick the closest match.
 
----
+______________________________________________________________________
 
 ## Task 6: Create the recovery-reputation policy
 
@@ -348,10 +352,15 @@ Reputation policy denies the recovery flow when `ak_reputation_score < -3` for t
 Navigate: Admin interface → Customization → Policies → "Create" → "Reputation Policy"
 
 - Name: `recovery-reputation`
+
 - Threshold: `-3`
+
 - Check IP: ON (checked)
+
 - Check Username: ON (checked)
+
 - **Negate result:** OFF (unchecked)
+
 - Save.
 
 - [ ] **Step 2: Verify via API**
@@ -376,7 +385,7 @@ Expected:
 }
 ```
 
----
+______________________________________________________________________
 
 ## Task 7: Configure default-email-recovery stage
 
@@ -389,9 +398,13 @@ The built-in `default-email-recovery` stage handles the actual email send + toke
 Navigate: Admin interface → Flows & Stages → Stages → click `default-email-recovery` → "Edit"
 
 - Subject: `vigihome.net — password reset requested`
+
 - Token expiry: `hours=1`
+
 - Template: leave on the default (`email/password_reset.html`)
+
 - From address: leave blank (falls back to `AUTHENTIK_EMAIL__FROM`)
+
 - Save.
 
 - [ ] **Step 2: Verify via API**
@@ -418,7 +431,7 @@ Expected:
 
 If `token_expiry` shows as `"60"` or `"3600"` (seconds) rather than a duration string, your Authentik version stores it as seconds — that's also fine; 3600s = 1 hour.
 
----
+______________________________________________________________________
 
 ## Task 8: Bind the three policies to default-recovery-flow
 
@@ -435,10 +448,15 @@ Navigate: Admin interface → Flows & Stages → Flows → click `default-recove
 Click "Create binding"
 
 - Policy: `recovery-allowed-group`
+
 - Order: `10`
+
 - Negate: OFF
+
 - Enabled: ON
+
 - Timeout: 30 (default)
+
 - Save.
 
 - [ ] **Step 3: Bind recovery-reputation at order 20**
@@ -446,10 +464,15 @@ Click "Create binding"
 Click "Create binding"
 
 - Policy: `recovery-reputation`
+
 - Order: `20`
+
 - Negate: OFF
+
 - Enabled: ON
+
 - Timeout: 30 (default)
+
 - Save.
 
 - [ ] **Step 4: Bind recovery-rate-limit at order 30**
@@ -457,10 +480,15 @@ Click "Create binding"
 Click "Create binding"
 
 - Policy: `recovery-rate-limit`
+
 - Order: `30`
+
 - Negate: OFF
+
 - Enabled: ON
+
 - Timeout: 30 (default)
+
 - Save.
 
 - [ ] **Step 5: Verify all three bindings via API**
@@ -481,7 +509,7 @@ curl -sSf -H "Authorization: Bearer $TOKEN" \
 
 Expected three objects in order 10/20/30 with negate=false, enabled=true, names matching the three policies.
 
----
+______________________________________________________________________
 
 ## Task 9: ⚠ LIVE CUTOVER — bind default-recovery-flow to default-authentication-flow
 
@@ -523,7 +551,9 @@ All three sections must show the expected output. If any line is missing, fix th
 Navigate: Admin interface → Flows & Stages → Flows → click `default-authentication-flow` → "Edit"
 
 - **Recovery flow:** select `default-recovery-flow` from the dropdown
+
 - Leave all other fields unchanged
+
 - Save.
 
 - [ ] **Step 3: Verify the link appears on the login page**
@@ -550,7 +580,7 @@ Expected:
 }
 ```
 
----
+______________________________________________________________________
 
 ## Task 10: Add README sections (self-service recovery + akadmin runbook)
 
@@ -565,6 +595,7 @@ Determine the right insertion point: the new sections belong under "Day-to-day o
 Append to `k8s/authentik/README.md`:
 
 ````markdown
+
 ### Self-service password recovery (homelab-users only)
 
 `homelab-users` members can reset their own password via the "Forgot
@@ -575,16 +606,16 @@ runbook.
 
 **How it's wired (all UI-managed, lives in postgres):**
 
-| Object                             | Where                                       | Settings                                                                    |
-| ---------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
-| Group `homelab-users`              | Directory → Groups                          | Membership gates which users see the recovery link                          |
-| Policy `recovery-allowed-group`    | Customization → Policies (Group Membership) | Group: `homelab-users`, negate: OFF                                         |
-| Policy `recovery-rate-limit`       | Customization → Policies (Rate Limit)       | 3 requests / 3600s, key: `request.context.remote_ip`                        |
-| Policy `recovery-reputation`       | Customization → Policies (Reputation)       | Threshold: -3, check IP + username, negate: OFF                             |
-| Stage `default-email-recovery`     | Flows & Stages → Stages                     | Subject: `vigihome.net — password reset requested`, token_expiry: `hours=1` |
-| Flow `default-recovery-flow`       | Flows & Stages → Flows                      | 3 policy bindings (orders 10/20/30) on the 3 policies above                 |
-| Flow `default-authentication-flow` | Flows & Stages → Flows                      | `recovery_flow` field set to `default-recovery-flow`                        |
-| Helm env `AUTHENTIK_EMAIL__FROM`   | `k8s/authentik/values.yaml`                 | `"vigihome auth <noreply@vigihome.net>"` (display name)                     |
+| Object | Where | Settings |
+|---|---|---|
+| Group `homelab-users` | Directory → Groups | Membership gates which users see the recovery link |
+| Policy `recovery-allowed-group` | Customization → Policies (Group Membership) | Group: `homelab-users`, negate: OFF |
+| Policy `recovery-rate-limit` | Customization → Policies (Rate Limit) | 3 requests / 3600s, key: `request.context.remote_ip` |
+| Policy `recovery-reputation` | Customization → Policies (Reputation) | Threshold: -3, check IP + username, negate: OFF |
+| Stage `default-email-recovery` | Flows & Stages → Stages | Subject: `vigihome.net — password reset requested`, token_expiry: `hours=1` |
+| Flow `default-recovery-flow` | Flows & Stages → Flows | 3 policy bindings (orders 10/20/30) on the 3 policies above |
+| Flow `default-authentication-flow` | Flows & Stages → Flows | `recovery_flow` field set to `default-recovery-flow` |
+| Helm env `AUTHENTIK_EMAIL__FROM` | `k8s/authentik/values.yaml` | `"vigihome auth <noreply@vigihome.net>"` (display name) |
 
 **Abuse posture:**
 
@@ -653,7 +684,6 @@ kubectl -n auth exec -it deployment/authentik-server -- \
     u.save()"
 
 # 3. Update Bitwarden item 'Homelab Authentik' with the new password
-```
 ````
 
 **Path B — bootstrap-token via the Authentik API** (for when shell
@@ -684,8 +714,7 @@ curl -sSf -H "Authorization: Bearer $TOKEN" \
 
 **Bootstrap token rotation:** the bootstrap token is admin-equivalent.
 If used during recovery (Path B), rotate it afterward — edit
-`AUTHENTIK_BOOTSTRAP_TOKEN` in chart values and `helm upgrade authentik
--n auth -f k8s/authentik/values.yaml`. Update Bitwarden in lockstep.
+`AUTHENTIK_BOOTSTRAP_TOKEN` in chart values and `helm upgrade authentik -n auth -f k8s/authentik/values.yaml`. Update Bitwarden in lockstep.
 
 **Testing the recovery flow:**
 
@@ -711,13 +740,14 @@ Two new sections under Day-to-day operations:
   wiki mirror when #92 lands."
 ````
 
----
+______________________________________________________________________
 
 ## Task 11: Update the audit doc
 
 **Files:**
 
 - Modify: `audits/tier-1-authentik.md:64-71` (Check 5 — self-service flows)
+
 - Modify: `audits/tier-1-authentik.md:94-99` (Open follow-ups)
 
 - [ ] **Step 1: Flip Check 5 finding 5-i to resolved**
@@ -790,7 +820,7 @@ follow-ups section is empty. PR number in the finding's reference
 is backfilled after PR create."
 ```
 
----
+______________________________________________________________________
 
 ## Task 12: Open the PR
 
@@ -863,7 +893,7 @@ git push
 
 The PR auto-updates with the new commit.
 
----
+______________________________________________________________________
 
 ## Task 13: E2E test 1 — negative akadmin
 
@@ -896,7 +926,7 @@ gh pr edit "$PR_NUM" --body-file <(gh pr view "$PR_NUM" --json body -q .body \
   | sed 's|- \[ \] \*\*Negative: akadmin\*\*|- [x] **Negative: akadmin**|')
 ```
 
----
+______________________________________________________________________
 
 ## Task 14: E2E test 2 — positive homelab-users member
 
@@ -947,7 +977,7 @@ gh pr edit "$PR_NUM" --body-file <(gh pr view "$PR_NUM" --json body -q .body \
   | sed 's|- \[ \] \*\*Positive: homelab-users member\*\*|- [x] **Positive: homelab-users member**|')
 ```
 
----
+______________________________________________________________________
 
 ## Task 15: E2E test 3 — rate limit
 
@@ -978,7 +1008,7 @@ gh pr edit "$PR_NUM" --body-file <(gh pr view "$PR_NUM" --json body -q .body \
   | sed 's|- \[ \] \*\*Rate limit\*\*|- [x] **Rate limit**|')
 ```
 
----
+______________________________________________________________________
 
 ## Task 16: E2E test 4 — reputation
 
@@ -1015,7 +1045,7 @@ gh pr edit "$PR_NUM" --body-file <(gh pr view "$PR_NUM" --json body -q .body \
   | sed 's|- \[ \] \*\*Reputation\*\*|- [x] **Reputation**|')
 ```
 
----
+______________________________________________________________________
 
 ## Task 17: E2E test 5 — token expiry
 
@@ -1050,7 +1080,7 @@ gh pr edit "$PR_NUM" --body-file <(gh pr view "$PR_NUM" --json body -q .body \
   | sed 's|- \[ \] \*\*Token expiry\*\*|- [x] **Token expiry**|')
 ```
 
----
+______________________________________________________________________
 
 ## Task 18: Merge + close #62
 
@@ -1100,7 +1130,7 @@ git checkout main && git pull --ff-only
 
 Expected: fast-forward to the squash-merge commit. The local feature branch is already gone (Step 3 `--delete-branch`).
 
----
+______________________________________________________________________
 
 ## Self-review notes (don't execute — just for the worker's awareness)
 

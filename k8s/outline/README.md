@@ -113,7 +113,7 @@ kubectl apply -f k8s/outline/ingress-vigihome.yaml
 The `migrate` initContainer runs the sequelize CLI directly
 (`node_modules/.bin/sequelize db:migrate --env=production-ssl-disabled`),
 idempotently, before the app starts — so schema migrations self-heal on
-every deploy/upgrade. It does _not_ use `yarn db:migrate`: the image ships
+every deploy/upgrade. It does *not* use `yarn db:migrate`: the image ships
 global Yarn 1.22 while the project pins Yarn 4 via Corepack, so `yarn`
 aborts. The `--env=production-ssl-disabled` flag is required because the
 CLI's `production` env forces TLS while the in-cluster postgres serves

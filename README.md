@@ -49,14 +49,14 @@ No secrets live in this repo. Where they live instead:
 
 Managed by the [pre-commit](https://pre-commit.com) framework
 ([`.pre-commit-config.yaml`](./.pre-commit-config.yaml)): formats files
-(prettier for Markdown, yamlfmt for YAML, shfmt for shell), lints
+(mdformat for Markdown, yamlfmt for YAML, shfmt for shell), lints
 (yamllint, shellcheck), and scans for secrets with
 [betterleaks](https://github.com/betterleaks/betterleaks) (the maintained
 successor to gitleaks). The same hooks run in CI via
 `pre-commit run --all-files`, so local and CI can't drift. After cloning:
 
 ```bash
-brew install pre-commit prettier yamlfmt shfmt shellcheck yamllint betterleaks
+brew install pre-commit yamlfmt shfmt shellcheck yamllint betterleaks
 git config --unset core.hooksPath   # drop the old .githooks gitleaks hook
 pre-commit install
 ```
