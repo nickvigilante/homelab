@@ -41,12 +41,20 @@ id→pk mapping per file so re-applies adopt rather than duplicate.
 kubectl -n auth create configmap authentik-blueprints \
   $(find k8s/authentik/blueprints -name '*.yaml' -printf '--from-file=%f=%p ') \
   --dry-run=client -o yaml | kubectl apply -f -
-# roll the worker so it re-discovers:
+# roll the worker so it picks up the changed ConfigMap:
 kubectl -n auth rollout restart deploy/authentik-worker
+kubectl -n auth rollout status deploy/authentik-worker
+# THEN trigger discovery explicitly — the boot-time discovery can race the
+# ConfigMap volume mount and silently no-op, leaving the apply to wait for
+# the hourly discovery cron. This makes it deterministic:
+kubectl -n auth exec deploy/authentik-worker -- \
+  ak shell -c "from authentik.blueprints.v1.tasks import blueprints_discovery; blueprints_discovery.send()"
 ```
 
 `blueprints.configMaps: [authentik-blueprints]` is already set in
 `../values.yaml`, so the worker mounts and discovers this ConfigMap.
+Verify with `GET /api/v3/managed/blueprints/` — each
+`mounted/cm-authentik-blueprints/*.yaml` should show `status: successful`.
 
 ## Validating changes
 
