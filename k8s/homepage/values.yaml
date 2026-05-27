@@ -156,8 +156,82 @@ config:
       3D Printing:
         style: row
         columns: 3
+      Infra & Cloud:
+        style: row
+        columns: 4
+      Productivity:
+        style: row
+        columns: 4
+      Finance:
+        style: row
+        columns: 4
     theme: dark
     color: slate
 
-  bookmarks: []
+  # External SaaS / cloud apps used regularly — a quick-launch dashboard.
+  # These are plain link tiles (no Homepage widget exists for them, and the
+  # goal here is fast access, not live status). Self-hosted services live in
+  # `services` above; their live widgets are tracked in #91. Group keys must
+  # match the `layout` entries in settingsString below.
+  bookmarks:
+    - Infra & Cloud:
+        - Cloudflare:
+            - icon: cloudflare.png
+              href: https://dash.cloudflare.com
+        - Storj:
+            - icon: storj.png
+              href: https://us1.storj.io
+        - Forward Email:
+            - icon: forwardemail.png
+              href: https://forwardemail.net
+        - GitHub:
+            - icon: github.png
+              href: https://github.com
+        - Claude:
+            - icon: claude.png
+              href: https://claude.ai
+        - Asus Router:
+            - icon: asus.png
+              href: http://192.168.50.1/
+    - Productivity:
+        - Todoist:
+            - icon: todoist.png
+              href: https://app.todoist.com
+        - Raindrop:
+            - icon: raindrop.png
+              href: https://app.raindrop.io
+        - Home Assistant:
+            - icon: home-assistant.png
+              href: https://home-assistant.vigihome.net
+        - Proton Mail:
+            - icon: proton-mail.png
+              href: https://mail.proton.me
+        - Kagi:
+            - icon: kagi.png
+              href: https://kagi.com
+        - Bitwarden:
+            - icon: bitwarden.png
+              href: https://vault.bitwarden.com
+    - Finance:
+        - YNAB:
+            - abbr: YN
+              href: https://app.ynab.com
+        - Wealthfront:
+            - abbr: WF
+              href: https://www.wealthfront.com
+        - Fidelity:
+            - abbr: FD
+              href: https://www.fidelity.com
+        - Wells Fargo:
+            - abbr: WG
+              href: https://www.wellsfargo.com
+        - Chase:
+            - abbr: CH
+              href: https://www.chase.com
+        - Capital One:
+            - abbr: C1
+              href: https://www.capitalone.com
+        - Navy Federal:
+            - abbr: NF
+              href: https://navyfederal.org
   docker:
