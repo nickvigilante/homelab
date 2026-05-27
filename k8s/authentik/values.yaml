@@ -99,6 +99,30 @@ global:
     - name: AUTHENTIK_EMAIL__FROM
       value: "vigihome auth <noreply@vigihome.net>"
 
+    # ---- OIDC client secrets for the blueprinted apps (#104) ----------
+    # The Authentik blueprints reference these via !Env. Values come from
+    # the authentik-oidc-secrets Secret (Bitwarden-backed) — one field per
+    # app, the same secret the downstream service already holds. See
+    # blueprints/applications/*.yaml and secret.example.yaml.
+    - name: AUTHENTIK_OIDC_CODER_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: authentik-oidc-secrets
+          key: oidc-coder-client-secret
+    - name: AUTHENTIK_OIDC_OUTLINE_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: authentik-oidc-secrets
+          key: oidc-outline-client-secret
+
+# Config-as-code (#104). Mounts the authentik-blueprints ConfigMap at
+# /blueprints/mounted/cm-authentik-blueprints/; the worker discovers +
+# reconciles every .yaml key on startup. Render the ConfigMap from
+# k8s/authentik/blueprints/ — see that dir's README.
+blueprints:
+  configMaps:
+    - authentik-blueprints
+
 authentik:
   log_level: info
   # Setting authentik.* values directly conflicts with the env-var
