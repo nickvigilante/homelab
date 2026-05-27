@@ -6,6 +6,18 @@
 #
 # Release name MUST be `postgres` so the bitnami StatefulSet auto-names
 # its PVC `data-postgres-postgresql-0`, matching pv-pvc.yaml.
+
+# Pin the postgres image by DIGEST. The bitnami/postgresql chart ships a
+# ROLLING :latest tag (Bitnami's 2025-08 free-tier change), so pinning the
+# chart --version alone does NOT pin the image — a pod restart could pull a
+# newer postgres MAJOR and fail to start against the existing 18.x data dir.
+# This digest freezes the exact image running today (postgres 18.3.0).
+# Durable migration off Bitnami tracked in #121.
+image:
+  registry: docker.io
+  repository: bitnami/postgresql
+  digest: "sha256:b30a01e1cee6b2018eb86081dd13fef206f0997e705c53286af9eca7558affac"
+
 auth:
   username: outline
   database: outline
