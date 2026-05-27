@@ -24,7 +24,7 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          args: ["--save", "", "--appendonly", "no"]  # disable all persistence
+          args: ["--save", "", "--appendonly", "no"] # disable all persistence
           ports:
             - containerPort: 6379
           resources:

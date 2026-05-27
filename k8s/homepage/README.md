@@ -26,23 +26,27 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
 
 1. **Apply the cert-manager Certificate update** so reflector mirrors
    `vigihome-tls` into the `homepage` namespace:
+
    ```sh
    kubectl apply -f ../cert-manager/certificate.yaml
    # cert-manager rolls the Secret's annotations onto next reconcile.
    ```
 
 2. **Apply the namespace:**
+
    ```sh
    kubectl apply -f namespace.yaml
    ```
 
 3. **Verify the Secret has been mirrored** into `homepage`:
+
    ```sh
    kubectl -n homepage get secret vigihome-tls
    # Should appear within ~5s of reflector picking up the annotation.
    ```
 
 4. **Install Homepage via Helm:**
+
    ```sh
    helm install homepage jameswynn/homepage \
      --namespace homepage \
@@ -51,6 +55,7 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
    ```
 
 5. **Wait for the Deployment to be Ready:**
+
    ```sh
    kubectl -n homepage rollout status deploy/homepage
    ```
@@ -82,7 +87,7 @@ Chart: `jameswynn/homepage` v2.1.0 (Homepage appVersion `v1.2.0`).
 
 - **Edit the services list / widgets:** modify `values.yaml`, then
   `helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0
-  -f values.yaml`. The Deployment is restarted; Homepage re-reads its
+-f values.yaml`. The Deployment is restarted; Homepage re-reads its
   ConfigMap on boot (~5s). No data loss — Homepage is stateless.
 
 - **Add a new service after a Phase 3 cutover.** When a `*.home`

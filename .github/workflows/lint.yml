@@ -7,30 +7,28 @@ on:
     branches: [main]
 
 jobs:
-  yamllint:
-    name: yamllint
+  # Runs the exact same hooks as the local pre-commit setup
+  # (.pre-commit-config.yaml) so local and CI can't drift — formatters
+  # (prettier/yamlfmt/shfmt), linters (yamllint/shellcheck), and the
+  # betterleaks secret scan. Fails if any hook would modify a committed file.
+  pre-commit:
+    name: pre-commit (format + lint + secrets)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install yamllint
-        run: pip install --user yamllint==1.35.1
-      - name: Lint
-        run: yamllint --config-file .github/yamllint.yml .
-
-  shellcheck:
-    name: shellcheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run shellcheck on scripts/
-        # shellcheck is preinstalled on ubuntu-latest runners.
+      - uses: actions/setup-go@v5
+      - uses: actions/setup-node@v4
+      - name: Install the tools the repo:local hooks call (match the local brew set)
         run: |
           set -euo pipefail
-          if [ -d scripts ]; then
-            find scripts -type f -name '*.sh' -print0 | xargs -0 -r shellcheck
-          else
-            echo "No scripts/ directory; nothing to lint."
-          fi
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          npm install -g prettier@3
+          go install github.com/google/yamlfmt/cmd/yamlfmt@v0.21.0
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          pip install yamllint==1.35.1 pre-commit
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: pre-commit run --all-files
+        run: pre-commit run --all-files --show-diff-on-failure
 
   kubeconform:
     name: kubeconform (raw manifests)

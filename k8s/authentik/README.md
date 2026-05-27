@@ -25,12 +25,12 @@ For the original D1→D2→D3 cutover sequence (kept here as the runbook for any
 
 ## ⚠️ SPOF discipline
 
-Authentik *is* the login system. When it's down, every service behind it is
+Authentik _is_ the login system. When it's down, every service behind it is
 locked out. **Always preserve a local-fallback credential for every service
 you put behind Authentik** so you can get in via the service's native login
 when Authentik is broken.
 
-- Jellyfin: keep a local admin account with username/password in Bitwarden, configure OIDC as an *additional* identity provider rather than replacing local auth.
+- Jellyfin: keep a local admin account with username/password in Bitwarden, configure OIDC as an _additional_ identity provider rather than replacing local auth.
 - Pi-hole admin: native password stays in Bitwarden item `Pi-Hole`. Don't put it solely behind forward-auth.
 - Uptime Kuma: same — local admin in Bitwarden, OIDC as an alternative login.
 
@@ -71,7 +71,7 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
 ## One-time setup
 
 1. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab
-   Authentik` with five custom fields:
+Authentik` with five custom fields:
    - `secret-key` — 60-char base64, Authentik's master encryption key
    - `postgres-password` — password for the `authentik` postgres user
    - `postgres-superuser-password` — password for the `postgres` superuser
@@ -141,7 +141,7 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
 
 6. **Add `/opt/authentik/postgres` to restic.** Edit `../backup/backup-cronjob.yaml`
    to add the new hostPath source, then `kubectl apply -f
-   ../backup/backup-cronjob.yaml`. Mirror the `uptime-kuma-data` pattern.
+../backup/backup-cronjob.yaml`. Mirror the `uptime-kuma-data` pattern.
 
 7. **First login.** Open http://authentik.home/if/flow/initial-setup/ and
    log in as `akadmin` with the bootstrap password. Set a permanent
@@ -153,7 +153,7 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
 
 **Always pin `--version` to the currently-installed chart.** An
 unpinned `helm upgrade authentik authentik/authentik` (especially right
-after `helm repo update`) pulls the *latest* chart, which silently
+after `helm repo update`) pulls the _latest_ chart, which silently
 bumps both the Authentik image and the bundled postgres image. On
 2026-05-23 that drifted 2026.2.2 → 2026.5.0 and the new postgres image
 hit `ImagePullBackOff`, taking the whole `auth` namespace down. Pin the
@@ -232,7 +232,7 @@ What it does:
 3. Auto-discovers every OAuth2/OIDC provider and PATCHes each `signing_key` to the new keypair.
 4. Restarts `authentik-server` for a clean JWKS cache.
 5. Verifies every Application's JWKS endpoint serves the new key's `kid`.
-6. Optionally emails a run summary (if SMTP_* env vars are set — wire from the Forward Email creds in Bitwarden `Homelab Mail Relay`).
+6. Optionally emails a run summary (if SMTP\_\* env vars are set — wire from the Forward Email creds in Bitwarden `Homelab Mail Relay`).
 
 Flags:
 
@@ -316,7 +316,7 @@ self-heals on every worker start.
 ### Promoting an OIDC user to owner/admin in a downstream
 
 Authentik's first OIDC sign-in to a brand-new downstream creates a
-user with the downstream's default role. If the downstream was *already*
+user with the downstream's default role. If the downstream was _already_
 bootstrapped with a local admin (e.g. Coder's first-visit form), the
 OIDC-created user lands as a member and needs manual promotion via the
 downstream's UI from the bootstrap account. See
@@ -338,22 +338,22 @@ scratch and is now a blueprint — the worker reconstructs the whole stack
 from the `authentik-blueprints` ConfigMap on startup, no postgres restore
 needed. There is **one** policy object — an Expression policy. (Note for
 anyone following an older draft: Authentik 2026.2 has no "Group
-Membership" or "Rate Limit" policy *types* — group gating is done with
+Membership" or "Rate Limit" policy _types_ — group gating is done with
 an expression, and there is no rate-limit primitive.) The table below
 documents what the blueprint creates:
 
-| Object | Where | Settings |
-|---|---|---|
-| Group `homelab-users` | Directory → Groups | The group the recovery gate checks; non-members (incl. akadmin) can't reset |
-| Policy `recovery-allowed-group` | Customization → Policies (**Expression**) | Code below. Execution logging OFF |
-| Stage `recovery-identification` | Flows & Stages → Stages (Identification) | User fields: username + email; **Pretend user exists: ON**; case-insensitive matching ON |
-| Stage `recovery-email` | Flows & Stages → Stages (Email) | Use global settings: ON; Subject: `vigihome.net — password reset requested`; Template: Password Recovery; Token expiry: `hours=1` |
-| Stage `default-password-change-prompt` | (reused) | New-password prompt |
-| Stage `default-password-change-write` | (reused) | Writes the new password |
-| Flow `recovery` ("Password Recovery") | Flows & Stages → Flows | Designation: Recovery; Authentication: require no authentication. Stage bindings 10/20/30/40 = identification / email / prompt / write |
-| Bindings 20, 30, 40 | Stage bindings on the flow | Each: "Evaluate when flow is planned" **OFF**, "Evaluate when stage is run" **ON**, with `recovery-allowed-group` bound (order 0) |
-| Brand (default) | System → Brands | Recovery flow = `Password Recovery` — this is what surfaces "Forgot password?" on the login screen |
-| Helm env `AUTHENTIK_EMAIL__FROM` | `k8s/authentik/values.yaml` | `"vigihome auth <noreply@vigihome.net>"` (display name) |
+| Object                                 | Where                                     | Settings                                                                                                                               |
+| -------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Group `homelab-users`                  | Directory → Groups                        | The group the recovery gate checks; non-members (incl. akadmin) can't reset                                                            |
+| Policy `recovery-allowed-group`        | Customization → Policies (**Expression**) | Code below. Execution logging OFF                                                                                                      |
+| Stage `recovery-identification`        | Flows & Stages → Stages (Identification)  | User fields: username + email; **Pretend user exists: ON**; case-insensitive matching ON                                               |
+| Stage `recovery-email`                 | Flows & Stages → Stages (Email)           | Use global settings: ON; Subject: `vigihome.net — password reset requested`; Template: Password Recovery; Token expiry: `hours=1`      |
+| Stage `default-password-change-prompt` | (reused)                                  | New-password prompt                                                                                                                    |
+| Stage `default-password-change-write`  | (reused)                                  | Writes the new password                                                                                                                |
+| Flow `recovery` ("Password Recovery")  | Flows & Stages → Flows                    | Designation: Recovery; Authentication: require no authentication. Stage bindings 10/20/30/40 = identification / email / prompt / write |
+| Bindings 20, 30, 40                    | Stage bindings on the flow                | Each: "Evaluate when flow is planned" **OFF**, "Evaluate when stage is run" **ON**, with `recovery-allowed-group` bound (order 0)      |
+| Brand (default)                        | System → Brands                           | Recovery flow = `Password Recovery` — this is what surfaces "Forgot password?" on the login screen                                     |
+| Helm env `AUTHENTIK_EMAIL__FROM`       | `k8s/authentik/values.yaml`               | `"vigihome auth <noreply@vigihome.net>"` (display name)                                                                                |
 
 The policy (`recovery-allowed-group`):
 
@@ -370,11 +370,11 @@ verified the hard way):**
 - Recovery users are **anonymous until the identification stage sets
   `pending_user`**, so the group check cannot be a flow-level policy
   binding — that evaluates at flow entry against the anonymous user and
-  denies *everyone*. It must read `request.context.get("pending_user")`
-  and run *after* identification, which is why bindings 20/30/40 use
+  denies _everyone_. It must read `request.context.get("pending_user")`
+  and run _after_ identification, which is why bindings 20/30/40 use
   "Evaluate when stage is run".
 - It is bound to **all three** post-identification stages, not just the
-  email stage. When the policy denies, Authentik *skips* the bound
+  email stage. When the policy denies, Authentik _skips_ the bound
   stage — and if only the email stage were gated, a denied user's
   skipped email stage cascades straight into the password-change prompt
   (a full bypass; this was reproduced). Gating prompt + write as well

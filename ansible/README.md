@@ -17,7 +17,7 @@ cd ~/git/nickvigilante/homelab/ansible   # commands assume this CWD —
 ansible-playbook provision-gandalf.yml --ask-become-pass
 ```
 
-`ansible.cfg` is in `ansible/` and uses a *relative* inventory path,
+`ansible.cfg` is in `ansible/` and uses a _relative_ inventory path,
 so running from anywhere else silently falls back to implicit
 localhost (no hosts matched). Always `cd` in first.
 
@@ -33,13 +33,13 @@ ansible-playbook provision-gandalf.yml \
 
 ## What's in here
 
-| File | What it does |
-|------|--------------|
-| `ansible.cfg` | Defaults: inventory path, SSH multiplexing, YAML output, fact caching |
-| `inventory.yml` | Hosts grouped by role (`cluster_servers`, `cluster_agents`, `tailscale_only`). Pi entries are commented out until you image one. |
-| `provision-pi.yml` | Image-a-Pi-as-k3s-agent flow. Reads the k3s join token from gandalf, brings the Pi up on Tailscale with `tag:homelab`, installs the agent, joins the cluster. |
-| `provision-gandalf.yml` | Idempotent host-config maintenance for gandalf (the control plane). Covers baseline packages, the unattended-upgrades drop-in, and the k3s `secrets-encryption` flag. Not a from-scratch bootstrap — gandalf was set up by hand and this playbook intentionally avoids the risky bits (k3s install, rclone mount, LVM, fstab). |
-| `bin/mint-tailscale-authkey.sh` | Mints a single-use Tailscale auth key via the `opentofu-homelab` OAuth client and writes it to `~/.tailscale-authkey`. Run before each `provision-pi.yml` invocation. |
+| File                            | What it does                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ansible.cfg`                   | Defaults: inventory path, SSH multiplexing, YAML output, fact caching                                                                                                                                                                                                                                                          |
+| `inventory.yml`                 | Hosts grouped by role (`cluster_servers`, `cluster_agents`, `tailscale_only`). Pi entries are commented out until you image one.                                                                                                                                                                                               |
+| `provision-pi.yml`              | Image-a-Pi-as-k3s-agent flow. Reads the k3s join token from gandalf, brings the Pi up on Tailscale with `tag:homelab`, installs the agent, joins the cluster.                                                                                                                                                                  |
+| `provision-gandalf.yml`         | Idempotent host-config maintenance for gandalf (the control plane). Covers baseline packages, the unattended-upgrades drop-in, and the k3s `secrets-encryption` flag. Not a from-scratch bootstrap — gandalf was set up by hand and this playbook intentionally avoids the risky bits (k3s install, rclone mount, LVM, fstab). |
+| `bin/mint-tailscale-authkey.sh` | Mints a single-use Tailscale auth key via the `opentofu-homelab` OAuth client and writes it to `~/.tailscale-authkey`. Run before each `provision-pi.yml` invocation.                                                                                                                                                          |
 
 ## When you image a new Pi
 
@@ -95,11 +95,11 @@ ansible-playbook provision-gandalf.yml \
 
 4. **Add to inventory.** Edit `inventory.yml` and uncomment / add the
    entry under `cluster_agents`. Include `ansible_become_exe:
-   /usr/bin/sudo.ws` if the host runs Ubuntu 26.04+. For a Pi 4B
+/usr/bin/sudo.ws` if the host runs Ubuntu 26.04+. For a Pi 4B
    acting as the dedicated Pi-hole host, add `k3s_node_labels: { role:
-   pihole }` so Pi-hole pods can target it via nodeSelector.
+pihole }` so Pi-hole pods can target it via nodeSelector.
 
-5. **Run the playbook from a workstation** (MacBook or laptop) — *not* from
+5. **Run the playbook from a workstation** (MacBook or laptop) — _not_ from
    gandalf or another homelab host. Running from a workstation keeps the
    cluster machines unable to SSH each other, which is a small but real
    blast-radius reduction. Each homelab host trusts the workstation's
@@ -126,7 +126,7 @@ ansible-playbook provision-gandalf.yml \
    `unattended-upgrades` cycle catching up on pending security patches.
    That can hold `/var/lib/dpkg/lock-frontend` for several minutes. The
    playbook's apt tasks set `lock_timeout: 600` (10 min) to wait through
-   it, but if your image is *months* stale you may still hit the timeout.
+   it, but if your image is _months_ stale you may still hit the timeout.
    Diagnose with `ssh nickv@<pi> 'ps -ef | grep -E "apt|unattended"'` —
    wait for those processes to finish, then re-run the playbook
    (idempotent — already-applied tasks are skipped).

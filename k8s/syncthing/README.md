@@ -37,8 +37,8 @@ Item name: **`Homelab Syncthing`**.
 
 Required fields:
 
-| Field | Value |
-|-------|-------|
+| Field                | Value                                                                                                                                                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `gui-admin-password` | Strong password, used for the web UI at `https://syncthing.vigihome.net`. Set this in step 5 — no Secret/Secret-from-env wiring on the cluster side, Syncthing stores its own GUI auth in `config/config.xml`. |
 
 (Optional: stash the pod's eventual device ID here too after step 5
@@ -135,15 +135,15 @@ the in-container path (`/var/syncthing/Sync/<name>`).
 Folder types — match the original setup so the receiveonly folders
 don't accidentally propagate deletions back to the phone:
 
-| Folder | Type |
-|--------|------|
-| `Downloads` | Send & Receive |
-| `Documents` | Send & Receive |
-| `Pictures` | Send & Receive |
-| `Videos` | Send & Receive |
-| `Backups` | Send & Receive |
-| `DCIM` | Receive Only |
-| `Pixel Downloads` | Receive Only |
+| Folder            | Type           |
+| ----------------- | -------------- |
+| `Downloads`       | Send & Receive |
+| `Documents`       | Send & Receive |
+| `Pictures`        | Send & Receive |
+| `Videos`          | Send & Receive |
+| `Backups`         | Send & Receive |
+| `DCIM`            | Receive Only   |
+| `Pixel Downloads` | Receive Only   |
 
 Syncthing will scan each folder; the first scan of `Pictures` /
 `Videos` can take many minutes depending on file count.
@@ -241,9 +241,9 @@ restic restore <snapshot-id> --target /restore \
   `https://syncthing.vigihome.net` returns 502 or "protocol error,"
   shell into the pod and edit `config/config.xml`: under `<gui ...>`
   change `tls="true"` to `tls="false"`, then `kubectl -n syncthing
-  rollout restart deploy/syncthing`. Or add the
+rollout restart deploy/syncthing`. Or add the
   `traefik.ingress.kubernetes.io/service.serverstransport:
-  insecureskipverify@file` annotation to the Ingress and let Traefik
+insecureskipverify@file` annotation to the Ingress and let Traefik
   skip cert verification on the upstream (Traefik still terminates
   the public TLS with the wildcard vigihome cert; this only affects
   the in-cluster hop).
@@ -251,7 +251,7 @@ restic restore <snapshot-id> --target /restore \
 - **`hostNetwork: true` means port collisions are fatal.** Anything
   else on gandalf binding 22000, 21027, or 8384 will block the pod
   from starting. Check with `sudo ss -tunlp '( sport = :22000 or
-  sport = :21027 or sport = :8384 )'` before applying.
+sport = :21027 or sport = :8384 )'` before applying.
 
 - **Empty-folder propagation risk.** When adding the pod to an
   existing peer, **make sure the pod's folder has the recovery data

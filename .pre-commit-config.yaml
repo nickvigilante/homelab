@@ -1,0 +1,64 @@
+# Pre-commit hooks for the homelab repo. Formats files and scans for secrets
+# before each commit; the same hooks run in CI (.github/workflows/lint.yml's
+# pre-commit job) via `pre-commit run --all-files`, so local and CI can't drift.
+#
+# One-time local setup:
+#   brew install pre-commit prettier yamlfmt shfmt shellcheck betterleaks
+#   pre-commit install
+# (Replaces the old .githooks/pre-commit gitleaks hook.)
+#
+# Formatter/linter per file type:
+#   Markdown  -> prettier (aligns tables)
+#   YAML      -> yamlfmt (format, conservative — see .yamlfmt) + yamllint (lint)
+#   Shell     -> shfmt (format) + shellcheck (lint, -S info)
+#   Secrets   -> betterleaks (replaces gitleaks; #123)
+#   All files -> whitespace / EOF / merge-conflict hygiene
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        # NOTE: deliberately NOT using check-yaml — it can't parse the Authentik
+        # blueprints' custom !Env/!Find/!KeyOf tags. yamllint covers YAML validity.
+
+  # Formatters + linters run from the locally brew-installed binaries
+  # (language: system) — avoids pre-commit building Go tools and keeps versions
+  # aligned with what CI installs via brew.
+  - repo: local
+    hooks:
+      - id: prettier-markdown
+        name: prettier (format Markdown)
+        entry: prettier --write --prose-wrap preserve
+        language: system
+        files: \.md$
+      - id: yamlfmt
+        name: yamlfmt (format YAML)
+        entry: yamlfmt -conf .yamlfmt
+        language: system
+        files: \.ya?ml$
+      - id: yamllint
+        name: yamllint
+        entry: yamllint -c .github/yamllint.yml
+        language: system
+        files: \.ya?ml$
+      - id: shfmt
+        name: shfmt (format shell)
+        entry: shfmt -w -i 2 -ci -bn
+        language: system
+        types: [shell]
+      - id: shellcheck
+        name: shellcheck (-S info)
+        entry: shellcheck -S info
+        language: system
+        types: [shell]
+
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: v1.3.1
+    hooks:
+      - id: betterleaks

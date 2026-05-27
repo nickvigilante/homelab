@@ -5,13 +5,13 @@ so a from-scratch rebuild reconstructs them without a postgres restore.
 
 ## What's here
 
-| File | Captures |
-|------|----------|
-| `groups.yaml` | `homelab-users` group |
-| `email-scope-mapping.yaml` | Override the default `email` scope mapping to emit `email_verified: true` |
-| `recovery-flow.yaml` | Password-recovery flow + stages + the `homelab-users` group gate + brand wiring |
-| `applications/coder.yaml` | Coder OIDC provider + application + `homelab-users` gate |
-| `applications/outline.yaml` | Outline OIDC provider + application + `homelab-users` gate |
+| File                        | Captures                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `groups.yaml`               | `homelab-users` group                                                           |
+| `email-scope-mapping.yaml`  | Override the default `email` scope mapping to emit `email_verified: true`       |
+| `recovery-flow.yaml`        | Password-recovery flow + stages + the `homelab-users` group gate + brand wiring |
+| `applications/coder.yaml`   | Coder OIDC provider + application + `homelab-users` gate                        |
+| `applications/outline.yaml` | Outline OIDC provider + application + `homelab-users` gate                      |
 
 The files are flattened **by basename** into the `authentik-blueprints`
 ConfigMap (ConfigMap keys can't contain `/`, so the `applications/`
@@ -25,7 +25,7 @@ id→pk mapping per file so re-applies adopt rather than duplicate.
 - **Model form is two-part lowercase**: `authentik_core.group`,
   `authentik_providers_oauth2.oauth2provider`, etc. The `app.models.ClassName`
   form fails with "too many values to unpack".
-- **`!Env [VARNAME, default]`** is a *list* (not bare `!Env VAR`). OIDC
+- **`!Env [VARNAME, default]`** is a _list_ (not bare `!Env VAR`). OIDC
   `client_secret`s use this, sourced from the `authentik-oidc-secrets` Secret
   (Bitwarden-backed) — never written in these files. See `../README.md`.
 - `!Find [<two-part-model>, [<field>, <value>]]` resolves shipped objects
@@ -65,5 +65,5 @@ Validate on a throwaway scratch instance before prod — see
   `ak apply_blueprint <file>`.** The manual command has no state tracking, so
   for objects whose name isn't DB-unique (ExpressionPolicy) it creates a NEW
   copy on every run. The discovery path is idempotent.
-- A fresh instance discovers all mounted files on first boot; files *added*
+- A fresh instance discovers all mounted files on first boot; files _added_
   to a long-running instance wait for the periodic discovery tick.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a Traefik `Middleware` attached as a default to the `websecure` entryPoint that strips inbound auth-context headers (X-Forwarded-User / Remote-User / X-Authentik-*) so backends behind Traefik can't accidentally trust client-supplied identity claims. Closes Tier-1 Authentik audit finding 6-ii.
+**Goal:** Add a Traefik `Middleware` attached as a default to the `websecure` entryPoint that strips inbound auth-context headers (X-Forwarded-User / Remote-User / X-Authentik-\*) so backends behind Traefik can't accidentally trust client-supplied identity claims. Closes Tier-1 Authentik audit finding 6-ii.
 
 **Architecture:** One Middleware CRD in `kube-system`, referenced as a default middleware on the `websecure` entryPoint via the existing Traefik HelmChartConfig. Both files deployed by Ansible to k3s's auto-apply manifests directory (`/var/lib/rancher/k3s/server/manifests/`), so a single Ansible run lands the change atomically.
 
@@ -12,24 +12,25 @@
 
 **Working branch:** `traefik-strip-auth-headers-middleware` (already exists, spec already committed there)
 
-**Dependency:** PR #61 (audit doc issue-ref fix) is in flight. Task 4 must rebase the branch onto main *after* #61 merges, otherwise the audit doc update conflicts. Tasks 1-3 are independent of #61 and can proceed immediately.
+**Dependency:** PR #61 (audit doc issue-ref fix) is in flight. Task 4 must rebase the branch onto main _after_ #61 merges, otherwise the audit doc update conflicts. Tasks 1-3 are independent of #61 and can proceed immediately.
 
 ---
 
 ## File Structure
 
-| File | Action | Responsibility |
-|---|---|---|
-| `system/traefik-strip-auth-headers-middleware.yaml` | New | The Traefik Middleware CRD definition (just the spec) |
-| `system/traefik-helmchartconfig.yaml` | Modify | Wires the Middleware as a default on the `websecure` entryPoint |
-| `ansible/provision-gandalf.yml` | Modify | Copies the Middleware manifest to k3s's auto-apply directory |
-| `audits/tier-1-authentik.md` | Modify | Flips finding 6-ii to Resolved + trims the open-follow-ups list |
+| File                                                | Action | Responsibility                                                  |
+| --------------------------------------------------- | ------ | --------------------------------------------------------------- |
+| `system/traefik-strip-auth-headers-middleware.yaml` | New    | The Traefik Middleware CRD definition (just the spec)           |
+| `system/traefik-helmchartconfig.yaml`               | Modify | Wires the Middleware as a default on the `websecure` entryPoint |
+| `ansible/provision-gandalf.yml`                     | Modify | Copies the Middleware manifest to k3s's auto-apply directory    |
+| `audits/tier-1-authentik.md`                        | Modify | Flips finding 6-ii to Resolved + trims the open-follow-ups list |
 
 ---
 
 ## Task 1: Create the Middleware CRD manifest
 
 **Files:**
+
 - Create: `system/traefik-strip-auth-headers-middleware.yaml`
 
 - [ ] **Step 1: Create the file with the complete Middleware spec**
@@ -105,6 +106,7 @@ git commit -m "Traefik: add strip-auth-headers Middleware CRD"
 ## Task 2: Wire the entryPoint default middleware in the HelmChartConfig
 
 **Files:**
+
 - Modify: `system/traefik-helmchartconfig.yaml`
 
 - [ ] **Step 1: Extend `valuesContent` with the entryPoint default-middleware reference**
@@ -155,6 +157,7 @@ git commit -m "Traefik: default strip-auth-headers on websecure entryPoint"
 ## Task 3: Add Ansible copy task for the new manifest
 
 **Files:**
+
 - Modify: `ansible/provision-gandalf.yml` (around line 113, the existing HelmChartConfig copy task)
 
 - [ ] **Step 1: Find the existing HelmChartConfig copy task**
@@ -162,11 +165,11 @@ git commit -m "Traefik: default strip-auth-headers on websecure entryPoint"
 The existing task is at approximately line 110-114 in `ansible/provision-gandalf.yml`:
 
 ```yaml
-    # with the new values. See system/traefik-helmchartconfig.yaml.
-    - name: Copy Traefik HelmChartConfig to k3s manifests dir
-      copy:
-        src: ../system/traefik-helmchartconfig.yaml
-        dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
+# with the new values. See system/traefik-helmchartconfig.yaml.
+- name: Copy Traefik HelmChartConfig to k3s manifests dir
+  copy:
+    src: ../system/traefik-helmchartconfig.yaml
+    dest: /var/lib/rancher/k3s/server/manifests/traefik-config.yaml
 ```
 
 (The exact task name and `mode`/`owner` lines may differ — match what's there.)
@@ -176,17 +179,17 @@ The existing task is at approximately line 110-114 in `ansible/provision-gandalf
 Insert this block right after the existing HelmChartConfig `copy` task ends (preserving the same indentation as the other tasks in the file):
 
 ```yaml
-    # The Middleware CRD strips inbound auth-context headers on the
-    # websecure entryPoint; see system/traefik-strip-auth-headers-middleware.yaml.
-    # k3s's manifests-dir controller auto-applies non-HelmChart YAML dropped
-    # here, so no kubectl apply is needed.
-    - name: Copy strip-auth-headers Middleware to k3s manifests dir
-      copy:
-        src: ../system/traefik-strip-auth-headers-middleware.yaml
-        dest: /var/lib/rancher/k3s/server/manifests/strip-auth-headers-middleware.yaml
-        owner: root
-        group: root
-        mode: '0600'
+# The Middleware CRD strips inbound auth-context headers on the
+# websecure entryPoint; see system/traefik-strip-auth-headers-middleware.yaml.
+# k3s's manifests-dir controller auto-applies non-HelmChart YAML dropped
+# here, so no kubectl apply is needed.
+- name: Copy strip-auth-headers Middleware to k3s manifests dir
+  copy:
+    src: ../system/traefik-strip-auth-headers-middleware.yaml
+    dest: /var/lib/rancher/k3s/server/manifests/strip-auth-headers-middleware.yaml
+    owner: root
+    group: root
+    mode: "0600"
 ```
 
 If the existing HelmChartConfig task includes `become: true` or `tags:` at the task level (not just play-level), match those too.
@@ -213,6 +216,7 @@ git commit -m "Ansible: ship strip-auth-headers Middleware to k3s manifests dir"
 ## Task 4: Update audit doc — finding 6-ii Resolved
 
 **Files:**
+
 - Modify: `audits/tier-1-authentik.md`
 
 **Dependency check:** This task may conflict with the changes in PR #61 (audit doc issue-ref fix). Before starting, verify #61's state.
@@ -222,10 +226,12 @@ git commit -m "Ansible: ship strip-auth-headers Middleware to k3s manifests dir"
 Run: `gh pr view 61 --json state,mergedAt --jq '.state, .mergedAt'`
 
 - If state is `MERGED`: rebase the branch onto the updated main before editing the audit doc.
+
   ```bash
   git fetch origin
   git rebase origin/main
   ```
+
   Resolve any conflicts by keeping main's `#59` / `#60` issue references and re-applying any spec/plan additions on top. The audit doc itself shouldn't have local edits yet on this branch (the spec/plan are in `docs/`).
 
 - If state is `OPEN`: pause here and resume once #61 merges. Tasks 1-3 can remain landed on this branch; the audit doc update is the only piece that conflicts with #61.
@@ -404,6 +410,7 @@ ssh gandalf "kubectl -n kube-system get pod -l app.kubernetes.io/name=traefik -o
 ```
 
 Expected: one of these args is present:
+
 - `--entryPoints.websecure.http.middlewares=kube-system-strip-auth-headers@kubernetescrd`
 
 If absent, the `ports.websecure.middlewares` chart values key didn't render in the k3s-bundled chart. Fall back to the explicit `additionalArguments` form by editing `system/traefik-helmchartconfig.yaml`:
@@ -452,6 +459,7 @@ ssh gandalf 'kubectl delete pod httpbin -n default; kubectl delete svc httpbin -
 - [ ] **Step 7: Legitimate flow regression test**
 
 Sign in to each end-to-end via a browser:
+
 - https://authentik.vigihome.net — admin login
 - https://jellyfin.vigihome.net — OIDC sign-in
 - https://coder.vigihome.net — OIDC sign-in
@@ -461,6 +469,7 @@ Expected: all three work normally.
 - [ ] **Step 8: PR #53 (real-client-IP) non-regression**
 
 In Authentik admin → Events, inspect a recent login event from your laptop. The client IP field should show:
+
 - Your LAN address (e.g. `192.168.50.42`) when on LAN
 - Your tailnet address (e.g. `100.92.x.y`) when on tailnet
 - NOT `10.42.0.1` (CNI bridge)

@@ -9,7 +9,7 @@ This PR (A) installs cert-manager + two ClusterIssuers (staging + prod).
 The actual wildcard Certificate resource lands in a follow-up PR (B)
 once the DNS-01 flow is validated end-to-end against staging.
 
-## Why staging *and* prod
+## Why staging _and_ prod
 
 Let's Encrypt prod has a 5-duplicate-certs-per-week rate limit for an
 exact name set; misconfigured DNS-01 (wrong token scope, wrong zone,
@@ -33,6 +33,7 @@ to `letsencrypt-prod`.
 ## One-time install
 
 1. **Apply the namespace:**
+
    ```sh
    kubectl apply -f namespace.yaml
    ```
@@ -40,6 +41,7 @@ to `letsencrypt-prod`.
 2. **Confirm the chart version**, then install. (Check
    `helm search repo jetstack/cert-manager` for the latest; the pinned
    version below was current at install time.)
+
    ```sh
    helm install cert-manager jetstack/cert-manager \
      --namespace cert-manager \
@@ -48,6 +50,7 @@ to `letsencrypt-prod`.
    ```
 
 3. **Wait for all three Deployments to be Ready:**
+
    ```sh
    kubectl -n cert-manager get deploy -w
    # cert-manager, cert-manager-webhook, cert-manager-cainjector
@@ -58,6 +61,7 @@ to `letsencrypt-prod`.
    `kubectl create secret`. Piping `bw get` into `--from-file=/dev/stdin`
    keeps the token out of shell history and process args (which
    `--from-literal` would expose).
+
    ```sh
    export BW_SESSION=$(bw unlock --raw)
    bw get password 'Cloudflare DNS API Token — vigihome.net' \
@@ -66,10 +70,12 @@ to `letsencrypt-prod`.
    bw lock
    unset BW_SESSION
    ```
+
    If the Bitwarden item is a Secure Note rather than a Login (token
    in the notes body), substitute `bw get notes` for `bw get password`.
 
 5. **Apply both ClusterIssuers:**
+
    ```sh
    kubectl apply -f clusterissuer-staging.yaml
    kubectl apply -f clusterissuer-prod.yaml
@@ -106,6 +112,7 @@ original PR (#24). For DR re-issuance, applying as-is goes straight
 to prod and is the expected path.
 
 1. **Apply:**
+
    ```sh
    kubectl apply -f certificate.yaml
    kubectl -n cert-manager get certificate vigihome-tls -w
@@ -139,6 +146,7 @@ Secret rotates without an Ingress restart.
 
 - **Rotate the Cloudflare token:** rotate in the Cloudflare UI →
   update the Bitwarden item → overwrite the Secret:
+
   ```sh
   export BW_SESSION=$(bw unlock --raw)
   bw get password 'Cloudflare DNS API Token — vigihome.net' \
@@ -148,15 +156,17 @@ Secret rotates without an Ingress restart.
   bw lock
   unset BW_SESSION
   ```
+
   cert-manager re-reads the Secret on next reconcile; no restart needed.
 
 - **Upgrade cert-manager:** bump the version pin above, then
   `helm upgrade cert-manager jetstack/cert-manager -n cert-manager
-  --version vX.Y.Z -f values.yaml`. Cert renewals happen on their own
+--version vX.Y.Z -f values.yaml`. Cert renewals happen on their own
   schedule; force one with `cmctl renew <cert-name>` if needed.
 
 - **Force a renewal manually** (e.g. after rotating the token to
   verify the new token works):
+
   ```sh
   kubectl annotate certificate <name> \
     cert-manager.io/issue-temporary-certificate=true --overwrite

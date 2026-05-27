@@ -19,6 +19,7 @@
 This plan changes **no repo files**. It runs operations against the live cluster. The repo's existing structure (Helm `values.yaml` per service, `system/*.yaml` manifests applied by Ansible, READMEs documenting per-service Secret creation) is what gets reapplied during the rebuild.
 
 Optional post-rebuild repo changes (out of scope for this plan, separate small PRs):
+
 - Add k3s install arguments to `ansible/provision-gandalf.yml` (currently the k3s install is shell-history only — Phase A surfaces this gap).
 - Add an `ansible/provision-pi.yml` server-mode variant if Phase A reveals that the current playbook only handles agent joins.
 
@@ -83,18 +84,18 @@ The cluster's authoritative secret list is whatever currently exists in the clus
 
   What remains is the list of Secrets to manually re-create. Expected entries (cross-check against each service's README):
 
-  | Namespace | Secret | Source |
-  |---|---|---|
-  | auth | authentik-secrets | Bitwarden item "Homelab Authentik" |
-  | auth | smtp-relay | Bitwarden item "Homelab Forward Email SMTP" |
-  | backup | restic-secrets | Bitwarden item "Homelab Restic Repository" |
-  | backup | uptime-kuma-push-urls | Bitwarden item "Homelab Uptime Kuma Push URLs" |
-  | cert-manager | cloudflare-api-token | Bitwarden item "Homelab Cloudflare DNS-01 Token" |
-  | coder | coder-secrets | Bitwarden item "Homelab Coder" |
-  | home-assistant | (if any custom secrets) | Bitwarden item "Homelab Home Assistant" |
-  | media | jellyfin-secrets (if any) | Bitwarden item "Homelab Jellyfin" |
-  | networking | pihole-secrets | Bitwarden item "Pi-Hole" |
-  | syncthing | (if any custom secrets) | Bitwarden item "Homelab Syncthing" |
+  | Namespace      | Secret                    | Source                                           |
+  | -------------- | ------------------------- | ------------------------------------------------ |
+  | auth           | authentik-secrets         | Bitwarden item "Homelab Authentik"               |
+  | auth           | smtp-relay                | Bitwarden item "Homelab Forward Email SMTP"      |
+  | backup         | restic-secrets            | Bitwarden item "Homelab Restic Repository"       |
+  | backup         | uptime-kuma-push-urls     | Bitwarden item "Homelab Uptime Kuma Push URLs"   |
+  | cert-manager   | cloudflare-api-token      | Bitwarden item "Homelab Cloudflare DNS-01 Token" |
+  | coder          | coder-secrets             | Bitwarden item "Homelab Coder"                   |
+  | home-assistant | (if any custom secrets)   | Bitwarden item "Homelab Home Assistant"          |
+  | media          | jellyfin-secrets (if any) | Bitwarden item "Homelab Jellyfin"                |
+  | networking     | pihole-secrets            | Bitwarden item "Pi-Hole"                         |
+  | syncthing      | (if any custom secrets)   | Bitwarden item "Homelab Syncthing"               |
 
   Adjust the list to match your actual cluster. If a service shows a Secret not in the table, find the matching Bitwarden item and add it.
 

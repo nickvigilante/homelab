@@ -20,7 +20,7 @@ Reach a state where gandalf's loss (or any single node's loss) is tolerable — 
 
 ## Non-goals
 
-- **Multi-node simultaneous failure tolerance.** The HA design targets *single* node loss. Surviving two-of-five-down requires more replicas, larger etcd quorums, and is not part of this design.
+- **Multi-node simultaneous failure tolerance.** The HA design targets _single_ node loss. Surviving two-of-five-down requires more replicas, larger etcd quorums, and is not part of this design.
 - **Zero-downtime migration paths.** Each phase has a defined downtime window. Brief cluster restarts during k3s reinstallation, ingress IP cutover, etc. are acceptable on a homelab.
 - **External-facing exposure.** vigihome.net stays internal-only (LAN + tailnet). HA does not change the public-exposure posture; that's a separate decision.
 - **Migrating storage to enterprise-grade systems** (Ceph). Longhorn is the chosen storage layer for Phase E; Ceph is out of scope (see Phase E rationale).
@@ -30,13 +30,13 @@ Reach a state where gandalf's loss (or any single node's loss) is tolerable — 
 
 The hardware on hand caps several Phase E decisions and shapes the overall sequencing:
 
-| Node | Role today | Storage | Notes |
-|---|---|---|---|
-| gandalf | k3s server | SSD/NVMe, ample capacity | Hosts every stateful PV via hostPath. ThinkCentre form factor. |
-| frodo | k3s agent (Pi 5) | microSD | Supports NVMe HAT, **not yet purchased** (waiting for a sale). |
-| samwise | k3s agent (Pi 4B) | microSD (likely 512GB) | No SSD/NVMe option on the PoE+ HAT models in use. |
-| merry | not yet in cluster (Pi 4) | 32GB microSD | Smallest storage; microSD wear concerns under Longhorn. |
-| pippin | not yet in cluster (Pi 4) | 32GB microSD | Same as merry. |
+| Node    | Role today                | Storage                  | Notes                                                          |
+| ------- | ------------------------- | ------------------------ | -------------------------------------------------------------- |
+| gandalf | k3s server                | SSD/NVMe, ample capacity | Hosts every stateful PV via hostPath. ThinkCentre form factor. |
+| frodo   | k3s agent (Pi 5)          | microSD                  | Supports NVMe HAT, **not yet purchased** (waiting for a sale). |
+| samwise | k3s agent (Pi 4B)         | microSD (likely 512GB)   | No SSD/NVMe option on the PoE+ HAT models in use.              |
+| merry   | not yet in cluster (Pi 4) | 32GB microSD             | Smallest storage; microSD wear concerns under Longhorn.        |
+| pippin  | not yet in cluster (Pi 4) | 32GB microSD             | Same as merry.                                                 |
 
 **Implications driving the roadmap:**
 
@@ -48,13 +48,13 @@ The hardware on hand caps several Phase E decisions and shapes the overall seque
 
 ## Phased roadmap
 
-| Phase | Title | Depends on | Hardware | Effort | Downtime |
-|---|---|---|---|---|---|
-| **A** | k3s control-plane HA (3 servers) | Nothing | None | ~3 hrs | ~1–2 hrs cluster down |
-| **B** | Unpin stateless services from gandalf | A | None | ~30 min | Per-service helm-upgrade restarts |
-| **C** | MetalLB activation; ingress fails over | A | None | ~1 hr | ~5 min ingress flap during cutover |
-| **D** | DNS HA | A (probably C too) | None | TBD | TBD |
-| **E** | Longhorn deployment + stateful service migration | A, B, C; NVMe on frodo; ideally SSDs on Pi 4s | Hardware purchase | TBD per service | Variable |
+| Phase | Title                                            | Depends on                                    | Hardware          | Effort          | Downtime                           |
+| ----- | ------------------------------------------------ | --------------------------------------------- | ----------------- | --------------- | ---------------------------------- |
+| **A** | k3s control-plane HA (3 servers)                 | Nothing                                       | None              | ~3 hrs          | ~1–2 hrs cluster down              |
+| **B** | Unpin stateless services from gandalf            | A                                             | None              | ~30 min         | Per-service helm-upgrade restarts  |
+| **C** | MetalLB activation; ingress fails over           | A                                             | None              | ~1 hr           | ~5 min ingress flap during cutover |
+| **D** | DNS HA                                           | A (probably C too)                            | None              | TBD             | TBD                                |
+| **E** | Longhorn deployment + stateful service migration | A, B, C; NVMe on frodo; ideally SSDs on Pi 4s | Hardware purchase | TBD per service | Variable                           |
 
 Phases A–C are scoped in detail below. Phases D and E get their own future specs.
 
@@ -64,13 +64,13 @@ Phases A–C are scoped in detail below. Phases D and E get their own future spe
 
 Convert from single-server (k3s + SQLite backend, on gandalf only) to three-server embedded etcd quorum across gandalf, frodo, samwise. Etcd survives 1 failure (quorum 2/3); cluster API stays available regardless of which one dies. merry and pippin remain k3s **agents** (workers), not servers — small-storage Pi 4Bs shouldn't host etcd.
 
-| Node | Role after Phase A | Reason |
-|---|---|---|
-| gandalf | server | Workhorse; control plane stays where most workloads live (for now) |
-| frodo | server | Pi 5 — most capable Pi; expected long-term cluster lifespan |
-| samwise | server | Pi 4B — already in cluster, more proven than the freshly-imaged merry/pippin |
-| merry | agent | Fresh Pi 4; agent role keeps the etcd quorum on more-tested nodes |
-| pippin | agent | Same as merry |
+| Node    | Role after Phase A | Reason                                                                       |
+| ------- | ------------------ | ---------------------------------------------------------------------------- |
+| gandalf | server             | Workhorse; control plane stays where most workloads live (for now)           |
+| frodo   | server             | Pi 5 — most capable Pi; expected long-term cluster lifespan                  |
+| samwise | server             | Pi 4B — already in cluster, more proven than the freshly-imaged merry/pippin |
+| merry   | agent              | Fresh Pi 4; agent role keeps the etcd quorum on more-tested nodes            |
+| pippin  | agent              | Same as merry                                                                |
 
 ### Migration approach
 
@@ -117,18 +117,18 @@ Audit each Deployment / StatefulSet for `nodeSelector: kubernetes.io/hostname: g
 
 Expected scope (to be finalized during execution, but a starting list):
 
-| Service | Pin today? | Phase B action | Why |
-|---|---|---|---|
-| Authentik | Yes (postgres hostPath) | Keep pinned | Stateful; needs Longhorn (Phase E) |
-| Coder | Yes (state hostPath) | Keep pinned | Stateful; workspaces are ephemeral but auth state isn't |
-| Jellyfin | Yes (media hostPath) | Keep pinned | Stateful media library |
-| Pi-hole | Yes (gravity + config hostPath) | Keep pinned | Stateful until Phase D |
-| Syncthing | Yes (data hostPath) | Keep pinned | Stateful |
-| homepage | Likely yes | **Unpin** if no PV — config is in `values.yaml` and is rebuildable |
-| restic CronJob | Yes | Keep pinned | Needs hostPath access to backup-source dirs |
-| cert-manager | No | n/a | Already unpinned |
-| reflector | No | n/a | Already unpinned |
-| Traefik | Yes via hostNetwork (PR #70) | Defer to Phase C — Traefik gets unpinned when MetalLB takes over ingress |
+| Service        | Pin today?                      | Phase B action                                                           | Why                                                     |
+| -------------- | ------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Authentik      | Yes (postgres hostPath)         | Keep pinned                                                              | Stateful; needs Longhorn (Phase E)                      |
+| Coder          | Yes (state hostPath)            | Keep pinned                                                              | Stateful; workspaces are ephemeral but auth state isn't |
+| Jellyfin       | Yes (media hostPath)            | Keep pinned                                                              | Stateful media library                                  |
+| Pi-hole        | Yes (gravity + config hostPath) | Keep pinned                                                              | Stateful until Phase D                                  |
+| Syncthing      | Yes (data hostPath)             | Keep pinned                                                              | Stateful                                                |
+| homepage       | Likely yes                      | **Unpin** if no PV — config is in `values.yaml` and is rebuildable       |
+| restic CronJob | Yes                             | Keep pinned                                                              | Needs hostPath access to backup-source dirs             |
+| cert-manager   | No                              | n/a                                                                      | Already unpinned                                        |
+| reflector      | No                              | n/a                                                                      | Already unpinned                                        |
+| Traefik        | Yes via hostNetwork (PR #70)    | Defer to Phase C — Traefik gets unpinned when MetalLB takes over ingress |
 
 ### Acceptance criteria
 
@@ -141,13 +141,13 @@ Expected scope (to be finalized during execution, but a starting list):
 
 Replace k3s's bundled klipper-lb (svcLB) with MetalLB. Goal: a LAN-routable virtual IP that floats between nodes via L2 ARP advertisement, so any node up in Phase A's quorum can serve as ingress.
 
-| Component | Today | After Phase C |
-|---|---|---|
-| LoadBalancer implementation | klipper-lb (DaemonSet of svclb pods on every node) | MetalLB controller + speaker DaemonSet |
-| Traefik Service type | ClusterIP (per PR #70) | LoadBalancer with annotation `metallb.io/loadBalancerIPs: <virtual-IP>` |
-| Traefik scheduling | hostNetwork: true, pinned to gandalf | Pod-network, no nodeSelector — schedules anywhere |
-| Traefik replicas | 1 | 2+ with pod anti-affinity (so different nodes); MetalLB IP fails over to whichever node has a running Traefik pod |
-| DNS records for `*.vigihome.net` | `192.168.50.135` (gandalf) | `<MetalLB-virtual-IP>` |
+| Component                        | Today                                              | After Phase C                                                                                                     |
+| -------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| LoadBalancer implementation      | klipper-lb (DaemonSet of svclb pods on every node) | MetalLB controller + speaker DaemonSet                                                                            |
+| Traefik Service type             | ClusterIP (per PR #70)                             | LoadBalancer with annotation `metallb.io/loadBalancerIPs: <virtual-IP>`                                           |
+| Traefik scheduling               | hostNetwork: true, pinned to gandalf               | Pod-network, no nodeSelector — schedules anywhere                                                                 |
+| Traefik replicas                 | 1                                                  | 2+ with pod anti-affinity (so different nodes); MetalLB IP fails over to whichever node has a running Traefik pod |
+| DNS records for `*.vigihome.net` | `192.168.50.135` (gandalf)                         | `<MetalLB-virtual-IP>`                                                                                            |
 
 ### Migration steps (full plan separate)
 
@@ -181,7 +181,7 @@ Replace k3s's bundled klipper-lb (svcLB) with MetalLB. Goal: a LAN-routable virt
 
 ## Phase D — DNS HA (deferred)
 
-Spec'd separately when chosen. The two candidate architectures and their trade-offs are noted under the earlier brainstorm; no commitment yet. Pi-hole remains a SPOF on gandalf in the interim. Acceptable because (a) LAN clients fall back to upstream DNS for non-`*.vigihome.net` lookups, and (b) the gandalf-down failure window is the same as it was pre-HA work for DNS, so this phase is *additive* survival, not a regression risk.
+Spec'd separately when chosen. The two candidate architectures and their trade-offs are noted under the earlier brainstorm; no commitment yet. Pi-hole remains a SPOF on gandalf in the interim. Acceptable because (a) LAN clients fall back to upstream DNS for non-`*.vigihome.net` lookups, and (b) the gandalf-down failure window is the same as it was pre-HA work for DNS, so this phase is _additive_ survival, not a regression risk.
 
 ## Phase E — Longhorn deployment + stateful service migration (deferred, hardware-gated)
 
@@ -200,14 +200,14 @@ Longhorn's S3 backup integration may complement (or partially replace) the resti
 
 ## Failure tolerance matrix
 
-| Snapshot in time | gandalf dies | frodo dies | samwise dies | merry dies | pippin dies |
-|---|---|---|---|---|---|
-| Today | 🔴 Cluster down | 🟡 Workers reschedule (none to spill onto today) | 🟡 Same as frodo | n/a (not in cluster yet) | n/a |
-| After A | 🟡 Quorum survives (2/3); stateful services unreachable until gandalf back | 🟢 Quorum survives | 🟢 Quorum survives | 🟢 Worker | 🟢 Worker |
-| After B | 🟡 Same as A, plus stateless services reschedule onto Pis | 🟢 | 🟢 | 🟢 | 🟢 |
-| After C | 🟡 Same, plus ingress fails over to surviving Traefik replica | 🟢 | 🟢 | 🟢 | 🟢 |
-| After D | 🟡 Same, plus DNS survives | 🟢 | 🟢 | 🟢 | 🟢 |
-| After E | 🟢 **Stateful survives** — Longhorn replica on frodo takes over reads/writes | 🟢 | 🟢 | 🟢 | 🟢 |
+| Snapshot in time | gandalf dies                                                                 | frodo dies                                       | samwise dies       | merry dies               | pippin dies |
+| ---------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ | ------------------ | ------------------------ | ----------- |
+| Today            | 🔴 Cluster down                                                              | 🟡 Workers reschedule (none to spill onto today) | 🟡 Same as frodo   | n/a (not in cluster yet) | n/a         |
+| After A          | 🟡 Quorum survives (2/3); stateful services unreachable until gandalf back   | 🟢 Quorum survives                               | 🟢 Quorum survives | 🟢 Worker                | 🟢 Worker   |
+| After B          | 🟡 Same as A, plus stateless services reschedule onto Pis                    | 🟢                                               | 🟢                 | 🟢                       | 🟢          |
+| After C          | 🟡 Same, plus ingress fails over to surviving Traefik replica                | 🟢                                               | 🟢                 | 🟢                       | 🟢          |
+| After D          | 🟡 Same, plus DNS survives                                                   | 🟢                                               | 🟢                 | 🟢                       | 🟢          |
+| After E          | 🟢 **Stateful survives** — Longhorn replica on frodo takes over reads/writes | 🟢                                               | 🟢                 | 🟢                       | 🟢          |
 
 🔴 = cluster-wide outage. 🟡 = degraded (some services unavailable). 🟢 = transparent failover.
 

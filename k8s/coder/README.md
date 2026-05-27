@@ -16,13 +16,13 @@ Terraform/OpenTofu (which pairs well with the existing IaC setup).
 
 Coder logins go through Authentik when OIDC is configured. If Authentik
 is down, OIDC login breaks. Coder still supports local-password auth
-*alongside* OIDC — keep a local-only admin account so you can recover
+_alongside_ OIDC — keep a local-only admin account so you can recover
 when Authentik is unavailable. See step 8 below.
 
 ## Two Helm releases, one namespace
 
 Unlike Authentik (whose chart bundles postgres as a subchart), the
-official Coder chart does *not* bundle postgres. So we run two Helm
+official Coder chart does _not_ bundle postgres. So we run two Helm
 releases in the `coder` namespace:
 
 - `postgres` — bitnami/postgresql, backing DB
@@ -44,7 +44,7 @@ workspace).
 ## One-time setup
 
 1. **Save secrets to Bitwarden.** Create a Bitwarden item named `Homelab
-   Coder` with four custom fields:
+Coder` with four custom fields:
    - `postgres-password` — password for the `coder` postgres user
    - `postgres-superuser-password` — password for the `postgres` superuser
    - `oidc-client-id` — filled in after step 4
@@ -65,7 +65,6 @@ workspace).
    `misc.dnsmasq_lines` (see `k8s/pihole/values.yaml`).
 
 4. **Create the Authentik OIDC provider.** In the Authentik UI:
-
    - **Applications → Providers → Create → OAuth2/OpenID Provider**
      - Name: `coder`
      - Authorization flow: `default-provider-authorization-explicit-consent`
@@ -143,15 +142,14 @@ workspace).
    > `Verify your email address on your OIDC provider` error page.
 
 8. **Seed both an OIDC owner and a local-only owner.** Coder's first
-   visit shows a "Create your first user" form *and* the "Sign in
+   visit shows a "Create your first user" form _and_ the "Sign in
    with Authentik" button side by side. Which one you click first
    determines the flow; both paths end at the same final state (one
    OIDC owner + one local-password owner) so pick whichever fits.
 
    **Path A — OIDC first (recommended for a clean cluster):**
-
    1. On the first-visit page, click **Sign in with Authentik** (do
-      *not* fill out "Create your first user"). The first user to sign
+      _not_ fill out "Create your first user"). The first user to sign
       in via OIDC is auto-promoted to owner. Confirm the role in
       **Deployment → Users**.
    2. Create the local-password parachute via CLI:
@@ -168,9 +166,8 @@ workspace).
 
    **Path B — bootstrap user first (what you get if you click "Create
    your first user" before noticing the OIDC button):**
-
    1. Fill out the form. The bootstrap user is local-password and
-      auto-promoted to owner — congratulations, this *is* your
+      auto-promoted to owner — congratulations, this _is_ your
       `admin-local` fallback, just with a different username. Rename
       it to `admin-local` in **Deployment → Users → Edit** if you
       want the name to match the convention; purely cosmetic.

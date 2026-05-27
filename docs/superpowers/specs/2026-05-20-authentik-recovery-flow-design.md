@@ -67,7 +67,7 @@ Limit policy (3 emails/hour per `remote_ip`) and a Reputation policy
 
 ### Why bind to the authentication flow vs. a standalone URL
 
-Authentik's recovery-flow primitive *is* the authentication flow's
+Authentik's recovery-flow primitive _is_ the authentication flow's
 `recovery_flow` field. Setting it surfaces the "Forgot password?" link
 on the login page automatically. The alternative — a standalone
 `/if/flow/default-recovery-flow/` URL with no link from login — works
@@ -87,7 +87,7 @@ Three reasons, in order of weight:
 2. **Email address.** akadmin's recorded email is the operator's
    personal address. The recovery flow assumes the recipient is the
    account owner; for akadmin, that's also the operator, but the
-   operator already has a *better* recovery path (cluster shell).
+   operator already has a _better_ recovery path (cluster shell).
 3. **Audit posture.** Recovery flows that include the highest-
    privilege account widen the trust boundary to include the mail
    relay. Excluding akadmin keeps the trust boundary at "shell
@@ -109,12 +109,12 @@ to be updated each time a new admin is added.
 
 ### Why rate-limit + reputation and no CAPTCHA
 
-| Control | What it does | Cost |
-|---|---|---|
-| **Rate Limit policy** (3/hr per remote_ip) | Caps the absolute number of recovery emails a single source can trigger; sufficient for a normal user, paid plan ceiling for an attacker | One Authentik primitive, no external dep |
-| **Reputation policy** (deny when `ak_reputation_score < -3`) | Authentik tracks failed logins by IP+username; -3 is reached after roughly 3 failed logins in a short window. Denies recovery for IPs already misbehaving | One Authentik primitive, no external dep |
-| **CAPTCHA** (skipped) | Stops bots from automating the recovery form | Requires Google reCAPTCHA or hCaptcha — external dep, third-party JS, privacy implication |
-| **Account-enumeration mitigation** (built-in) | Authentik returns the same "if an account exists" response for valid and invalid identifiers | Free — Authentik defaults this on |
+| Control                                                      | What it does                                                                                                                                              | Cost                                                                                      |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Rate Limit policy** (3/hr per remote_ip)                   | Caps the absolute number of recovery emails a single source can trigger; sufficient for a normal user, paid plan ceiling for an attacker                  | One Authentik primitive, no external dep                                                  |
+| **Reputation policy** (deny when `ak_reputation_score < -3`) | Authentik tracks failed logins by IP+username; -3 is reached after roughly 3 failed logins in a short window. Denies recovery for IPs already misbehaving | One Authentik primitive, no external dep                                                  |
+| **CAPTCHA** (skipped)                                        | Stops bots from automating the recovery form                                                                                                              | Requires Google reCAPTCHA or hCaptcha — external dep, third-party JS, privacy implication |
+| **Account-enumeration mitigation** (built-in)                | Authentik returns the same "if an account exists" response for valid and invalid identifiers                                                              | Free — Authentik defaults this on                                                         |
 
 The CAPTCHA cost (external JS on every login page in a tailnet-only
 deployment) outweighs the benefit. Rate-limit + reputation handle the
@@ -125,11 +125,11 @@ realistic scenarios.
 Three layers can hold Authentik config. This spec uses two of them
 deliberately, and #104 will absorb both into the third.
 
-| Layer | What it owns | This spec's use |
-|---|---|---|
+| Layer                                         | What it owns                                                                                                          | This spec's use                                                            |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | **Helm values** (`k8s/authentik/values.yaml`) | Process-level env vars (`AUTHENTIK_EMAIL__*`, `AUTHENTIK_BOOTSTRAP_*`), chart-shape concerns (Ingress, replicas, PVC) | One line added: `AUTHENTIK_EMAIL__FROM` to override the From: display name |
-| **UI (postgres-backed)** | Flow bindings, policy bindings, stage `token_expiry`, email subject override, group memberships | Everything else in this spec |
-| **Blueprints** (config-as-code YAML) | Same as UI, but declarative and applied by the Authentik worker at startup | Not used yet — #104 |
+| **UI (postgres-backed)**                      | Flow bindings, policy bindings, stage `token_expiry`, email subject override, group memberships                       | Everything else in this spec                                               |
+| **Blueprints** (config-as-code YAML)          | Same as UI, but declarative and applied by the Authentik worker at startup                                            | Not used yet — #104                                                        |
 
 The Helm change is the only file change in this PR. Everything else
 is UI clicks against the live cluster, documented step-by-step in the
@@ -161,57 +161,64 @@ signed in as akadmin. The README captures the click path; this section
 captures the canonical settings.
 
 **1. Group: `homelab-users`** (if not already present)
-   - Admin interface → Directory → Groups → Create
-   - Name: `homelab-users`
-   - Members: every non-admin user (the chart property mapping already
-     adds new OIDC-provisioned users to a default group; confirm
-     they're in this one)
+
+- Admin interface → Directory → Groups → Create
+- Name: `homelab-users`
+- Members: every non-admin user (the chart property mapping already
+  adds new OIDC-provisioned users to a default group; confirm
+  they're in this one)
 
 **2. Policy: `recovery-allowed-group`** (Group Membership)
-   - Admin interface → Customization → Policies → Create → Group Membership Policy
-   - Name: `recovery-allowed-group`
-   - Group: `homelab-users`
-   - **Negate result:** OFF
-   - Execution logging: ON (for the first month, then turn off)
+
+- Admin interface → Customization → Policies → Create → Group Membership Policy
+- Name: `recovery-allowed-group`
+- Group: `homelab-users`
+- **Negate result:** OFF
+- Execution logging: ON (for the first month, then turn off)
 
 **3. Policy: `recovery-rate-limit`** (Rate Limit)
-   - Admin interface → Customization → Policies → Create → Rate Limit Policy
-   - Name: `recovery-rate-limit`
-   - Rate: `3`
-   - Per: `3600` seconds (1 hour)
-   - Key: `request.context.remote_ip`
-   - Authentik 2026.2 (running version) exposes Rate Limit Policy as
-     a first-class primitive — no Expression Policy fallback needed.
+
+- Admin interface → Customization → Policies → Create → Rate Limit Policy
+- Name: `recovery-rate-limit`
+- Rate: `3`
+- Per: `3600` seconds (1 hour)
+- Key: `request.context.remote_ip`
+- Authentik 2026.2 (running version) exposes Rate Limit Policy as
+  a first-class primitive — no Expression Policy fallback needed.
 
 **4. Policy: `recovery-reputation`** (Reputation)
-   - Admin interface → Customization → Policies → Create → Reputation Policy
-   - Name: `recovery-reputation`
-   - Threshold: -3
-   - Check IP: ON
-   - Check Username: ON
-   - **Important semantic:** Authentik reputation policies pass
-     (`passing=true`) when reputation is **bad** (below threshold).
-     Bind the policy to a Deny stage with `negate=OFF`. Do not
-     misread `passing=true` as "good reputation." (See memory:
-     [[feedback_authentik_reputation_policy_semantics]].)
+
+- Admin interface → Customization → Policies → Create → Reputation Policy
+- Name: `recovery-reputation`
+- Threshold: -3
+- Check IP: ON
+- Check Username: ON
+- **Important semantic:** Authentik reputation policies pass
+  (`passing=true`) when reputation is **bad** (below threshold).
+  Bind the policy to a Deny stage with `negate=OFF`. Do not
+  misread `passing=true` as "good reputation." (See memory:
+  [[feedback_authentik_reputation_policy_semantics]].)
 
 **5. Stage: `default-email-recovery`** (built-in, edit)
-   - Admin interface → Flows & Stages → Stages → `default-email-recovery` → Edit
-   - Subject: `vigihome.net — password reset requested`
-   - Token expiry: `hours=1` (i.e. 1 hour)
-   - Template: default (no customization beyond subject)
+
+- Admin interface → Flows & Stages → Stages → `default-email-recovery` → Edit
+- Subject: `vigihome.net — password reset requested`
+- Token expiry: `hours=1` (i.e. 1 hour)
+- Template: default (no customization beyond subject)
 
 **6. Flow binding: bind recovery to authentication flow**
-   - Admin interface → Flows & Stages → Flows → `default-authentication-flow` → Edit
-   - **Recovery flow:** `default-recovery-flow`
-   - Save
+
+- Admin interface → Flows & Stages → Flows → `default-authentication-flow` → Edit
+- **Recovery flow:** `default-recovery-flow`
+- Save
 
 **7. Policy bindings on the recovery flow**
-   - Admin interface → Flows & Stages → Flows → `default-recovery-flow` → Policy Bindings
-   - Bind `recovery-allowed-group` (order 10)
-   - Bind `recovery-reputation` (order 20)
-   - Bind `recovery-rate-limit` (order 30)
-   - All three: `negate=OFF`, `enabled=ON`
+
+- Admin interface → Flows & Stages → Flows → `default-recovery-flow` → Policy Bindings
+- Bind `recovery-allowed-group` (order 10)
+- Bind `recovery-reputation` (order 20)
+- Bind `recovery-rate-limit` (order 30)
+- All three: `negate=OFF`, `enabled=ON`
 
 After step 6, the "Forgot password?" link appears on the login page
 for anyone visiting the authentication flow. Steps 7's bindings gate
@@ -221,11 +228,11 @@ who can proceed past the identification stage.
 
 Composed of the three policies bound to the recovery flow:
 
-| Layer | Trigger | Effect |
-|---|---|---|
-| Group membership | User not in `homelab-users` | Identification stage refuses to advance ("if an account exists" generic response) |
-| Reputation | `ak_reputation_score < -3` for IP or username | Identification stage refuses to advance (same generic response) |
-| Rate limit | More than 3 emails sent to anyone from this IP in 1 hour | Recovery email stage refuses; user sees a generic "try again later" |
+| Layer            | Trigger                                                  | Effect                                                                            |
+| ---------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Group membership | User not in `homelab-users`                              | Identification stage refuses to advance ("if an account exists" generic response) |
+| Reputation       | `ak_reputation_score < -3` for IP or username            | Identification stage refuses to advance (same generic response)                   |
+| Rate limit       | More than 3 emails sent to anyone from this IP in 1 hour | Recovery email stage refuses; user sees a generic "try again later"               |
 
 Account-enumeration mitigation is Authentik's default behavior — a
 valid identifier and an invalid identifier produce the same on-screen
@@ -331,13 +338,13 @@ Each one is a manual test executed from the operator laptop unless
 noted. The README documents them under "Testing the recovery flow"
 for future reruns.
 
-| # | Scenario | Steps | Pass condition |
-|---|---|---|---|
-| 1 | **Negative: akadmin** | Visit `https://authentik.vigihome.net/`, click "Forgot password?", enter `akadmin` | Identification stage shows generic "if an account exists" message; **no email sent** (verify in Forward Email log) |
-| 2 | **Positive: homelab-users member** | Same UI, enter a `homelab-users` member's username | Email arrives at the user's address within 30s with the customized subject; link inside opens the password change prompt; new password saves and sign-in works |
-| 3 | **Rate limit** | From a single browser, complete step 2 three times for the same or different users; attempt a fourth in the same hour | Fourth attempt: identification stage shows generic "try again later" message; **no fourth email sent** |
-| 4 | **Reputation** | From a fresh IP, attempt to sign in with a wrong password 3 times against any account; then attempt recovery | Identification stage refuses to advance (same generic response); **no email sent**. Verify `ak_reputation_score` ≤ -3 in admin UI |
-| 5 | **Token expiry** | Complete step 2, but wait 65 minutes before clicking the email link | Link shows "token expired" error; new recovery email must be requested |
+| #   | Scenario                           | Steps                                                                                                                 | Pass condition                                                                                                                                                 |
+| --- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Negative: akadmin**              | Visit `https://authentik.vigihome.net/`, click "Forgot password?", enter `akadmin`                                    | Identification stage shows generic "if an account exists" message; **no email sent** (verify in Forward Email log)                                             |
+| 2   | **Positive: homelab-users member** | Same UI, enter a `homelab-users` member's username                                                                    | Email arrives at the user's address within 30s with the customized subject; link inside opens the password change prompt; new password saves and sign-in works |
+| 3   | **Rate limit**                     | From a single browser, complete step 2 three times for the same or different users; attempt a fourth in the same hour | Fourth attempt: identification stage shows generic "try again later" message; **no fourth email sent**                                                         |
+| 4   | **Reputation**                     | From a fresh IP, attempt to sign in with a wrong password 3 times against any account; then attempt recovery          | Identification stage refuses to advance (same generic response); **no email sent**. Verify `ak_reputation_score` ≤ -3 in admin UI                              |
+| 5   | **Token expiry**                   | Complete step 2, but wait 65 minutes before clicking the email link                                                   | Link shows "token expired" error; new recovery email must be requested                                                                                         |
 
 Tests 1, 2, 3, 5 take ~10 minutes total. Test 4 requires waiting for
 reputation to decay back to 0 afterward (or manually clearing it via

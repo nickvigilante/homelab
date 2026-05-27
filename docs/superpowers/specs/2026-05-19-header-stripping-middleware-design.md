@@ -30,11 +30,11 @@ Single Traefik `Middleware` CRD in `kube-system`, referenced by name from the `w
 
 ### Why entryPoint default and not per-Ingress
 
-| Approach | Pros | Cons |
-|---|---|---|
-| **EntryPoint default middleware** (chosen) | One config change, applies to every HTTPS route automatically, new Ingresses get it for free | Requires HelmChartConfig edit; less visible to a reader skimming a service's `values.yaml` |
-| Per-Ingress annotation | Visible at each Ingress | Requires touching every `values.yaml` / raw Ingress; future Ingresses can silently skip; harder to keep in sync |
-| Cross-namespace single Middleware + each Ingress references it | Same as above, plus one source-of-truth | Requires `--providers.kubernetescrd.allowCrossNamespace=true` *and* still per-Ingress annotation |
+| Approach                                                       | Pros                                                                                         | Cons                                                                                                            |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **EntryPoint default middleware** (chosen)                     | One config change, applies to every HTTPS route automatically, new Ingresses get it for free | Requires HelmChartConfig edit; less visible to a reader skimming a service's `values.yaml`                      |
+| Per-Ingress annotation                                         | Visible at each Ingress                                                                      | Requires touching every `values.yaml` / raw Ingress; future Ingresses can silently skip; harder to keep in sync |
+| Cross-namespace single Middleware + each Ingress references it | Same as above, plus one source-of-truth                                                      | Requires `--providers.kubernetescrd.allowCrossNamespace=true` _and_ still per-Ingress annotation                |
 
 The entryPoint approach wins because it's right-by-default. The trade-off (one extra config file to read alongside `values.yaml` to understand what runs on a request) is acceptable given the doc trail this spec leaves.
 
@@ -42,13 +42,13 @@ The entryPoint approach wins because it's right-by-default. The trade-off (one e
 
 Three forward-auth conventions exist in the wild:
 
-| Family | Origin | Headers |
-|---|---|---|
-| `X-Forwarded-*` auth subset | oauth2-proxy, traefik-forward-auth | `X-Forwarded-User`, `-Email`, `-Preferred-Username`, `-Groups`, `-Name`, `-Roles` |
-| `Remote-*` | Authelia, nginx `auth_request` | `Remote-User`, `-Email`, `-Groups`, `-Name` |
-| `X-Authentik-*` | Authentik outpost (proxy provider) | `X-Authentik-Username`, `-Groups`, `-Email`, `-Name`, `-Uid`, `-Jwt`, `-Meta-Jwks`, `-Meta-Outpost`, `-Meta-Provider`, `-Meta-App`, `-Meta-Version` |
+| Family                      | Origin                             | Headers                                                                                                                                             |
+| --------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Forwarded-*` auth subset | oauth2-proxy, traefik-forward-auth | `X-Forwarded-User`, `-Email`, `-Preferred-Username`, `-Groups`, `-Name`, `-Roles`                                                                   |
+| `Remote-*`                  | Authelia, nginx `auth_request`     | `Remote-User`, `-Email`, `-Groups`, `-Name`                                                                                                         |
+| `X-Authentik-*`             | Authentik outpost (proxy provider) | `X-Authentik-Username`, `-Groups`, `-Email`, `-Name`, `-Uid`, `-Jwt`, `-Meta-Jwks`, `-Meta-Outpost`, `-Meta-Provider`, `-Meta-App`, `-Meta-Version` |
 
-A downstream service that trusts *any* of these would be vulnerable. Stripping all three families covers the whole convention space at zero cost — legitimate browsers don't send these inbound.
+A downstream service that trusts _any_ of these would be vulnerable. Stripping all three families covers the whole convention space at zero cost — legitimate browsers don't send these inbound.
 
 Transport headers (`X-Forwarded-For`, `-Proto`, `-Host`, `-Port`, `X-Real-IP`) and standard auth material (`Authorization`, cookies) are explicitly NOT stripped — they are either Traefik's own additions or legitimate client material.
 
@@ -62,12 +62,12 @@ When forward-auth lands, the route for that service will list both middlewares i
 
 ## File changes
 
-| File | Action | Purpose |
-|---|---|---|
-| `system/traefik-strip-auth-headers-middleware.yaml` | New | The Middleware CRD |
-| `system/traefik-helmchartconfig.yaml` | Modify | Add `ports.websecure.middlewares` reference |
-| `ansible/provision-gandalf.yml` | Modify | One new `copy` task to ship the Middleware to k3s's auto-apply manifest dir |
-| `audits/tier-1-authentik.md` | Modify | Flip finding 6-ii row from "Open" to "Resolved"; drop entry #1 from "Open follow-ups" |
+| File                                                | Action | Purpose                                                                               |
+| --------------------------------------------------- | ------ | ------------------------------------------------------------------------------------- |
+| `system/traefik-strip-auth-headers-middleware.yaml` | New    | The Middleware CRD                                                                    |
+| `system/traefik-helmchartconfig.yaml`               | Modify | Add `ports.websecure.middlewares` reference                                           |
+| `ansible/provision-gandalf.yml`                     | Modify | One new `copy` task to ship the Middleware to k3s's auto-apply manifest dir           |
+| `audits/tier-1-authentik.md`                        | Modify | Flip finding 6-ii row from "Open" to "Resolved"; drop entry #1 from "Open follow-ups" |
 
 ### `system/traefik-strip-auth-headers-middleware.yaml` (new)
 
@@ -154,8 +154,8 @@ spec:
 **Implementation note (chart-values fallback):** if the k3s-bundled Traefik chart doesn't render `ports.websecure.middlewares` into the static config (older chart versions may not), fall back to `additionalArguments`:
 
 ```yaml
-    additionalArguments:
-      - --entryPoints.websecure.http.middlewares=kube-system-strip-auth-headers@kubernetescrd
+additionalArguments:
+  - --entryPoints.websecure.http.middlewares=kube-system-strip-auth-headers@kubernetescrd
 ```
 
 Verify on first apply via:
@@ -177,7 +177,7 @@ Add one task after the existing HelmChartConfig copy task (currently at line ~11
     dest: /var/lib/rancher/k3s/server/manifests/strip-auth-headers-middleware.yaml
     owner: root
     group: root
-    mode: '0600'
+    mode: "0600"
 ```
 
 k3s's manifests-dir controller picks up any YAML dropped there, not just HelmCharts, and applies them via its embedded kubectl. No separate `kubectl apply` step.
@@ -253,4 +253,4 @@ If rollback is needed mid-incident (the middleware is breaking something), the e
 ## Open implementation questions
 
 1. **Chart values key name** — `ports.websecure.middlewares` vs `additionalArguments` fallback. Resolve at first apply by inspecting rendered Traefik pod args; iterate if needed. Not a design-blocker.
-2. **Audit doc update bundling** — the audit doc fix PR (#61) is in flight. This branch was cut from main *before* #61 merged, so the audit doc change here will conflict-or-rebase against the issue-ref fix. Plan: rebase this branch onto main after #61 merges, then update finding 6-ii on top. Mechanical, not a design issue.
+2. **Audit doc update bundling** — the audit doc fix PR (#61) is in flight. This branch was cut from main _before_ #61 merged, so the audit doc change here will conflict-or-rebase against the issue-ref fix. Plan: rebase this branch onto main after #61 merges, then update finding 6-ii on top. Mechanical, not a design issue.

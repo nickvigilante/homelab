@@ -1,4 +1,3 @@
----
 # Permissive yamllint config — catches obvious mistakes (broken
 # indentation, duplicate keys, trailing whitespace) without nitpicking
 # style choices that vary across the Helm values, k8s manifests, and
