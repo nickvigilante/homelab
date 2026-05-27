@@ -3,7 +3,8 @@ metadata:
   name: "homelab - application - coder"
 # Coder OIDC provider + application + group gate. client_secret is injected
 # from the authentik-oidc-secrets Secret via !Env (never in the repo). Coder
-# is gated on homelab-coder-users (its own group), and uses the EXPLICIT
+# is gated on homelab-users (the single homelab SSO group; the dedicated
+# homelab-coder-users group was retired in #115), and uses the EXPLICIT
 # consent authorization flow (matches prod).
 entries:
   - id: coder-provider
@@ -41,7 +42,7 @@ entries:
     state: present
     identifiers:
       target: !KeyOf coder-app
-      group: !Find [authentik_core.group, [name, homelab-coder-users]]
+      group: !Find [authentik_core.group, [name, homelab-users]]
       order: 0
     attrs:
       enabled: true
