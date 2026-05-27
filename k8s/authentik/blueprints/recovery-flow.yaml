@@ -1,0 +1,166 @@
+version: 1
+metadata:
+  name: "homelab - recovery flow"
+# Self-service password recovery, gated so ONLY members of homelab-users
+# can complete it. Flow: identification (10) -> email link (20) ->
+# new-password prompt (30) -> write (40). The recovery-allowed-group
+# policy re-evaluates before stages 20/30/40, so a non-member (or akadmin)
+# dead-ends after identification with no email and no enumeration signal.
+# Reachable because the default brand's flow_recovery points here (set at
+# the bottom). The prompt/write stages are the shipped password-change
+# stages, referenced (not recreated).
+entries:
+  # --- The recovery flow itself ---
+  - id: recovery-flow
+    model: authentik_flows.flow
+    state: present
+    identifiers:
+      slug: recovery
+    attrs:
+      designation: recovery
+      name: "Password Recovery"
+      title: "Password Recovery"
+      authentication: require_unauthenticated
+      denied_action: message_continue
+      layout: stacked
+      policy_engine_mode: any
+      compatibility_mode: false
+
+  # --- Custom stages ---
+  - id: recovery-identification
+    model: authentik_stages_identification.identificationstage
+    state: present
+    identifiers:
+      name: recovery-identification
+    attrs:
+      user_fields:
+        - username
+        - email
+      case_insensitive_matching: true
+      # pretend_user_exists keeps the response identical for unknown
+      # identifiers — no account-enumeration oracle.
+      pretend_user_exists: true
+      enable_remember_me: false
+      show_matched_user: false
+      show_source_labels: false
+      sources: []
+
+  - id: recovery-email
+    model: authentik_stages_email.emailstage
+    state: present
+    identifiers:
+      name: recovery-email
+    attrs:
+      # Use the global SMTP config (Forward Email relay) wired via
+      # AUTHENTIK_EMAIL__* env in values.yaml — don't duplicate creds here.
+      use_global_settings: true
+      activate_user_on_success: false
+      subject: "vigihome.net — password reset requested"
+      template: "email/password_reset.html"
+      token_expiry: "hours=1"
+      recovery_cache_timeout: "minutes=5"
+      recovery_max_attempts: 5
+      timeout: 10
+      use_ssl: false
+      use_tls: false
+
+  # --- Group-gate policy ---
+  - id: recovery-allowed-group
+    model: authentik_policies_expression.expressionpolicy
+    state: present
+    identifiers:
+      name: recovery-allowed-group
+    attrs:
+      expression: |
+        pending_user = request.context.get("pending_user")
+        if not pending_user:
+            return False
+        return ak_is_group_member(pending_user, name="homelab-users")
+
+  # --- Stage bindings (order 10/20/30/40) ---
+  # All re-evaluate policies when the stage is reached (not at plan time),
+  # so the group gate runs against the pending_user resolved in stage 10.
+  - id: recovery-binding-identification
+    model: authentik_flows.flowstagebinding
+    state: present
+    identifiers:
+      target: !KeyOf recovery-flow
+      order: 10
+    attrs:
+      stage: !KeyOf recovery-identification
+      re_evaluate_policies: true
+      evaluate_on_plan: false
+      policy_engine_mode: any
+
+  - id: recovery-binding-email
+    model: authentik_flows.flowstagebinding
+    state: present
+    identifiers:
+      target: !KeyOf recovery-flow
+      order: 20
+    attrs:
+      stage: !KeyOf recovery-email
+      re_evaluate_policies: true
+      evaluate_on_plan: false
+      policy_engine_mode: any
+
+  - id: recovery-binding-prompt
+    model: authentik_flows.flowstagebinding
+    state: present
+    identifiers:
+      target: !KeyOf recovery-flow
+      order: 30
+    attrs:
+      stage: !Find [authentik_stages_prompt.promptstage, [name, default-password-change-prompt]]
+      re_evaluate_policies: true
+      evaluate_on_plan: false
+      policy_engine_mode: any
+
+  - id: recovery-binding-write
+    model: authentik_flows.flowstagebinding
+    state: present
+    identifiers:
+      target: !KeyOf recovery-flow
+      order: 40
+    attrs:
+      stage: !Find [authentik_stages_user_write.userwritestage, [name, default-password-change-write]]
+      re_evaluate_policies: true
+      evaluate_on_plan: false
+      policy_engine_mode: any
+
+  # --- Policy bindings: gate stages 20/30/40 on homelab-users membership ---
+  - model: authentik_policies.policybinding
+    state: present
+    identifiers:
+      target: !KeyOf recovery-binding-email
+      policy: !KeyOf recovery-allowed-group
+      order: 0
+    attrs:
+      enabled: true
+      negate: false
+  - model: authentik_policies.policybinding
+    state: present
+    identifiers:
+      target: !KeyOf recovery-binding-prompt
+      policy: !KeyOf recovery-allowed-group
+      order: 0
+    attrs:
+      enabled: true
+      negate: false
+  - model: authentik_policies.policybinding
+    state: present
+    identifiers:
+      target: !KeyOf recovery-binding-write
+      policy: !KeyOf recovery-allowed-group
+      order: 0
+    attrs:
+      enabled: true
+      negate: false
+
+  # --- Wire the recovery flow into the default brand ---
+  - model: authentik_brands.brand
+    state: present
+    identifiers:
+      domain: authentik-default
+    attrs:
+      flow_recovery: !KeyOf recovery-flow
