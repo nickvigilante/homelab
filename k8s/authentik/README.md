@@ -97,7 +97,23 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
      --from-literal=postgres-superuser-password="$(bw get item 'Homelab Authentik' | jq -r '.fields[] | select(.name=="postgres-superuser-password") | .value')" \
      --from-literal=bootstrap-password="$(bw get item 'Homelab Authentik' | jq -r '.fields[] | select(.name=="bootstrap-password") | .value')" \
      --from-literal=bootstrap-token="$(bw get item 'Homelab Authentik' | jq -r '.fields[] | select(.name=="bootstrap-token") | .value')"
+
+   # OIDC client secrets for the blueprinted apps (#104). Same secret
+   # each downstream service already holds. Needed BEFORE install — the
+   # chart's global.env references this Secret (pod won't start without it).
+   kubectl -n auth create secret generic authentik-oidc-secrets \
+     --from-literal=oidc-coder-client-secret="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="oidc-client-secret") | .value')" \
+     --from-literal=oidc-outline-client-secret="$(bw get item 'Homelab Outline' | jq -r '.fields[] | select(.name=="oidc-client-secret") | .value')"
    unset BW_SESSION
+   ```
+
+   Then render the blueprints ConfigMap (mounted via `blueprints.configMaps`
+   in `values.yaml`; must exist before install — see `blueprints/README.md`):
+
+   ```bash
+   kubectl -n auth create configmap authentik-blueprints \
+     $(find blueprints -name '*.yaml' -printf '--from-file=%f=%p ') \
+     --dry-run=client -o yaml | kubectl apply -f -
    ```
 
 4. **Add Authentik to Pi-hole's DNS.** Append to `dns.hosts` in
@@ -260,10 +276,22 @@ some columns are useless ciphertext.
 
 ### Adding an OIDC client
 
-In the Authentik UI: **Applications → Providers → Create → OAuth2/OpenID
-Provider** → bind to a new application → copy client ID + secret into
-the downstream service's config. Each downstream app gets its own
-provider record so you can revoke individually.
+**The existing OIDC apps (Coder, Outline) are captured as code** in
+`blueprints/applications/` (#104) — provider + application + group
+binding, with the `client_secret` injected via `!Env` from the
+`authentik-oidc-secrets` Secret. To add a new OIDC client, prefer adding
+a `blueprints/applications/<app>.yaml` modeled on those (see
+`blueprints/README.md`) rather than clicking it in the UI, so a rebuild
+reconstructs it. Steps per new app: author the blueprint, add an
+`oidc-<app>-client-secret` key to `authentik-oidc-secrets` + an
+`AUTHENTIK_OIDC_<APP>_SECRET` env in `values.yaml`, re-render the
+ConfigMap, `helm upgrade`.
+
+If you do create one in the UI first (**Applications → Providers →
+Create → OAuth2/OpenID Provider** → bind to an application), export it
+with `ak export_blueprint` and fold it into a blueprint afterward. Each
+downstream app gets its own provider record so you can revoke
+individually.
 
 For Traefik forward-auth (services that don't speak OIDC, like Pi-hole
 admin): use the Proxy Provider type instead, then add a Traefik
@@ -271,33 +299,19 @@ admin): use the Proxy Provider type instead, then add a Traefik
 
 ### Customize the `email` scope mapping
 
-Authentik's default `email` scope mapping returns
-`email_verified: False` because this deployment has no SMTP / email
-verification flow configured. Strict OIDC clients (e.g. Coder with
-`CODER_OIDC_IGNORE_EMAIL_VERIFIED=false`) reject the sign-in and the
-user sees `Verify your email address on your OIDC provider` with no
-way forward. The fix is a one-time global edit, applied here once and
-re-used by every future OIDC integration:
+**This is now captured as code** — see
+`blueprints/email-scope-mapping.yaml`, applied automatically by the
+worker from the `authentik-blueprints` ConfigMap. To change it, edit the
+file and re-render (see `blueprints/README.md`); no UI clicks.
 
-1. **Customization → Property Mappings**.
-2. Find the row named `authentik default OAuth Mapping: OpenID 'email'`
-   (type `Scope Mapping`). Click **Edit**.
-3. The expression returns a dict with `email` and `email_verified`.
-   Change the `email_verified` line to return `True` unconditionally:
-
-   ```python
-   return {
-       "email": request.user.email,
-       "email_verified": True,
-   }
-   ```
-
-4. Save. No restart needed — Authentik re-evaluates the expression on
-   the next token exchange.
-
-This mapping lives in the Authentik database, *not* in this repo. A
-restore from postgres backup recovers it; a rebuild-from-scratch does
-not. Re-apply after any from-scratch reinstall.
+Background: Authentik's default `email` scope mapping returns
+`email_verified: False` because this deployment has no email
+verification flow. Strict OIDC clients (e.g. Coder with
+`CODER_OIDC_IGNORE_EMAIL_VERIFIED=false`, and Outline) reject the
+sign-in (`Verify your email address on your OIDC provider`). The
+blueprint overrides the shipped mapping (by its managed marker) to
+return `email_verified: True` unconditionally, so the override
+self-heals on every worker start.
 
 ### Promoting an OIDC user to owner/admin in a downstream
 
@@ -316,13 +330,17 @@ password?" link on `https://authentik.vigihome.net/`. The flow is
 "akadmin recovery — last-resort paths" section below for the operator
 runbook.
 
-**How it's wired (all UI-managed, lives in postgres):**
+**How it's wired (captured as code in `blueprints/recovery-flow.yaml`, #104):**
 
 Authentik ships no recovery flow by default, so this was built from
-scratch. There is **one** policy object — an Expression policy. (Note
-for anyone following an older draft: Authentik 2026.2 has no "Group
+scratch and is now a blueprint — the worker reconstructs the whole stack
+(flow, stages, the group-gate policy, bindings, and the brand wiring)
+from the `authentik-blueprints` ConfigMap on startup, no postgres restore
+needed. There is **one** policy object — an Expression policy. (Note for
+anyone following an older draft: Authentik 2026.2 has no "Group
 Membership" or "Rate Limit" policy *types* — group gating is done with
-an expression, and there is no rate-limit primitive.)
+an expression, and there is no rate-limit primitive.) The table below
+documents what the blueprint creates:
 
 | Object | Where | Settings |
 |---|---|---|
@@ -381,30 +399,15 @@ verified the hard way):**
   Revisit before `homelab-users` grows or recovery is opened more
   broadly.
 
-**Postgres dependency:**
-
-All of the above (except the Helm env var) lives in the `authentik`
-postgres database. The nightly restic backup captures the postgres
-PVC, so a worst-case rebuild restores everything. A from-scratch
-rebuild **without** the postgres restore (e.g., if `AUTHENTIK_SECRET_KEY`
-is lost and the DB has to be re-initialized) means redoing the UI
-clicks documented above. This is captured by issue #104 (Blueprints
-migration), which would let the same config land as YAML applied by
-the Authentik worker at startup.
-
-**Reapply on rebuild (in order):**
-
-1. `homelab-users` group exists (likely re-created automatically by
-   the OIDC enrollment property mapping).
-2. Create the `recovery-allowed-group` Expression policy (code above).
-3. Create the `recovery-identification` and `recovery-email` stages
-   (settings in the table above). `default-password-change-prompt` and
-   `default-password-change-write` already ship by default — reuse them.
-4. Create the `recovery` flow (designation Recovery), bind the four
-   stages at orders 10/20/30/40.
-5. On bindings 20/30/40 set "Evaluate when stage is run" ON /
-   "Evaluate when flow is planned" OFF, and bind `recovery-allowed-group`.
-6. Set the default Brand's Recovery flow to `Password Recovery`.
+**Rebuild:** no manual steps. `blueprints/recovery-flow.yaml` recreates
+the policy, both custom stages, the flow, all four stage bindings
+(orders 10/20/30/40 with re-evaluate-on-run / not-on-plan), the three
+group-gate policy bindings on 20/30/40, and the default brand's recovery
+flow — adopting any that already exist. The shipped
+`default-password-change-prompt` / `-write` stages are referenced, not
+recreated. Validated by a from-empty-postgres reconstruction on a
+throwaway instance (#104). Only thing still DB-only: the per-user
+membership of `homelab-users` itself.
 
 ### akadmin recovery — last-resort paths
 

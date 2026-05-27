@@ -1,0 +1,19 @@
+version: 1
+metadata:
+  name: "homelab - groups"
+entries:
+  # Outline (and the general homelab SSO audience) is gated on this group.
+  - model: authentik_core.group
+    state: present
+    identifiers:
+      name: homelab-users
+    attrs:
+      is_superuser: false
+  # Coder is gated on its own group (homelab-coder-users) in prod — keep
+  # it separate so Coder access stays independently grantable.
+  - model: authentik_core.group
+    state: present
+    identifiers:
+      name: homelab-coder-users
+    attrs:
+      is_superuser: false
