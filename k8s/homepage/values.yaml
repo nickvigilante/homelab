@@ -73,6 +73,19 @@ env:
       secretKeyRef:
         name: homepage-secrets
         key: octoprint-api-key
+  # Grafana widget creds — a dedicated Viewer-role Grafana login (Homepage's
+  # grafana widget uses basic auth, not an API token). From homepage-secrets
+  # (Bitwarden 'Homelab Grafana' / homepage-user + homepage-password).
+  - name: HOMEPAGE_VAR_GRAFANA_USER
+    valueFrom:
+      secretKeyRef:
+        name: homepage-secrets
+        key: grafana-user
+  - name: HOMEPAGE_VAR_GRAFANA_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: homepage-secrets
+        key: grafana-password
 
 config:
   # Hand-curated initial list pointing at current *.home services.
@@ -117,6 +130,19 @@ config:
               type: octoprint
               url: http://192.168.50.118:5000
               key: "{{HOMEPAGE_VAR_OCTOPRINT_API_KEY}}"
+    - Observability:
+        - Grafana:
+            href: https://grafana.vigihome.net
+            description: Dashboards & metrics
+            icon: grafana.png
+            # Live widget — hits Grafana's in-cluster Service directly (not the
+            # Authentik-gated Ingress) using a dedicated Viewer login. Creds via
+            # HOMEPAGE_VAR_GRAFANA_USER/PASSWORD (homepage-secrets). See README.
+            widget:
+              type: grafana
+              url: http://kps-grafana.monitoring.svc.cluster.local
+              username: "{{HOMEPAGE_VAR_GRAFANA_USER}}"
+              password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
 
   widgets:
     - kubernetes:
@@ -154,6 +180,9 @@ config:
         style: row
         columns: 3
       3D Printing:
+        style: row
+        columns: 3
+      Observability:
         style: row
         columns: 3
       Infra & Cloud:

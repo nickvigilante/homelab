@@ -220,6 +220,11 @@ and on failure (via `trap ERR`). Push URLs live in Secret
   `AUTHENTIK_SECRET_KEY` is gone): users, group *memberships*, sessions,
   and event history. The postgres PVC is still in the nightly restic
   backup. See `k8s/authentik/README.md` and `blueprints/README.md`.
+- **Prometheus TSDB and Alertmanager data** (#76). Both live on disposable
+  `local-path` and are deliberately excluded — large, churny, and
+  reconstructable (metrics re-scrape; silences are transient). Only Grafana's
+  `/opt/grafana` (dashboards and settings) is in restic, tag `grafana`. See
+  `k8s/kube-prometheus-stack/README.md`.
 
 ## SPOF discipline (Authentik is a SPOF)
 
