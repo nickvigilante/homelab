@@ -38,6 +38,19 @@
     # `k3s secrets-encrypt disable` + restart + re-encrypt.
     k3s_secrets_encryption: true
 
+    # Extra Subject Alternative Names baked into the kube-apiserver
+    # serving cert so kubectl/helm work from off-box (tailnet + LAN),
+    # not just from gandalf itself. k3s's default cert only covers the
+    # node hostname/IP + cluster internals — no tailnet entries — so
+    # remote kubectl otherwise fails TLS verification. Changing this
+    # list rewrites config.yaml, which triggers the k3s restart below;
+    # k3s re-issues the serving cert with the new SANs on startup.
+    # See homelab #132.
+    k3s_tls_san:
+      - gandalf.tail395fc0.ts.net # tailnet MagicDNS — primary kubeconfig target
+      - 100.92.2.25 # gandalf tailnet IP
+      - 192.168.50.135 # gandalf LAN IP (already a default SAN; kept explicit)
+
   tasks:
     - name: Install baseline packages
       ansible.builtin.apt:
@@ -177,6 +190,8 @@
           # See https://docs.k3s.io/installation/configuration for the full
           # set of options that can land in this file.
           secrets-encryption: {{ k3s_secrets_encryption | string | lower }}
+          tls-san:
+          {{ k3s_tls_san | to_nice_yaml | trim }}
       register: k3s_config
 
     - name: Restart k3s if config changed
