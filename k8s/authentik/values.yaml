@@ -114,6 +114,11 @@ global:
         secretKeyRef:
           name: authentik-oidc-secrets
           key: oidc-outline-client-secret
+    - name: AUTHENTIK_OIDC_GRAFANA_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: authentik-oidc-secrets
+          key: oidc-grafana-client-secret
 
 # Config-as-code (#104). Mounts the authentik-blueprints ConfigMap at
 # /blueprints/mounted/cm-authentik-blueprints/; the worker discovers +

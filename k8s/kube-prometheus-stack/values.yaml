@@ -1,0 +1,165 @@
+# kube-prometheus-stack v85.3.3 (appVersion v0.90.1). Metrics + alerting for
+# the homelab (#76). Installed into the existing `monitoring` namespace
+# (alongside Uptime Kuma). Heavy pods pin to gandalf; node-exporter is a
+# DaemonSet on every node. See README.md for the apply runbook.
+#
+# Secrets referenced here (created from Bitwarden at apply time, never in repo):
+#   grafana-secrets  — admin-user / admin-password / oidc-client-secret
+#   smtp-relay       — smtp-password (reflected from auth/smtp-relay)
+# Prerequisites (README): /opt/grafana on gandalf (uid 472), the grafana-data
+# PV/PVC (pv-pvc.yaml), the Authentik grafana OIDC blueprint, and smtp-relay
+# reflected into `monitoring` — must all exist before `helm install`.
+
+# --- Prometheus -----------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    # Pin to gandalf (amd64, RAM headroom). local-path is node-local, so the
+    # TSDB volume lands on gandalf with the pod.
+    nodeSelector:
+      kubernetes.io/hostname: gandalf
+    retention: 15d
+    retentionSize: "18GB" # headroom under the 20Gi PVC
+    # Discover ServiceMonitors/PodMonitors/Rules/Probes in any namespace, not
+    # just chart-labelled ones (so future per-app metrics get scraped).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+
+# --- Alertmanager: route firing alerts to email via the Forward Email relay
+alertmanager:
+  alertmanagerSpec:
+    nodeSelector:
+      kubernetes.io/hostname: gandalf
+    # Mount the reflected smtp-relay Secret at
+    # /etc/alertmanager/secrets/smtp-relay/{smtp-username,smtp-password}.
+    secrets:
+      - smtp-relay
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+  # Forward Email over STARTTLS on 587. (Alertmanager does NOT support implicit
+  # TLS / SMTPS on 465 — it only does STARTTLS, toggled by smtp_require_tls.
+  # The restic job uses 465 because it speaks smtps:// directly; Alertmanager
+  # can't, so it uses 587.) auth_username is the relay alias (noreply@, same as
+  # `from` — not a secret); the password is read from the mounted file so it
+  # never lands in the repo.
+  config:
+    global:
+      smtp_smarthost: "smtp.forwardemail.net:587"
+      smtp_from: noreply@vigihome.net
+      smtp_require_tls: true
+      smtp_hello: vigihome.net
+    route:
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: email
+      routes:
+        # Watchdog is the chart's always-firing heartbeat — if it stops
+        # arriving, the alerting pipeline itself is broken. Throttle to daily.
+        - matchers: ['alertname = "Watchdog"']
+          receiver: email
+          repeat_interval: 24h
+    receivers:
+      - name: email
+        email_configs:
+          - to: vigihome-admin@vigiemail.com
+            from: noreply@vigihome.net
+            smarthost: "smtp.forwardemail.net:587"
+            auth_username: noreply@vigihome.net
+            auth_password_file: /etc/alertmanager/secrets/smtp-relay/smtp-password
+            require_tls: true
+            send_resolved: true
+
+# --- Grafana: dashboards behind Authentik OIDC + a local-admin fallback ----
+grafana:
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  # Persist to the pre-created hostPath PV at /opt/grafana (gandalf) so restic
+  # backs up user-added dashboards. PV/PVC live in pv-pvc.yaml.
+  persistence:
+    enabled: true
+    type: pvc
+    existingClaim: grafana-data
+  # Local-admin fallback — reachable when Authentik is down (SPOF discipline).
+  admin:
+    existingSecret: grafana-secrets
+    userKey: admin-user
+    passwordKey: admin-password
+  # Inject the OIDC client secret as the env var grafana.ini interpolates.
+  envValueFrom:
+    GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+      secretKeyRef:
+        name: grafana-secrets
+        key: oidc-client-secret
+  grafana.ini:
+    server:
+      root_url: https://grafana.vigihome.net
+    auth.generic_oauth:
+      enabled: true
+      name: Authentik
+      client_id: grafana
+      scopes: "openid email profile"
+      auth_url: https://authentik.vigihome.net/application/o/authorize/
+      token_url: https://authentik.vigihome.net/application/o/token/
+      api_url: https://authentik.vigihome.net/application/o/userinfo/
+      # homelab-users members become Admin; everyone else Viewer.
+      role_attribute_path: "contains(groups[*], 'homelab-users') && 'Admin' || 'Viewer'"
+      # Keep the username/password login form so the local admin (and the
+      # Homepage Viewer account) still work alongside OIDC.
+      allow_assign_grafana_admin: true
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hosts:
+      - grafana.vigihome.net
+    tls:
+      - hosts: ["grafana.vigihome.net"]
+        secretName: vigihome-tls
+
+# --- kube-state-metrics (cluster object state) ----------------------------
+kube-state-metrics:
+  nodeSelector:
+    kubernetes.io/hostname: gandalf
+
+# --- node-exporter: DaemonSet on all nodes (gandalf amd64 + frodo/samwise
+# arm64). Broad toleration so it schedules on every node, including any with
+# taints. --------------------------------------------------------------------
+prometheus-node-exporter:
+  tolerations:
+    - operator: Exists

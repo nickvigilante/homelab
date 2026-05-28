@@ -11,6 +11,9 @@
 #   - /mnt/storage/syncthing                        (Syncthing config + Sync folders; the DCIM/Pixel-Downloads
 #                                                    folders are receiveonly from a phone and have no other replica
 #                                                    path, so this backup is the only off-host copy for those files)
+#   - /opt/grafana                                  (Grafana dashboards + settings; the Prometheus/Alertmanager
+#                                                    TSDB is deliberately NOT backed up — disposable local-path,
+#                                                    large + churny + reconstructable)
 #
 # The k3s state DB is deliberately NOT backed up. SQLite mode has no
 # online snapshot facility (etcd-snapshot save only works in etcd
@@ -185,6 +188,12 @@ spec:
                     --exclude='**/~syncthing~*.tmp' \
                     /backup/syncthing
                   echo
+                  echo "=== Grafana config ==="
+                  restic backup \
+                    --host gandalf \
+                    --tag grafana \
+                    /backup/grafana
+                  echo
                   echo "=== Snapshot summary ==="
                   restic snapshots --compact
                   push up OK
@@ -248,6 +257,9 @@ spec:
                 - name: syncthing-data
                   mountPath: /backup/syncthing
                   readOnly: true
+                - name: grafana
+                  mountPath: /backup/grafana
+                  readOnly: true
           volumes:
             - name: jellyfin-config
               hostPath:
@@ -288,4 +300,12 @@ spec:
                 # backup; the dir gets created empty and the snapshot
                 # for this tag will be empty until the deploy lands.
                 path: /mnt/storage/syncthing
+                type: DirectoryOrCreate
+            - name: grafana
+              hostPath:
+                # DirectoryOrCreate so the backup doesn't fail if this change
+                # lands before the Grafana PV pre-flight (mkdir /opt/grafana
+                # && chown 472:472) — the snapshot for this tag stays empty
+                # until Grafana is deployed.
+                path: /opt/grafana
                 type: DirectoryOrCreate
