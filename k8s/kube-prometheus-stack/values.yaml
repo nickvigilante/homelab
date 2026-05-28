@@ -159,7 +159,15 @@ kube-state-metrics:
 
 # --- node-exporter: DaemonSet on all nodes (gandalf amd64 + frodo/samwise
 # arm64). Broad toleration so it schedules on every node, including any with
-# taints. --------------------------------------------------------------------
+# taints. ---------------------------------------------------------------------
+# Port moved 9100 → 9101: k3s's bundled Traefik binds hostPort 9100 (its
+# `metrics` entrypoint) on whichever node it runs (gandalf), so the default
+# node-exporter hostPort 9100 collides there and the pod stays Pending. The
+# ServiceMonitor targets the port by name (http-metrics), so the number change
+# is transparent to scraping.
 prometheus-node-exporter:
+  service:
+    port: 9101
+    targetPort: 9101
   tolerations:
     - operator: Exists
