@@ -143,6 +143,22 @@ so forward-auth can't block the widget's API calls.
 The widget points at `http://192.168.50.118:5000` directly (Homepage pod →
 LAN), so it works regardless of the public Ingress.
 
+## External bookmarks
+
+The `config.bookmarks` block in `values.yaml` is a quick-launch dashboard for
+the external SaaS and cloud apps used regularly,
+grouped as **Infra & Cloud**, **Productivity**, and **Finance**.
+These are plain link tiles, not widgets:
+no Homepage widget exists for them, and the goal is fast access rather than
+live status.
+Self-hosted services stay in `config.services` (their live widgets are tracked
+in #91).
+
+Each bookmark group needs a matching `layout` entry in `settingsString` to be
+styled and ordered.
+Tiles use a `dashboard-icons` slug (`icon:`) where one exists,
+falling back to a two-letter `abbr:` otherwise.
+
 ## Pitfalls
 
 - **`HOMEPAGE_ALLOWED_HOSTS` is mandatory on Homepage v1.x.** Without
