@@ -59,6 +59,13 @@ alertmanager:
   alertmanagerSpec:
     nodeSelector:
       kubernetes.io/hostname: gandalf
+    # Alertmanager has no Ingress (open admin API — reached via
+    # `kubectl port-forward svc/...alertmanager 9093:9093`). Without this,
+    # externalUrl defaults to the in-cluster Service DNS, which leaks into
+    # notification links (emails) as a non-resolvable address. Point it at the
+    # port-forward address so the email "source" links are clickable in that
+    # workflow. A fully-reachable URL needs forward-auth exposure — see #117.
+    externalUrl: http://localhost:9093
     # Mount the reflected smtp-relay Secret at
     # /etc/alertmanager/secrets/smtp-relay/{smtp-username,smtp-password}.
     secrets:
