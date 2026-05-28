@@ -10,6 +10,20 @@
 # PV/PVC (pv-pvc.yaml), the Authentik grafana OIDC blueprint, and smtp-relay
 # reflected into `monitoring` — must all exist before `helm install`.
 
+# --- k3s control-plane components -------------------------------------------
+# k3s embeds kube-controller-manager / kube-scheduler / kube-proxy in the k3s
+# process with metrics bound to localhost (not scrapeable from a pod), and uses
+# a sqlite datastore (no etcd). Disabling these stops their ServiceMonitors and
+# the "<component>Down" alert rules from firing permanent false positives.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
 # --- Prometheus -----------------------------------------------------------
 prometheus:
   prometheusSpec:

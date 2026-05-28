@@ -183,6 +183,25 @@ populate with live data. A Watchdog email arrives at
   the chart's upgrade notes (CRD changes sometimes need a manual
   `kubectl apply` of the new CRDs first).
 
+## Troubleshooting
+
+- **"Prometheus only has 1 target" via `kubectl port-forward svc/...`.** Don't
+  trust that path — on this multi-port Service (9090 prometheus + 8080
+  reloader) `port-forward svc/...` can resolve to the wrong backend and return
+  a minimal/misleading config. Verify via the **pod**
+  (`kubectl -n monitoring port-forward pod/prometheus-kps-kube-prometheus-stack-prometheus-0 9099:9090`)
+  or **in-cluster DNS** (a throwaway `curlimages/curl` pod hitting
+  `http://kps-kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090`).
+  Grafana uses the in-cluster path, which works correctly.
+- **First-install config lag.** On a fresh install the kubelet secret mount can
+  lag, so Prometheus may briefly boot on a minimal config before the operator's
+  full config propagates and reloads. It self-heals; `kubectl rollout restart`
+  the Prometheus StatefulSet if it persists.
+- **`<component>Down` alerts for controller-manager / scheduler / proxy.** k3s
+  embeds these with metrics bound to localhost, so they're not scrapeable —
+  they're disabled in `values.yaml` (along with `kubeEtcd`, since k3s here uses
+  sqlite). Re-enable only if you expose those endpoints.
+
 ## What we don't back up
 
 Only Grafana's `/opt/grafana` is in restic (tag `grafana`, wired in
