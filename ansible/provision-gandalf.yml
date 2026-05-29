@@ -208,6 +208,14 @@
     # On first enablement, existing Secrets are still in cleartext —
     # forcing a no-op replace round-trips them through the apiserver
     # which writes them back encrypted under the new key. Safe to re-run.
+    #
+    # This fires on ANY config.yaml change (e.g. a tls-san edit), not just
+    # the initial encryption enablement. When the change restarts k3s,
+    # k3s regenerates the apiserver serving cert and rewrites the
+    # `k3s-serving` Secret at the same moment this round-trip runs — racing
+    # the `replace` and yielding a transient "Operation cannot be fulfilled
+    # ... please apply your changes to the latest version" Conflict. Retry
+    # until the apiserver settles (the cert is written once, then stable).
     - name: Re-write all Secrets so they're encrypted at rest
       ansible.builtin.shell: |
         set -euo pipefail
@@ -215,6 +223,9 @@
       when: k3s_config.changed and k3s_secrets_encryption
       register: secret_reencrypt
       changed_when: "'replaced' in secret_reencrypt.stdout"
+      until: secret_reencrypt.rc == 0
+      retries: 6
+      delay: 5
 
     - name: Show secrets-encrypt status
       ansible.builtin.command: k3s secrets-encrypt status
