@@ -27,6 +27,13 @@ Chart: `prometheus-community/kube-prometheus-stack` v`85.3.3`
   `../authentik/blueprints/applications/grafana.yaml`) plus a local-admin
   fallback, so Grafana stays reachable to diagnose outages when Authentik
   itself is down.
+- **Flux observability:** `kube-state-metrics` runs the upstream Flux
+  CRS (Custom Resource State) config so HelmRelease / Kustomization /
+  GitRepository status conditions surface as `gotk_resource_info{ready=...}`.
+  Without this the Flux dashboards in `../flux-monitoring/dashboards/` and
+  the `FluxReconciliationFailure` alert have nothing to evaluate against
+  (the controller PodMonitor only emits runtime metrics, not Ready state).
+  See the inline comment in `values.yaml` for the trimmed vs upstream diff.
 
 ## Prereqs
 
