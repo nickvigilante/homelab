@@ -1,0 +1,18 @@
+# Single kustomization for the "infrastructure" Flux Kustomization. Pulls
+# in the chart repo HelmRepository (per-app relative reference until enough
+# services share repos to justify a cluster-level sources Kustomization)
+# and the internal-CA issuer chain from cert-manager (the issuer logically
+# belongs to in-cluster TLS infra, but cert-manager isn't yet Flux-owned;
+# referencing it here keeps the dependency graph in one place).
+#
+# Notably NOT setting a top-level `namespace:` field -- the internal-CA
+# Certificate is namespaced into cert-manager, and a top-level namespace
+# would override that. Each resource declares its namespace explicitly.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../sources/external-secrets.yaml
+  - ../cert-manager/internal-issuer.yaml
+  - sdk-server-cert.yaml
+  - helmrelease.yaml
+  # - clustersecretstore.yaml  # added in Task 7 of the #135 plan
