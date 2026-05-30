@@ -148,10 +148,15 @@ so forward-auth can't block the widget's API calls.
 1. Generate an OctoPrint API key (Settings → Application Keys), store it
    in Bitwarden vault item `Homelab OctoPrint` field `API key`, AND
    add it to BWS as secret `octoprint-api-key` in the `homelab` project.
-   A one-shot migration script `/tmp/bws-migrate-homepage.sh` (kept
-   locally; not committed -- it pulls vault values into BWS via the
-   read/write-bumped `flux-eso` token) can do all three current keys
-   in one pass; see #135 Task 8 history for the exact script.
+   The reusable `scripts/bws-migrate.sh` (#160) does both BW → BWS hops
+   in one shot via the dedicated `homelab-bootstrap` machine account
+   (Read/Write, kept separate from runtime `flux-eso` which stays
+   Read-only). Pipe tuples on stdin:
+   ```sh
+   ./scripts/bws-migrate.sh <<'EOF'
+   octoprint-api-key|Homelab OctoPrint|API key
+   EOF
+   ```
 2. Wait for ESO to reconcile the ExternalSecret (a few seconds), or
    force it with `flux reconcile externalsecret -n homepage homepage-secrets`.
 3. If the widget config in `values.yaml` changed too, `helm upgrade`
