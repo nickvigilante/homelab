@@ -8,13 +8,19 @@ spec:
     - name: flux
       rules:
         - alert: FluxReconciliationFailure
+          # `gotk_resource_info` comes from the kube-state-metrics CRS config in
+          # `k8s/kube-prometheus-stack/values.yaml`. It carries one info series
+          # per Flux object with a `ready` label of "True" / "False" / "Unknown"
+          # sourced from `.status.conditions[type=Ready].status`. Filter on
+          # `ready="False"` for hard failures only — "Unknown" is the transient
+          # state right after a spec change and is too noisy for a 15m window.
           expr: |
-            max by (namespace, name, kind) (
-              gotk_reconcile_condition{type="Ready",status="False"}
+            max by (exported_namespace, name, customresource_kind) (
+              gotk_resource_info{ready="False"}
             ) == 1
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "Flux resource {{ $labels.kind }}/{{ $labels.name }} not ready"
-            description: "{{ $labels.kind }}/{{ $labels.name }} in {{ $labels.namespace }} has been failing to reconcile for >15m."
+            summary: "Flux resource {{ $labels.customresource_kind }}/{{ $labels.name }} not ready"
+            description: "{{ $labels.customresource_kind }}/{{ $labels.name }} in {{ $labels.exported_namespace }} has been failing to reconcile for >15m."
