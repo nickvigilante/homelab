@@ -158,11 +158,17 @@ Secret rotates without an Ingress restart.
     | kubectl create secret generic cloudflare-api-token \
         -n cert-manager --from-file=api-token=/dev/stdin \
         --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n cert-manager annotate secret cloudflare-api-token \
+    kubectl.kubernetes.io/last-applied-configuration-
   bw lock
   unset BW_SESSION
   ```
 
   cert-manager re-reads the Secret on next reconcile; no restart needed.
+  The `annotate ... -` step strips the `last-applied-configuration`
+  annotation that `kubectl apply` writes -- otherwise the base64-encoded
+  token persists in the annotation and is surfaced by `kubectl describe`.
+  See CLAUDE.md "Secrets discipline" for the rule.
 
 - **Upgrade cert-manager:** bump the version pin above, then
   `helm upgrade cert-manager jetstack/cert-manager -n cert-manager --version vX.Y.Z -f values.yaml`. Cert renewals happen on their own

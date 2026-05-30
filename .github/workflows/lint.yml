@@ -60,6 +60,13 @@ jobs:
               -o -name 'middleware-*.yaml' \
               -o -name 'netpol-*.yaml' \
               -o -name redis.yaml \
+              -o -name helmrelease.yaml \
+              -o -name external-secret.yaml \
+              -o -name clustersecretstore.yaml \
+              -o -name prometheusrule.yaml \
+              -o -name podmonitor.yaml \
+              -o -name '*-cert.yaml' \
+              -o -name '*-issuer.yaml' \
             \) -print0 \
             | xargs -0 kubeconform \
                 -summary \
