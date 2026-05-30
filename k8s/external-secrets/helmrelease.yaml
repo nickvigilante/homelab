@@ -1,0 +1,45 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  releaseName: external-secrets
+  targetNamespace: external-secrets
+  interval: 30m
+  chart:
+    spec:
+      chart: external-secrets
+      version: "2.5.0"
+      sourceRef:
+        kind: HelmRepository
+        name: external-secrets
+        namespace: flux-system
+  values:
+    # Pin every ESO pod group to gandalf (amd64, RAM headroom). The Pi
+    # workers stay light per the homelab scheduling rule.
+    nodeSelector:
+      kubernetes.io/hostname: gandalf
+    webhook:
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+    certController:
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+    # The Bitwarden SDK server sub-chart is what speaks to BWS over HTTPS;
+    # ESO's bitwardensecretsmanager provider proxies through it. Without
+    # this sub-chart enabled, BWS support is unavailable.
+    bitwarden-sdk-server:
+      enabled: true
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      # The subchart mounts the named Secret at /certs, expecting keys
+      # tls.crt / tls.key / ca.crt -- which is exactly what a cert-manager
+      # Certificate issued from a CA ClusterIssuer produces. The Secret
+      # itself is created by sdk-server-cert.yaml in this directory.
+      # (Override path is `image.tls.secretName`, not `tls.existingSecret`
+      # -- chart-specific, see the subchart values for confirmation.)
+      image:
+        tls:
+          enabled: true
+          secretName: bitwarden-sdk-server-tls

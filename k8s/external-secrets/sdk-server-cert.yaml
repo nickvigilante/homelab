@@ -1,0 +1,17 @@
+# In-cluster TLS cert for bitwarden-sdk-server, issued by the homelab
+# internal CA (k8s/cert-manager/internal-issuer.yaml). ESO talks to the
+# sdk-server over the cluster-internal Service DNS, so the SANs cover
+# both the FQDN and the short form.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bitwarden-sdk-server-tls
+  namespace: external-secrets
+spec:
+  secretName: bitwarden-sdk-server-tls
+  dnsNames:
+    - bitwarden-sdk-server.external-secrets.svc.cluster.local
+    - bitwarden-sdk-server.external-secrets.svc
+  issuerRef:
+    name: internal-ca
+    kind: ClusterIssuer
