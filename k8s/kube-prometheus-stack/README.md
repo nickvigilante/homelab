@@ -129,22 +129,26 @@ prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
    minutes. If the exact Service/StatefulSet names differ by release, confirm
    with `kubectl -n monitoring get svc,sts` and adjust the targets below.
 
-7. **Add the Homepage widget creds.** Create a dedicated **Viewer**-role
-   Grafana login (Grafana UI → Administration → Users → add `homepage`), store
-   it in Bitwarden `Homelab Grafana` (`homepage-user` / `homepage-password`),
-   then re-create `homepage-secrets` with all keys (so nothing is dropped):
+7. **Add the Homepage Grafana widget creds.** Create a dedicated
+   **Viewer**-role Grafana login (Grafana UI → Administration → Users →
+   add `homepage`), store it in Bitwarden vault item `Homelab Grafana`
+   under custom fields `homepage-user` and `homepage-password`, then
+   put the same two values in BWS (Secrets Manager → `homelab` project,
+   secret names `grafana-user` and `grafana-password`). ESO + the
+   Homepage Flux Kustomization handle the in-cluster `homepage-secrets`
+   Secret from there -- no `kubectl create secret` step. See
+   `../homepage/README.md` for the BWS migration script.
+
+   Then `helm upgrade` so the new Grafana widget config in
+   `k8s/homepage/values.yaml` loads:
 
    ```sh
-   export BW_SESSION="$(bw unlock --raw)"; bw sync
-   ITEM_G=$(bw get item 'Homelab Grafana')
-   kubectl -n homepage create secret generic homepage-secrets \
-     --from-literal=octoprint-api-key="$(bw get item 'Homelab OctoPrint' | jq -r '.fields[]|select(.name=="API key")|.value')" \
-     --from-literal=grafana-user="$(echo "$ITEM_G" | jq -r '.fields[]|select(.name=="homepage-user")|.value')" \
-     --from-literal=grafana-password="$(echo "$ITEM_G" | jq -r '.fields[]|select(.name=="homepage-password")|.value')" \
-     --dry-run=client -o yaml | kubectl apply -f -
-   unset BW_SESSION ITEM_G
    helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0 -f k8s/homepage/values.yaml
    ```
+
+   Issue #155 tracks switching this Grafana login to a service-account +
+   bearer-token model; once that lands, `grafana-user`/`grafana-password`
+   in BWS get replaced with a single `grafana-token` entry.
 
 ## Verify
 

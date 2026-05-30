@@ -1,0 +1,22 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: homepage
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./k8s/homepage
+  # prune: false -- the homepage chart is still helm-managed; future
+  # takeover (similar to uptime-kuma in #135 Task 2) can flip this on
+  # once everything in k8s/homepage/ is Flux-owned.
+  prune: false
+  wait: true
+  timeout: 3m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # Block reconcile until ESO + ClusterSecretStore are Ready -- otherwise
+  # the ExternalSecret would land before its store, fail validation, and
+  # the Flux Kustomization would never converge cleanly on a cold-boot.
+  dependsOn:
+    - name: infrastructure

@@ -1,0 +1,8 @@
+# Initially only the ExternalSecret is Flux-owned -- namespace.yaml stays
+# manually-applied (one-shot, never changes) and the homepage chart itself
+# is still helm-managed (chart takeover is future work, similar to how
+# uptime-kuma was adopted in #135 Task 2).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - external-secret.yaml
