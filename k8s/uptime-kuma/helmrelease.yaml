@@ -30,7 +30,7 @@ spec:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 144Mi
     podEnv:
       - name: TZ
         value: America/New_York
