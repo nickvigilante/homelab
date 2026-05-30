@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: flux-reconciliation
+  namespace: monitoring
+spec:
+  groups:
+    - name: flux
+      rules:
+        - alert: FluxReconciliationFailure
+          expr: |
+            max by (namespace, name, kind) (
+              gotk_reconcile_condition{type="Ready",status="False"}
+            ) == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flux resource {{ $labels.kind }}/{{ $labels.name }} not ready"
+            description: "{{ $labels.kind }}/{{ $labels.name }} in {{ $labels.namespace }} has been failing to reconcile for >15m."
