@@ -124,18 +124,38 @@ so forward-auth can't block the widget's API calls.
 
 `secret.example.yaml` documents the keys in `homepage-secrets`.
 
+### Secrets pipeline
+
+`homepage-secrets` is managed end-to-end by ESO + BWS as of #135 Task 8:
+
+- Values live in BWS (Bitwarden Secrets Manager) → `homelab` project →
+  one entry per `homepage-secrets` key (`octoprint-api-key`,
+  `grafana-user`, `grafana-password`).
+- `external-secret.yaml` (Flux-owned via `clusters/gandalf/homepage.yaml`)
+  declares the keys + their BWS secret-IDs; ESO syncs the in-cluster
+  `homepage-secrets` Secret from BWS every `refreshInterval`.
+- The Bitwarden password vault item (`Homelab OctoPrint`,
+  `Homelab Grafana`) stays populated as a DR mirror -- same pattern as
+  `Homelab Restic Repository`.
+- No `kubectl create secret` step. Adding a new widget secret means:
+  (a) put the value in BWS in the `homelab` project, then
+  (b) add a `data:` entry to `external-secret.yaml` referencing the new
+  secret-ID, and either `flux reconcile externalsecret -n homepage homepage-secrets`
+  or wait for the next refresh.
+
 **OctoPrint widget** (`octoprint.vigihome.net`):
 
-1. Generate an OctoPrint API key (Settings → Application Keys) and store it in
-   Bitwarden item `Homelab OctoPrint`, field `API key`.
-2. Create the Secret in the `homepage` namespace:
-   ```sh
-   export BW_SESSION="$(bw unlock --raw)"; bw sync
-   kubectl -n homepage create secret generic homepage-secrets \
-     --from-literal=octoprint-api-key="$(bw get item 'Homelab OctoPrint' | jq -r '.fields[]|select(.name=="API key")|.value')"
-   unset BW_SESSION
-   ```
-3. `helm upgrade` so the new `env` + widget load (pin the version):
+1. Generate an OctoPrint API key (Settings → Application Keys), store it
+   in Bitwarden vault item `Homelab OctoPrint` field `API key`, AND
+   add it to BWS as secret `octoprint-api-key` in the `homelab` project.
+   A one-shot migration script `/tmp/bws-migrate-homepage.sh` (kept
+   locally; not committed -- it pulls vault values into BWS via the
+   read/write-bumped `flux-eso` token) can do all three current keys
+   in one pass; see #135 Task 8 history for the exact script.
+2. Wait for ESO to reconcile the ExternalSecret (a few seconds), or
+   force it with `flux reconcile externalsecret -n homepage homepage-secrets`.
+3. If the widget config in `values.yaml` changed too, `helm upgrade`
+   (pin the version) so the new `env` block + widget block load:
    ```sh
    helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0 -f values.yaml
    ```
