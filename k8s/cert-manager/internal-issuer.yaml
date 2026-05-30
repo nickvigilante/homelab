@@ -1,0 +1,41 @@
+# Internal CA for in-cluster service-to-service TLS (#135 Task 5).
+#
+# Three-step bootstrap (standard cert-manager pattern):
+#   selfsigned ClusterIssuer  ->  signs the CA cert (one-off)
+#   Certificate internal-ca   ->  the CA cert (stored in Secret cert-manager/internal-ca)
+#   internal-ca ClusterIssuer ->  issues end-entity certs to in-cluster clients
+#
+# This is for *in-cluster* TLS only (e.g. ESO -> bitwarden-sdk-server in Task 6).
+# Browser-facing certs (*.vigihome.net) keep using letsencrypt-prod via the
+# existing wildcard Certificate -- this issuer is intentionally separate so
+# laptops never need to trust the homelab CA.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: internal-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: vigihome-internal-ca
+  secretName: internal-ca
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: internal-ca
+spec:
+  ca:
+    secretName: internal-ca
