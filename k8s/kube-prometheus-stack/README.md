@@ -106,6 +106,8 @@ prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
      --from-literal=oidc-outline-client-secret="$(echo "$ITEM_O" | jq -r '.fields[]|select(.name=="oidc-client-secret")|.value')" \
      --from-literal=oidc-grafana-client-secret="$(echo "$ITEM_G" | jq -r '.fields[]|select(.name=="oidc-client-secret")|.value')" \
      --dry-run=client -o yaml | kubectl apply -f -
+   kubectl -n auth annotate secret authentik-oidc-secrets \
+     kubectl.kubernetes.io/last-applied-configuration-
    unset BW_SESSION ITEM_C ITEM_O ITEM_G
    kubectl -n auth create configmap authentik-blueprints \
      $(find k8s/authentik/blueprints -name '*.yaml' -printf '--from-file=%f=%p ') \
