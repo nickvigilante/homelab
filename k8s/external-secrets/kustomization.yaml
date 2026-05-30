@@ -15,4 +15,4 @@ resources:
   - ../cert-manager/internal-issuer.yaml
   - sdk-server-cert.yaml
   - helmrelease.yaml
-  # - clustersecretstore.yaml  # added in Task 7 of the #135 plan
+  - clustersecretstore.yaml
