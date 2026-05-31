@@ -56,12 +56,21 @@ USAGE
   exit 2
 fi
 
-if ! BW_SESSION_VAL="$(bw unlock --raw)"; then
-  echo "FATAL: bw unlock failed (bad password or vault locked)" >&2
-  exit 1
+if [ -n "${BW_SESSION:-}" ] && bw status 2>/dev/null | jq -e '.status == "unlocked"' >/dev/null; then
+  : # Reuse the caller's already-unlocked session. This avoids a stdin
+  # conflict when tuples are piped in via heredoc: `bw unlock` would
+  # otherwise read the heredoc as the master password and fail. To
+  # use, the caller exports BW_SESSION before invoking the script.
+else
+  # Read the master password from the TTY directly, not the script's
+  # stdin (which may be a heredoc of tuples).
+  if ! BW_SESSION_VAL="$(bw unlock --raw </dev/tty)"; then
+    echo "FATAL: bw unlock failed (bad password or vault locked)" >&2
+    exit 1
+  fi
+  export BW_SESSION="$BW_SESSION_VAL"
+  unset BW_SESSION_VAL
 fi
-export BW_SESSION="$BW_SESSION_VAL"
-unset BW_SESSION_VAL
 
 bw sync >/dev/null
 
