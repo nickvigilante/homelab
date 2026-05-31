@@ -98,14 +98,14 @@ Source of truth: Bitwarden item `Homelab Authentik`, field `secret-key`.
      --from-literal=bootstrap-password="$(bw get item 'Homelab Authentik' | jq -r '.fields[] | select(.name=="bootstrap-password") | .value')" \
      --from-literal=bootstrap-token="$(bw get item 'Homelab Authentik' | jq -r '.fields[] | select(.name=="bootstrap-token") | .value')"
 
-   # OIDC client secrets for the blueprinted apps (#104). Same secret
-   # each downstream service already holds. Needed BEFORE install — the
-   # chart's global.env references this Secret (pod won't start without it).
-   kubectl -n auth create secret generic authentik-oidc-secrets \
-     --from-literal=oidc-coder-client-secret="$(bw get item 'Homelab Coder' | jq -r '.fields[] | select(.name=="oidc-client-secret") | .value')" \
-     --from-literal=oidc-outline-client-secret="$(bw get item 'Homelab Outline' | jq -r '.fields[] | select(.name=="oidc-client-secret") | .value')"
    unset BW_SESSION
    ```
+
+   The `authentik-oidc-secrets` Secret (OIDC client secrets for the
+   blueprinted apps -- coder / outline / grafana) is **managed by
+   ESO** via `external-secret.yaml` (#161); no manual recipe needed
+   from a fresh install onward, as long as the BWS bootstrap (#135
+   Tasks 4-7) has been completed.
 
    Then render the blueprints ConfigMap (mounted via `blueprints.configMaps`
    in `values.yaml`; must exist before install — see `blueprints/README.md`):
@@ -183,16 +183,18 @@ Authentik sends mail for password recovery, breach alerts, and event notificatio
    - `smtp-password` → the password from the Forward Email dashboard
    - `from-address` → typically the same as `smtp-username`
 
-3. **Create the k8s Secret** sourced from Bitwarden:
+3. **The `smtp-relay` Secret is managed by ESO** via
+   `external-secret.yaml` (#161). On a fresh cluster, ensure the
+   BWS bootstrap (#135 Tasks 4-7) has populated `bws-access-token`
+   and the `smtp-username` / `smtp-password` secrets exist in the
+   `homelab` BWS project; ESO will sync the in-cluster Secret
+   automatically when Flux reconciles `clusters/gandalf/auth.yaml`.
 
-   ```bash
-   # On laptop (with bw CLI):
-   export BW_SESSION="$(bw unlock --raw)"
-   kubectl -n auth create secret generic smtp-relay \
-     --from-literal=smtp-username="$(bw get item 'Homelab Mail Relay' | jq -r '.fields[] | select(.name=="smtp-username") | .value')" \
-     --from-literal=smtp-password="$(bw get item 'Homelab Mail Relay' | jq -r '.fields[] | select(.name=="smtp-password") | .value')"
-   unset BW_SESSION
-   ```
+   The ExternalSecret preserves the reflector annotations
+   (`reflection-auto-namespaces: backup,monitoring`) via
+   `target.template`, so mirroring into the `backup` (restic email
+   heartbeat) and `monitoring` (alertmanager email) namespaces keeps
+   working through the takeover.
 
 4. **Apply via helm upgrade.** The chart's existing values block already references this Secret via env vars; no manifest change is needed once the Secret exists. (Pin `--version`, per the "Helm upgrade" section above.)
 

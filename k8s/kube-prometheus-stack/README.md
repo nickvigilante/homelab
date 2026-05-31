@@ -93,22 +93,19 @@ prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
    kubectl -n monitoring get secret smtp-relay   # appears within seconds
    ```
 
-5. **Land the Authentik Grafana OIDC blueprint.** Re-create
-   `authentik-oidc-secrets` with the new grafana key, re-render the blueprints
-   ConfigMap, upgrade Authentik (pinned to the installed chart version), and
-   trigger discovery (boot can race the ConfigMap mount):
+5. **Land the Authentik Grafana OIDC blueprint.** `authentik-oidc-secrets`
+   is now managed by ESO (#161) via `k8s/authentik/external-secret.yaml`,
+   so adding Grafana to the OIDC clients means: (a) populate
+   `grafana-oidc-client-secret` in BWS (already done as part of #161;
+   `./scripts/bws-migrate.sh` handles the case), and (b) reference its
+   UUID from the `authentik-oidc-secrets` ExternalSecret's `data:` block.
+   ESO syncs the in-cluster Secret on the next reconcile.
+
+   Re-render the blueprints ConfigMap, upgrade Authentik (pinned to the
+   installed chart version), and trigger discovery (boot can race the
+   ConfigMap mount):
 
    ```sh
-   export BW_SESSION="$(bw unlock --raw)"; bw sync
-   ITEM_C=$(bw get item 'Homelab Coder'); ITEM_O=$(bw get item 'Homelab Outline'); ITEM_G=$(bw get item 'Homelab Grafana')
-   kubectl -n auth create secret generic authentik-oidc-secrets \
-     --from-literal=oidc-coder-client-secret="$(echo "$ITEM_C" | jq -r '.fields[]|select(.name=="oidc-client-secret")|.value')" \
-     --from-literal=oidc-outline-client-secret="$(echo "$ITEM_O" | jq -r '.fields[]|select(.name=="oidc-client-secret")|.value')" \
-     --from-literal=oidc-grafana-client-secret="$(echo "$ITEM_G" | jq -r '.fields[]|select(.name=="oidc-client-secret")|.value')" \
-     --dry-run=client -o yaml | kubectl apply -f -
-   kubectl -n auth annotate secret authentik-oidc-secrets \
-     kubectl.kubernetes.io/last-applied-configuration-
-   unset BW_SESSION ITEM_C ITEM_O ITEM_G
    kubectl -n auth create configmap authentik-blueprints \
      $(find k8s/authentik/blueprints -name '*.yaml' -printf '--from-file=%f=%p ') \
      --dry-run=client -o yaml | kubectl apply -f -
