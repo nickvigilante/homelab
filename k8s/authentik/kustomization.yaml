@@ -1,0 +1,8 @@
+# Only the ExternalSecrets are Flux-owned for now -- the authentik chart,
+# its blueprints ConfigMap, the namespace, netpol, PVCs, etc. stay
+# manually-managed (chart takeover is future work, similar to how
+# uptime-kuma was adopted in #147).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - external-secret.yaml
