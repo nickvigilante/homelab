@@ -59,12 +59,25 @@ Run from the repo root with kubectl context = homelab. The stack's
 prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
 `helm install`, because the Grafana and Alertmanager pods mount them on boot.
 
-1. **Pre-create the Grafana host dir** (gandalf; Grafana runs as uid 472):
+1. **Provision the Grafana host dir.** Handled idempotently by
+   `ansible/provision-gandalf.yml` (task `Ensure Grafana hostPath dir exists with Grafana-uid ownership` plus the systemd-tmpfiles drop-in that
+   re-creates it at every boot if missing). On a fresh gandalf, run the
+   playbook before `helm install`:
 
    ```sh
-   # gandalf
-   sudo mkdir -p /opt/grafana && sudo chown 472:472 /opt/grafana
+   # laptop
+   ansible-playbook -i ansible/inventory.yml ansible/provision-gandalf.yml
    ```
+
+   The chart's `init-chown-data` initContainer is **intentionally disabled**
+   in `values.yaml` because it CrashLoopBackOffs on every pod restart after
+   Grafana creates its 0700-mode report-export subdirs (the initContainer
+   drops `DAC_OVERRIDE`,
+   so root can't traverse them).
+   The Ansible task plus tmpfiles drop-in fully replace its role -- do not re-enable.
+
+   Emergency one-liner if Ansible isn't reachable:
+   `sudo mkdir -p /opt/grafana && sudo chown 472:472 /opt/grafana && sudo chmod 0755 /opt/grafana`.
 
 2. **Create the `grafana-secrets` Secret** from Bitwarden (laptop):
 
