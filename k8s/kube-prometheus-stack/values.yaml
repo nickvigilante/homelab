@@ -135,6 +135,22 @@ grafana:
     enabled: true
     type: pvc
     existingClaim: grafana-data
+  # DO NOT RE-ENABLE. The chart's init-chown-data initContainer runs
+  # `chown -R 472:472 /var/lib/grafana` with capabilities=[CHOWN] (no
+  # DAC_OVERRIDE). On first install that works -- the tree is empty and
+  # root-owned. On every subsequent restart it fails with EACCES because
+  # root-without-DAC_OVERRIDE can't traverse into the 0700-mode pdf/csv/png
+  # report-export subdirs Grafana itself created on prior boots, owned by uid
+  # 472. The pod CrashLoopBackOffs forever (2026-06-03, after a kernel
+  # unattended-upgrade reboot).
+  #
+  # We don't need this initContainer: /opt/grafana is provisioned with the
+  # right owner/mode by `ansible/provision-gandalf.yml` (idempotent on every
+  # play run) plus a `/etc/tmpfiles.d/grafana.conf` systemd-tmpfiles entry
+  # that re-creates the dir at boot if missing. Step 1 of this dir's README
+  # documents the runbook.
+  initChownData:
+    enabled: false
   # Local-admin fallback — reachable when Authentik is down (SPOF discipline).
   admin:
     existingSecret: grafana-secrets

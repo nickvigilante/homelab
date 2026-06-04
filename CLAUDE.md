@@ -407,14 +407,24 @@ sequence to get back to a working cluster:
    playbook normally SSHes to gandalf, and self-SSH-without-key
    fails on a fresh host.
 
+   The playbook provisions the host-side dirs the cluster depends on,
+   including `/opt/grafana` owned `472:472` mode `0755` (Grafana's PV
+   is `type: Directory` so kubelet refuses to start the pod if it's
+   missing). It also installs a `/etc/tmpfiles.d/` drop-in that
+   re-creates `/opt/grafana` at every boot, so a disk swap or
+   accidental `rm` self-heals on the next reboot.
+
 2. **Install k3s.** The install command lives in shell history rather
    than IaC -- a documented accepted trade-off. Add the `tls-san`
    overrides from `provision-gandalf.yml`'s templated k3s `config.yaml`
    block so remote kubectl works over the tailnet from the start.
 
-3. **Recreate the persistent host directories** under `/opt/<service>/`
-   that the chart needs but doesn't auto-provision (the restic restore
-   sequence covers data restore; see #139).
+3. **Recreate any remaining persistent host directories** under
+   `/opt/<service>/` that the playbook doesn't yet own (most
+   `DirectoryOrCreate`-typed PVs let kubelet auto-create them on first
+   apply). Order matters when an ESO-managed Secret depends on a path
+   restic later restores into -- run the playbook first, then bring
+   Flux up, then restic-restore. See #139 for the restore sequence.
 
 4. **Bootstrap Flux** against this repo. From the laptop:
 

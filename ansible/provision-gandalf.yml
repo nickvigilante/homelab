@@ -163,6 +163,41 @@
         group: root
         mode: "0644"
 
+    # ---- Grafana hostPath dir ------------------------------------------
+    #
+    # Grafana's PV (k8s/kube-prometheus-stack/pv-pvc.yaml) is `type: Directory`,
+    # so kubelet refuses to start the Grafana pod if /opt/grafana doesn't
+    # exist. The chart's init-chown-data initContainer is intentionally
+    # disabled in values.yaml (`grafana.initChownData.enabled: false`)
+    # because it CrashLoopBackOffs on every pod restart after Grafana
+    # creates 0700-mode report-export subdirs that root-without-DAC_OVERRIDE
+    # can't traverse. This Ansible task plus the systemd-tmpfiles drop-in
+    # below make that initContainer redundant: the dir is provisioned with
+    # the right owner/mode here on every play run, and re-created at boot
+    # by systemd-tmpfiles if it ever goes missing (disk swap, fsck, errant
+    # rm). uid 472 is the Grafana process user inside the container.
+    - name: Ensure Grafana hostPath dir exists with Grafana-uid ownership
+      ansible.builtin.file:
+        path: /opt/grafana
+        state: directory
+        owner: "472"
+        group: "472"
+        mode: "0755"
+
+    - name: Install systemd-tmpfiles drop-in for /opt/grafana
+      ansible.builtin.copy:
+        src: ../system/grafana-hostpath.tmpfiles.conf
+        dest: /etc/tmpfiles.d/grafana-hostpath.conf
+        owner: root
+        group: root
+        mode: "0644"
+      register: grafana_tmpfiles
+
+    - name: Apply systemd-tmpfiles when the drop-in changes
+      ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/grafana-hostpath.conf
+      when: grafana_tmpfiles.changed
+      changed_when: false
+
     # ---- k3s secrets encryption at rest ---------------------------------
     #
     # k3s stores Secrets in its embedded SQLite. By default they sit in
