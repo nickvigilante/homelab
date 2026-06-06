@@ -1,0 +1,6 @@
+# Only the ExternalSecret is Flux-owned for now -- the kps chart,
+# PV/PVC, etc. stay manually-managed (chart takeover is future work).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - external-secret.yaml
