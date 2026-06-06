@@ -55,37 +55,54 @@ Access Key as fields `s3-access-key` / `s3-secret-key` on Bitwarden item
   User Bindings) — matches Coder/HA (audit finding 4d). Non-members get
   no access.
 
-### 3. Generate secrets + create the `outline-secrets` Secret
+### 3. Generate secrets + populate BWS
 
-On the laptop (kube-context = homelab):
+`outline-secrets` is managed by ESO (#161) via `external-secret.yaml`.
+On a fresh cluster, generate the four random values and stage them in
+the Bitwarden Password Manager (`Homelab Outline` item), then migrate
+to BWS:
 
 ```bash
-SECRET_KEY="$(openssl rand -hex 32)"
-UTILS_SECRET="$(openssl rand -hex 32)"
-PG_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=')"
-PG_SUPER_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=')"
-# Record all four in Bitwarden item 'Homelab Outline' as fields
-# secret-key / utils-secret / postgres-password / postgres-superuser-password.
+# laptop
+openssl rand -hex 32                  # -> Bitwarden field `secret-key`
+openssl rand -hex 32                  # -> Bitwarden field `utils-secret`
+openssl rand -base64 24 | tr -d '/+=' # -> Bitwarden field `postgres-password`
+openssl rand -base64 24 | tr -d '/+=' # -> Bitwarden field `postgres-superuser-password`
+```
 
-BW_SESSION="$(bw unlock --raw)"; export BW_SESSION
-get() { bw get item 'Homelab Outline' | jq -r ".fields[] | select(.name==\"$1\") | .value"; }
-S3_KEY="$(get s3-access-key)";   S3_SECRET="$(get s3-secret-key)"
-OIDC_ID="$(get oidc-client-id)"; OIDC_SECRET="$(get oidc-client-secret)"
-DB_URL="postgres://outline:${PG_PASSWORD}@postgres-postgresql.outline.svc.cluster.local:5432/outline"
+The other four (`s3-access-key` / `s3-secret-key` from step 1,
+`oidc-client-id` / `oidc-client-secret` from step 2) are already on the
+`Homelab Outline` item. Migrate all eight to BWS:
 
+```bash
+# laptop
+./scripts/bws-migrate.sh <<'EOF'
+outline-secret-key|Homelab Outline|secret-key
+outline-utils-secret|Homelab Outline|utils-secret
+outline-postgres-password|Homelab Outline|postgres-password
+outline-postgres-superuser-password|Homelab Outline|postgres-superuser-password
+outline-s3-access-key|Homelab Outline|s3-access-key
+outline-s3-secret-key|Homelab Outline|s3-secret-key
+outline-oidc-client-id|Homelab Outline|oidc-client-id
+outline-oidc-client-secret|Homelab Outline|oidc-client-secret
+EOF
+```
+
+`database-url` is **not** stored in BWS -- the ExternalSecret synthesizes
+it via `target.template` from `postgres-password` + the in-cluster
+postgres hostname. A postgres-password rotation only requires updating
+one BWS entry; ESO regenerates the database-url on the next refresh.
+
+`outline-oidc-client-secret` is the same BWS UUID referenced by
+`k8s/authentik/external-secret.yaml` (`oidc-outline-client-secret`).
+One source of truth, one rotation point.
+
+Create the namespace and let ESO sync the Secret:
+
+```bash
 kubectl create namespace outline --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n outline create secret generic outline-secrets \
-  --from-literal=secret-key="$SECRET_KEY" \
-  --from-literal=utils-secret="$UTILS_SECRET" \
-  --from-literal=postgres-password="$PG_PASSWORD" \
-  --from-literal=postgres-superuser-password="$PG_SUPER_PASSWORD" \
-  --from-literal=database-url="$DB_URL" \
-  --from-literal=s3-access-key="$S3_KEY" \
-  --from-literal=s3-secret-key="$S3_SECRET" \
-  --from-literal=oidc-client-id="$OIDC_ID" \
-  --from-literal=oidc-client-secret="$OIDC_SECRET"
-
-unset BW_SESSION SECRET_KEY UTILS_SECRET PG_PASSWORD PG_SUPER_PASSWORD S3_KEY S3_SECRET OIDC_ID OIDC_SECRET DB_URL
+# ESO syncs outline-secrets via clusters/gandalf/outline.yaml on the next
+# Flux reconcile -- no kubectl create secret step.
 ```
 
 ### 4. Apply (order matters)
