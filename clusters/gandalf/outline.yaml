@@ -1,0 +1,18 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: outline
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./k8s/outline
+  # prune: false -- the Outline app + postgres chart + redis + raw
+  # manifests are all still manually-managed. Flip on after full takeover.
+  prune: false
+  wait: true
+  timeout: 3m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: infrastructure
