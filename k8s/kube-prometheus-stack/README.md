@@ -79,17 +79,13 @@ prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
    Emergency one-liner if Ansible isn't reachable:
    `sudo mkdir -p /opt/grafana && sudo chown 472:472 /opt/grafana && sudo chmod 0755 /opt/grafana`.
 
-2. **Create the `grafana-secrets` Secret** from Bitwarden (laptop):
-
-   ```sh
-   export BW_SESSION="$(bw unlock --raw)"; bw sync
-   ITEM=$(bw get item 'Homelab Grafana')
-   kubectl -n monitoring create secret generic grafana-secrets \
-     --from-literal=admin-user="$(echo "$ITEM" | jq -r '.fields[]|select(.name=="admin-user")|.value')" \
-     --from-literal=admin-password="$(echo "$ITEM" | jq -r '.fields[]|select(.name=="admin-password")|.value')" \
-     --from-literal=oidc-client-secret="$(echo "$ITEM" | jq -r '.fields[]|select(.name=="oidc-client-secret")|.value')"
-   unset BW_SESSION ITEM
-   ```
+2. **The `grafana-secrets` Secret is managed by ESO** via
+   `external-secret.yaml` (#161). On a fresh cluster, ensure the
+   BWS bootstrap (#135 Tasks 4-7) has populated `bws-access-token` and
+   the three secrets exist in the `homelab` BWS project: `grafana-admin-user`,
+   `grafana-admin-password`, `grafana-oidc-client-secret`. ESO syncs the
+   in-cluster Secret automatically when Flux reconciles
+   `clusters/gandalf/kps.yaml`.
 
 3. **Apply the Grafana PV/PVC:**
 
