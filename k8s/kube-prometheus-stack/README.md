@@ -51,7 +51,6 @@ Chart: `prometheus-community/kube-prometheus-stack` v`85.3.3`
   - `oidc-client-secret` — `openssl rand -hex 64`
   - `admin-user` — e.g. `admin-local` (the local-admin fallback)
   - `admin-password` — a strong password
-  - `homepage-user` / `homepage-password` — added in step 7 for the widget
 
 ## One-time install
 
@@ -137,26 +136,12 @@ prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
    minutes. If the exact Service/StatefulSet names differ by release, confirm
    with `kubectl -n monitoring get svc,sts` and adjust the targets below.
 
-7. **Add the Homepage Grafana widget creds.** Create a dedicated
-   **Viewer**-role Grafana login (Grafana UI → Administration → Users →
-   add `homepage`), store it in Bitwarden vault item `Homelab Grafana`
-   under custom fields `homepage-user` and `homepage-password`, then
-   put the same two values in BWS (Secrets Manager → `homelab` project,
-   secret names `grafana-user` and `grafana-password`). ESO + the
-   Homepage Flux Kustomization handle the in-cluster `homepage-secrets`
-   Secret from there -- no `kubectl create secret` step. See
-   `../homepage/README.md` for the BWS migration script.
-
-   Then `helm upgrade` so the new Grafana widget config in
-   `k8s/homepage/values.yaml` loads:
-
-   ```sh
-   helm upgrade homepage jameswynn/homepage -n homepage --version 2.1.0 -f k8s/homepage/values.yaml
-   ```
-
-   Issue #155 tracks switching this Grafana login to a service-account +
-   bearer-token model; once that lands, `grafana-user`/`grafana-password`
-   in BWS get replaced with a single `grafana-token` entry.
+7. **No Homepage-widget step.** Grafana appears on Homepage as a **plain
+   link tile**, not a live widget. The widget needs `GET /api/admin/stats`,
+   which Grafana *server admin* gates, and Grafana OSS can't scope that to a
+   service account — handing the Homepage pod a server-admin user just for a
+   counts tile fails the least-privilege bar. Closed in #155; rationale in
+   `../homepage/README.md` "Service widgets".
 
 ## Verify
 
