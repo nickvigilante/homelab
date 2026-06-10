@@ -298,15 +298,26 @@ server-side at reconcile time as a backstop.
   with `REPLACE_WITH_*` placeholders. Never applied — documentation
   only.
 
-- **Migration queue:** #161 tracks the remaining Secrets still on the
-  manual recipe (`auth/smtp-relay`, `auth/authentik-oidc-secrets`,
-  `monitoring/grafana-secrets`, `backup/restic-credentials`,
-  `outline/outline-secrets`). Each migration is a small PR following
-  the `k8s/homepage/` pattern.
+- **Migration queue:** #161 tracked the remaining Secrets on the
+  manual recipe. As of 2026-06-06 all five have migrated:
+  `auth/smtp-relay` and `auth/authentik-oidc-secrets` (#164),
+  `monitoring/grafana-secrets` (#167),
+  `outline/outline-secrets` (#171),
+  and `backup/restic-credentials` (this PR).
+  Pattern reference: `k8s/homepage/external-secret.yaml` (#159)
+  and the multi-Secret-in-one-file
+  `k8s/authentik/external-secret.yaml` (#164).
 
-- Storj S3 access keys live ONLY in `/etc/rclone/rclone.conf`
-  (root:root 0600) and `~/.homelab-opentofu.env`. The cluster-side
-  restic credential lives there too until #161 migrates it to BWS.
+- Storj S3 access grants:
+
+  - **OpenTofu state** grant lives in `~/.homelab-opentofu.env`
+    (root:root 0600) and in `/etc/rclone/rclone.conf` for the
+    `[vigilantube]` profile (unrelated bucket).
+  - **Restic backup** grant lives in BW item `Homelab Restic Repository`
+    (`access-key` / `secret-key` custom fields) and in BWS as
+    `restic-s3-access-key` / `restic-s3-secret-key` -- ESO-sourced into
+    `backup/restic-credentials` (#161, migrated 2026-06-06). NOT in
+    rclone.conf.
 
 ## DNS pattern (recurring gotcha)
 

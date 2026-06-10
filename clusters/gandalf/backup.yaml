@@ -1,0 +1,19 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: backup
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./k8s/backup
+  # prune: false -- the CronJobs, init-job, namespace.yaml and the
+  # reflected smtp-relay / hand-applied uptime-kuma-push-urls Secrets
+  # are still manually-managed. Flip on after full takeover.
+  prune: false
+  wait: true
+  timeout: 3m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: infrastructure
