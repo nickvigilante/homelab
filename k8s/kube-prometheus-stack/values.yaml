@@ -123,12 +123,16 @@ alertmanager:
 grafana:
   nodeSelector:
     kubernetes.io/hostname: gandalf
+  # Grafana 13's app-platform background tasks (secure-values cleanup,
+  # k8s-style dashboard resources) push steady-state RSS to ~215Mi; at a
+  # 256Mi limit the probes flap and /api/health reports database: failing
+  # under memory pressure (#176, same shape as the reflector bump in #173).
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
-    limits:
       memory: 256Mi
+    limits:
+      memory: 512Mi
   # Persist to the pre-created hostPath PV at /opt/grafana (gandalf) so restic
   # backs up user-added dashboards. PV/PVC live in pv-pvc.yaml.
   persistence:
