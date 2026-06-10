@@ -73,19 +73,6 @@ env:
       secretKeyRef:
         name: homepage-secrets
         key: octoprint-api-key
-  # Grafana widget creds — a dedicated Viewer-role Grafana login (Homepage's
-  # grafana widget uses basic auth, not an API token). From homepage-secrets
-  # (Bitwarden 'Homelab Grafana' / homepage-user + homepage-password).
-  - name: HOMEPAGE_VAR_GRAFANA_USER
-    valueFrom:
-      secretKeyRef:
-        name: homepage-secrets
-        key: grafana-user
-  - name: HOMEPAGE_VAR_GRAFANA_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: homepage-secrets
-        key: grafana-password
 
 config:
   # Hand-curated initial list pointing at current *.home services.
@@ -135,14 +122,14 @@ config:
             href: https://grafana.vigihome.net
             description: Dashboards & metrics
             icon: grafana.png
-            # Live widget — hits Grafana's in-cluster Service directly (not the
-            # Authentik-gated Ingress) using a dedicated Viewer login. Creds via
-            # HOMEPAGE_VAR_GRAFANA_USER/PASSWORD (homepage-secrets). See README.
-            widget:
-              type: grafana
-              url: http://kps-grafana.monitoring.svc.cluster.local
-              username: "{{HOMEPAGE_VAR_GRAFANA_USER}}"
-              password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
+            # Link tile, not a live widget. Homepage's grafana widget requires
+            # GET /api/admin/stats, which is gated by Grafana *server admin*.
+            # Grafana OSS can't grant server-admin to a service account
+            # (isGrafanaAdmin doesn't persist on a SA; org-Admin still 403s; the
+            # RBAC role-assignment API is Enterprise-only). The only credential
+            # that satisfies the widget is a server-admin user — handing the
+            # Homepage pod root-on-Grafana for a counts tile, which fails the
+            # least-privilege bar. So Grafana stays a plain href here. See #155.
 
   widgets:
     - kubernetes:

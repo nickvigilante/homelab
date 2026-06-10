@@ -129,13 +129,13 @@ so forward-auth can't block the widget's API calls.
 `homepage-secrets` is managed end-to-end by ESO + BWS as of #135 Task 8:
 
 - Values live in BWS (Bitwarden Secrets Manager) → `homelab` project →
-  one entry per `homepage-secrets` key (`octoprint-api-key`,
-  `grafana-user`, `grafana-password`).
+  one entry per `homepage-secrets` key (currently just
+  `octoprint-api-key`).
 - `external-secret.yaml` (Flux-owned via `clusters/gandalf/homepage.yaml`)
   declares the keys + their BWS secret-IDs; ESO syncs the in-cluster
   `homepage-secrets` Secret from BWS every `refreshInterval`.
-- The Bitwarden password vault item (`Homelab OctoPrint`,
-  `Homelab Grafana`) stays populated as a DR mirror -- same pattern as
+- The Bitwarden password vault item (`Homelab OctoPrint`) stays
+  populated as a DR mirror -- same pattern as
   `Homelab Restic Repository`.
 - No `kubectl create secret` step. Adding a new widget secret means:
   (a) put the value in BWS in the `homelab` project, then
@@ -167,6 +167,23 @@ so forward-auth can't block the widget's API calls.
 
 The widget points at `http://192.168.50.118:5000` directly (Homepage pod →
 LAN), so it works regardless of the public Ingress.
+
+**Grafana** is a **link tile, not a live widget** (#155).
+Homepage's `grafana` widget makes a mandatory `GET /api/admin/stats` call,
+and that endpoint is gated by Grafana *server admin*.
+Grafana OSS can't grant server-admin to a service account:
+the `isGrafanaAdmin` flag doesn't persist on a SA,
+an org-`Admin` SA token still gets 403,
+and the RBAC role-assignment API (`fixed:*:reader`) is Enterprise-only.
+The only credential that satisfies the widget is a server-admin *user*,
+which would put root-on-Grafana in the Homepage pod for a counts tile --
+below the least-privilege bar we hold every other widget to.
+A Viewer-scoped SA token *can* read the underlying counts via non-admin
+endpoints (`/api/search?type=dash-db`, `/api/datasources`,
+`/api/alertmanager/grafana/api/v2/alerts`),
+but only Homepage's one-endpoint-per-tile `customapi` widget can consume them,
+which doesn't reproduce the built-in 4-stat layout.
+Not worth the complexity for low-value counts, so Grafana stays a plain href.
 
 ## External bookmarks
 
