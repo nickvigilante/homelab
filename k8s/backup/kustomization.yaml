@@ -1,0 +1,8 @@
+# Only the ExternalSecret is Flux-owned for now -- the CronJobs, init
+# job, namespace, and the reflected smtp-relay / hand-applied
+# uptime-kuma-push-urls Secrets stay manually-managed (full takeover is
+# future work).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - external-secret.yaml

@@ -90,17 +90,33 @@ Reflector picks up the change within seconds.
    **read + write + list + delete** permissions (delete is required for
    `forget --prune`). Note the access key id + secret key.
 
-3. **Create the Kubernetes Secret** (values stay out of git):
+3. **Migrate to BWS + apply the namespace**.
+   `restic-credentials` is managed by ESO (#161) via `external-secret.yaml`.
+   On a fresh cluster, populate the four BWS keys from BW (laptop):
 
    ```bash
-   export BW_SESSION="$(bw unlock --raw)"
+   ./scripts/bws-migrate.sh <<'EOF'
+   restic-password|Homelab Restic Repository|restic-password
+   restic-repository|Homelab Restic Repository|restic-repository
+   restic-s3-access-key|Homelab Restic Repository|access-key
+   restic-s3-secret-key|Homelab Restic Repository|secret-key
+   EOF
+   ```
+
+   The BW item has the existing `access-key` / `secret-key` custom fields
+   for the Storj S3 grant (rwld on the `homelab` bucket). Add two more
+   custom fields before running the migration:
+
+   - `restic-password` -- copy of the item's main password
+     (`bws-migrate.sh` reads only from `.fields[]`, not `.login.password`).
+   - `restic-repository` -- the literal
+     `s3:https://gateway.storjshare.io/homelab/restic`.
+
+   Then apply the namespace; ESO syncs the in-cluster Secret on the next
+   Flux reconcile of `clusters/gandalf/backup.yaml`:
+
+   ```bash
    kubectl apply -f namespace.yaml
-   kubectl -n backup create secret generic restic-credentials \
-     --from-literal=RESTIC_REPOSITORY="s3:https://gateway.storjshare.io/homelab/restic" \
-     --from-literal=RESTIC_PASSWORD="$(bw get password 'Homelab Restic Repository')" \
-     --from-literal=AWS_ACCESS_KEY_ID="<storj key id>" \
-     --from-literal=AWS_SECRET_ACCESS_KEY="<storj secret>"
-   unset BW_SESSION
    ```
 
 4. **Initialize the repository** (one shot):
