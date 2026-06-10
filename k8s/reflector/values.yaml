@@ -19,21 +19,30 @@
 #
 # Cluster placement: pin to gandalf. Single-node anyway, but an
 # explicit nodeSelector is correct if we add more workers — the
-# controller is tiny (~10 MiB RSS) and doesn't need redundancy.
+# controller doesn't need redundancy.
 
 replicaCount: 1
 
 nodeSelector:
   kubernetes.io/hostname: gandalf
 
-# Default resources are empty — set modest requests so the scheduler
-# accounts for it. Reflector's footprint is ~10–20 MiB at rest.
+# Chart default is empty — set explicit values so the scheduler accounts
+# for it and a real memory leak still trips OOMKill instead of silently
+# eating the node.
+#
+# Sizing: the v10.x image runs on the .NET 8 runtime and baselines at
+# ~120 MiB working set just idling (the older v6 image was ~10–20 MiB,
+# which is where the prior 128Mi limit came from — wrong for v10).
+# 256Mi is roughly 2× the observed peak working set with current
+# Secrets / ConfigMaps under watch; the previous 128Mi cap caused ~9
+# OOM-restarts per day and drove the NodeMemoryMajorPagesFaults alert
+# spam (#173).
 resources:
   requests:
     cpu: 10m
-    memory: 32Mi
+    memory: 64Mi
   limits:
-    memory: 128Mi
+    memory: 256Mi
 
 # Reflector defaults to non-root + read-only root FS (good). No
 # overrides needed for our use case.
