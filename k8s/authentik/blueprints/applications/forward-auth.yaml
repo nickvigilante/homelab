@@ -48,3 +48,15 @@ entries:
     attrs:
       providers:
         - !KeyOf forward-auth-provider
+      # The embedded outpost shipped with a stale authentik_host of
+      # http://authentik.home (pre-vigihome migration), and an empty
+      # authentik_host_browser falls back to it -- so the forward-auth login
+      # redirect pointed at the dead legacy host. Pin both to the live external
+      # URL so the browser-facing authorize URL is correct. Omitted config keys
+      # take serializer defaults (the kubernetes_* deploy keys are inert for the
+      # embedded outpost, which runs in-process in authentik-server).
+      config:
+        authentik_host: https://authentik.vigihome.net
+        authentik_host_browser: https://authentik.vigihome.net
+        authentik_host_insecure: false
+        log_level: info
