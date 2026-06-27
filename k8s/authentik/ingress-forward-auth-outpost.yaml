@@ -1,0 +1,43 @@
+# Un-gated outpost-path routes for every forward-auth-protected host (#137).
+# Co-located in `auth` (same namespace as authentik-server) so the backend is
+# an in-namespace Service and Traefik's allowCrossNamespace can stay OFF.
+# Traefik aggregates Ingresses cluster-wide by host+path, so these compose with
+# the gated app routes (which live in the app's namespace) for the same hosts.
+# These routes carry NO forwardAuth middleware -- the login handshake must not
+# gate itself. Backend port is the Service port (80 -> targetPort 9000); nothing
+# listens on Service port 9000. Add a new host's rule here as services onboard.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: forward-auth-outpost
+  namespace: auth
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: prometheus.vigihome.net
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-server
+                port:
+                  number: 80
+    - host: alertmanager.vigihome.net
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-server
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - prometheus.vigihome.net
+        - alertmanager.vigihome.net
+      secretName: vigihome-tls
