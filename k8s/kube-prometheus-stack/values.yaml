@@ -33,6 +33,9 @@ prometheus:
       kubernetes.io/hostname: gandalf
     retention: 15d
     retentionSize: "18GB" # headroom under the 20Gi PVC
+    # Real reachable URL now that forward-auth gates the UI (#137). Replaces the
+    # in-cluster Service-DNS default that leaked into links.
+    externalUrl: https://prometheus.vigihome.net
     # Discover ServiceMonitors/PodMonitors/Rules/Probes in any namespace, not
     # just chart-labelled ones (so future per-app metrics get scraped).
     serviceMonitorSelectorNilUsesHelmValues: false
@@ -53,19 +56,33 @@ prometheus:
         memory: 1Gi
       limits:
         memory: 3Gi
+  # Gated by Authentik forward-auth via the monitoring-namespace middleware
+  # (#137). The un-gated /outpost.goauthentik.io handshake route lives in the
+  # auth namespace (k8s/authentik/ingress-forward-auth-outpost.yaml).
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.middlewares: monitoring-forward-auth@kubernetescrd
+    hosts:
+      - prometheus.vigihome.net
+    paths:
+      - /
+    pathType: Prefix
+    tls:
+      - hosts: ["prometheus.vigihome.net"]
+        secretName: vigihome-tls
 
 # --- Alertmanager: route firing alerts to email via the Forward Email relay
 alertmanager:
   alertmanagerSpec:
     nodeSelector:
       kubernetes.io/hostname: gandalf
-    # Alertmanager has no Ingress (open admin API — reached via
-    # `kubectl port-forward svc/...alertmanager 9093:9093`). Without this,
-    # externalUrl defaults to the in-cluster Service DNS, which leaks into
-    # notification links (emails) as a non-resolvable address. Point it at the
-    # port-forward address so the email "source" links are clickable in that
-    # workflow. A fully-reachable URL needs forward-auth exposure — see #117.
-    externalUrl: http://localhost:9093
+    # Real reachable URL now that forward-auth gates the UI (#137, #117).
+    # Replaces the old http://localhost:9093 port-forward placeholder so email
+    # notification links are fully clickable.
+    externalUrl: https://alertmanager.vigihome.net
     # Mount the reflected smtp-relay Secret at
     # /etc/alertmanager/secrets/smtp-relay/{smtp-username,smtp-password}.
     secrets:
@@ -84,6 +101,21 @@ alertmanager:
         memory: 64Mi
       limits:
         memory: 128Mi
+  # Gated by Authentik forward-auth (#137); handshake route in the auth ns.
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.middlewares: monitoring-forward-auth@kubernetescrd
+    hosts:
+      - alertmanager.vigihome.net
+    paths:
+      - /
+    pathType: Prefix
+    tls:
+      - hosts: ["alertmanager.vigihome.net"]
+        secretName: vigihome-tls
   # Forward Email over STARTTLS on 587. (Alertmanager does NOT support implicit
   # TLS / SMTPS on 465 — it only does STARTTLS, toggled by smtp_require_tls.
   # The restic job uses 465 because it speaks smtps:// directly; Alertmanager

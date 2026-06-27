@@ -447,8 +447,8 @@ Run:
 helm repo update prometheus-community
 helm upgrade kps prometheus-community/kube-prometheus-stack --version 85.3.3 \
   -n monitoring -f k8s/kube-prometheus-stack/values.yaml
-kubectl -n monitoring rollout status statefulset/prometheus-kps-prometheus
-kubectl -n monitoring rollout status statefulset/alertmanager-kps-alertmanager
+kubectl -n monitoring rollout status statefulset/prometheus-kps-kube-prometheus-stack-prometheus
+kubectl -n monitoring rollout status statefulset/alertmanager-kps-kube-prometheus-stack-alertmanager
 ```
 
 Expected: `helm upgrade` reports `REVISION: 8` (one past the current 7); both StatefulSets roll out.
@@ -469,7 +469,7 @@ Expected: each returns `302 -> https://authentik.vigihome.net/...` (the Authenti
 Run:
 
 ```bash
-kubectl -n monitoring port-forward svc/kps-prometheus 9090:9090 >/dev/null 2>&1 &
+kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090:9090 >/dev/null 2>&1 &
 sleep 2; curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:9090/-/ready; kill %1
 ```
 
@@ -480,7 +480,7 @@ Expected: `200` — `kubectl port-forward` reaches Prometheus directly, bypassin
 In `k8s/kube-prometheus-stack/README.md`:
 
 - Document that Prometheus and Alertmanager are exposed at `https://prometheus.vigihome.net` and `https://alertmanager.vigihome.net`, gated by Authentik forward-auth (#137), with the handshake route in the `auth` namespace and the middleware in `monitoring`.
-- Add a SPOF note: these UIs have no native login, so the break-glass fallback when Authentik is down is `kubectl -n monitoring port-forward svc/kps-prometheus 9090:9090` (and `svc/kps-alertmanager 9093:9093`), which bypasses Traefik and Authentik. No Bitwarden fallback credential applies (no native auth surface).
+- Add a SPOF note: these UIs have no native login, so the break-glass fallback when Authentik is down is `kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090:9090` (and `svc/kps-kube-prometheus-stack-alertmanager 9093:9093`), which bypasses Traefik and Authentik. No Bitwarden fallback credential applies (no native auth surface).
 - Update any text that referenced the old `externalUrl: http://localhost:9093` placeholder.
 
 Use semantic line breaks and "and"/"&" per the doc-style constraint.
