@@ -3,11 +3,13 @@
 Metrics, dashboards, and email alerting for the homelab (#76):
 Prometheus scrapes cluster/node/kube-state metrics,
 Grafana visualizes them behind Authentik OIDC at `https://grafana.vigihome.net`,
+Prometheus is exposed at `https://prometheus.vigihome.net`,
+Alertmanager is exposed at `https://alertmanager.vigihome.net`,
 and Alertmanager emails alerts via the Forward Email relay.
 
 This is sub-project **A — metrics only**.
-Logs (Loki) are #116; per-app ServiceMonitors, long-term storage, HA, and
-forward-auth exposure of Prometheus/Alertmanager are #117.
+Logs (Loki) are #116; per-app ServiceMonitors and long-term storage are future work.
+Prometheus and Alertmanager are exposed behind Authentik forward-auth (#137, #117).
 
 Chart: `prometheus-community/kube-prometheus-stack` v`85.3.3`
 (appVersion `v0.90.1`). Release name `kps`, namespace `monitoring`
@@ -168,21 +170,32 @@ populate with live data. A Watchdog email arrives at
 - **Change config:** edit `values.yaml`, then
   `helm upgrade kps prometheus-community/kube-prometheus-stack -n monitoring --version 85.3.3 -f k8s/kube-prometheus-stack/values.yaml`.
   Always pin `--version` (drift discipline).
-- **Prometheus / Alertmanager have no Ingress — by design.** They ship no
-  authentication of their own (open admin APIs: TSDB delete, silence
-  create/read), so they get no standing network-exposed surface. Reach them
-  for debugging via port-forward:
+
+- **Prometheus is at `https://prometheus.vigihome.net`;
+  Alertmanager is at `https://alertmanager.vigihome.net`.**
+  Both are gated by Authentik forward-auth (#137, #117)
+  via the `monitoring-forward-auth@kubernetescrd` Middleware in the `monitoring` namespace.
+  The un-gated `/outpost.goauthentik.io` handshake route lives in the `auth` namespace
+  (`k8s/authentik/ingress-forward-auth-outpost.yaml`).
+
+  **SPOF / break-glass:** these UIs have no native login,
+  so there is no Bitwarden fallback credential (no native auth surface).
+  When Authentik is down, the only path in bypasses Traefik and Authentik entirely:
+
   ```sh
   kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090:9090
   kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-alertmanager 9093:9093
   ```
-  Routine querying and silencing happen through authenticated Grafana
-  (Explore + the Alertmanager view). Exposing them behind Authentik
-  forward-auth is tracked in #117.
+
+  These are multi-port Services; if a `port-forward svc/...` lands on the wrong backend,
+  use the pod-direct form instead,
+  e.g. `kubectl -n monitoring port-forward pod/prometheus-kps-kube-prometheus-stack-prometheus-0 9090:9090`.
+
 - **Alert routing:** Alertmanager → Forward Email over **STARTTLS on 587**
   (Alertmanager can't do implicit TLS/465 the way the restic job does).
   Credentials come from the reflected `smtp-relay` Secret — the password via a
   mounted file, the username inline (it's the `noreply@` alias, not a secret).
+
 - **Upgrade the chart:** bump the `--version` and re-run `helm upgrade`; read
   the chart's upgrade notes (CRD changes sometimes need a manual
   `kubectl apply` of the new CRDs first).
