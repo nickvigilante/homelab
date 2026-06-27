@@ -1,12 +1,24 @@
 # Per-namespace forwardAuth middleware copy (#137). allowCrossNamespace stays
 # OFF, so each consuming namespace holds its own identical copy pointing at the
-# embedded outpost by FQDN. Address uses the authentik-server Service port (80
-# -> targetPort 9000); there is no Service port 9000. trustForwardHeader lets
-# the outpost read the original host/proto from Traefik. authResponseHeaders are
-# copied onto the upstream request AFTER the websecure-default strip-auth-headers
-# middleware blanks any client-supplied copies -- so the upstream only ever sees
-# Authentik-asserted identity (Prometheus/Alertmanager ignore them; this is for
-# future header-trusting consumers).
+# embedded outpost.
+#
+# Address is the EXTERNAL Authentik host, not the in-cluster Service DNS name.
+# This Traefik runs hostNetwork: true (system/traefik-helmchartconfig.yaml), so
+# its forwardAuth HTTP client resolves names via gandalf's HOST resolver
+# (Tailscale MagicDNS, 100.100.100.100) -- which returns NXDOMAIN for
+# *.svc.cluster.local, 500-ing the gate with "no such host". The host resolver
+# DOES resolve authentik.vigihome.net -> gandalf, so we hairpin back through
+# Traefik's websecure entrypoint to the embedded outpost (LE-valid cert, so the
+# forwardAuth client's TLS verification passes). In forward_domain mode the
+# outpost selects the application from the FORWARDED host (trustForwardHeader
+# sends X-Forwarded-Host: <app>.vigihome.net), not from this address host -- so
+# one address serves every protected host.
+#
+# authResponseHeaders are copied onto the upstream request AFTER the
+# websecure-default strip-auth-headers middleware blanks any client-supplied
+# copies -- so the upstream only ever sees Authentik-asserted identity
+# (Prometheus/Alertmanager ignore them; this is for future header-trusting
+# consumers).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -14,7 +26,7 @@ metadata:
   namespace: monitoring
 spec:
   forwardAuth:
-    address: http://authentik-server.auth.svc.cluster.local/outpost.goauthentik.io/auth/traefik
+    address: https://authentik.vigihome.net/outpost.goauthentik.io/auth/traefik
     trustForwardHeader: true
     authResponseHeaders:
       - X-authentik-username
