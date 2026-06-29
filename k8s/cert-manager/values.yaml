@@ -36,3 +36,13 @@ cainjector:
 extraArgs:
   - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
   - --dns01-recursive-nameservers-only
+
+# Expose cert-manager's controller metrics to Prometheus (#138). The chart
+# already serves metrics on port 9402; this adds the ServiceMonitor that the
+# cluster Prometheus (all-namespace ServiceMonitor discovery) scrapes. Needed
+# for the CertificateExpiringSoon alert and the Homelab Health cert panels --
+# the safety net for DNS-01 renewal silently breaking.
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true
