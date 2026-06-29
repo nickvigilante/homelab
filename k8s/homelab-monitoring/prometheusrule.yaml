@@ -1,0 +1,51 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: homelab-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: homelab
+      rules:
+        # The nightly restic CronJob (k8s/backup/backup-cronjob.yaml,
+        # schedule "0 3 * * *") in the `backup` namespace. Alert on time since
+        # last SUCCESS, not on job failure -- a single rule on
+        # last_successful_time catches both "ran and failed" and "never ran".
+        # 25h gives a 1h grace past the 24h cadence.
+        - alert: ResticBackupStale
+          expr: |
+            (time() - max(kube_cronjob_status_last_successful_time{cronjob="restic-backup", namespace="backup"})) > 25 * 3600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Nightly restic backup has not succeeded in over 25h"
+            description: "No successful restic-backup CronJob run in >25h. Check `kubectl -n backup get jobs` and the most recent job's logs."
+        # kube_pod_container_status_last_terminated_reason is a sticky gauge --
+        # it stays 1 until the next termination for another reason. Correlate
+        # with a restart in the last 10m so this reflects a FRESH OOM kill, not
+        # a long-resolved one. (The #176 Grafana OOM was this failure mode.)
+        - alert: ContainerOOMKilled
+          expr: |
+            (max by (namespace, pod, container) (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}) == 1)
+            and on (namespace, pod, container)
+            (changes(kube_pod_container_status_restarts_total[10m]) > 0)
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) was OOMKilled"
+            description: "Container was OOMKilled and restarted in the last 10m. Consider raising its memory limit."
+        # certmanager_certificate_expiration_timestamp_seconds comes from the
+        # cert-manager ServiceMonitor (enabled in Task 4). Renewal runs at 30d
+        # before expiry, so <14d means DNS-01 renewal has been failing ~16+
+        # days -- a real safety net for a revoked Cloudflare token.
+        - alert: CertificateExpiringSoon
+          expr: |
+            (min by (name, namespace) (certmanager_certificate_expiration_timestamp_seconds) - time()) / 86400 < 14
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in <14d"
+            description: "cert-manager certificate is within 14 days of expiry, meaning automatic renewal has likely been failing. Check `kubectl -n cert-manager get certificate,order,challenge`."
