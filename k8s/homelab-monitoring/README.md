@@ -11,17 +11,15 @@ and from `k8s/flux-monitoring/` (which covers Flux reconciliation).
 
 ## Alerts (`prometheusrule.yaml`, group `homelab`)
 
-- **ResticBackupStale** — the nightly restic CronJob has not succeeded in >25h.
-  One rule on `kube_cronjob_status_last_successful_time` catches both a failed
-  run and a missed run. Triage: `kubectl -n backup get jobs`.
-- **ContainerOOMKilled** — a container was OOMKilled and restarted in the last
-  10m. Triage: raise the container's memory limit (see #176 for precedent).
-- **CertificateExpiringSoon** — a cert-manager certificate is \<14d from expiry,
-  i.e. automatic renewal (which runs at 30d) has been failing. Triage:
-  `kubectl -n cert-manager get certificate,order,challenge`.
+| Alert | Condition | Triage |
+| --- | --- | --- |
+| `ResticBackupStale` | Nightly restic CronJob has not succeeded in >25h | `kubectl -n backup get jobs` and check the most recent job's logs |
+| `ContainerOOMKilled` | Container was OOMKilled and restarted in the last 10m | Raise the container's memory limit (see #176 for precedent) |
+| `CertificateExpiringSoon` | cert-manager certificate is <14d from expiry (automatic renewal failing) | `kubectl -n cert-manager get certificate,order,challenge` |
+| `ResticVerifyStale` | No successful `restic-verify` run in >8d | `kubectl -n backup get jobs` and check the most recent `restic-verify-*` job's logs |
 
-All three are `severity: warning` and route to email via the existing
-Alertmanager receiver.
+All are `severity: warning` and route to email via the existing Alertmanager
+receiver.
 
 ## Dashboard (`dashboards/homelab-health.yaml`)
 
