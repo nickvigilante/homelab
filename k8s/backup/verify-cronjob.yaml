@@ -66,6 +66,13 @@ spec:
                   # must FAIL the job -- the check can't run without it.
                   apk add --no-cache jq >/dev/null
 
+                  # Every restic call waits up to 30m for the repo lock instead
+                  # of failing instantly -- the Sunday 04:00 forget --prune holds
+                  # an exclusive lock and can overrun past 05:00; without the
+                  # wait, a lock collision burns both attempts (backoffLimit: 1)
+                  # and kills the week's drill over a transient overlap.
+                  restic() { command restic --retry-lock 30m "$@"; }
+
                   # Phases 1+2 share one invocation: --read-data-subset
                   # performs the full structure/index check and then
                   # hash-verifies the selected packs. n cycles 1..5 by
@@ -88,9 +95,10 @@ spec:
                     # busybox date can't parse RFC3339 fractional seconds
                     # or numeric offsets; strip both and parse as UTC.
                     # Snapshot times are UTC (backup pod TZ), so this is
-                    # exact; were an offset ever present the error is
-                    # bounded (<= a few hours) and only makes the check
-                    # stricter -- fine against a 48h threshold.
+                    # exact today; were an offset ever present, the error is
+                    # bounded by the offset magnitude (stricter for negative
+                    # offsets, LOOSER for positive ones) -- acceptable slop
+                    # against a 48h threshold with daily backups.
                     clean=$(echo "$ts" | sed 's/\..*//; s/Z$//; s/[+-][0-9][0-9]:[0-9][0-9]$//')
                     snap=$(date -u -D "%Y-%m-%dT%H:%M:%S" -d "$clean" +%s)
                     age=$(( now - snap ))
