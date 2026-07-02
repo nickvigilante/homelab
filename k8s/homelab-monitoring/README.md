@@ -11,12 +11,12 @@ and from `k8s/flux-monitoring/` (which covers Flux reconciliation).
 
 ## Alerts (`prometheusrule.yaml`, group `homelab`)
 
-| Alert | Condition | Triage |
-| --- | --- | --- |
-| `ResticBackupStale` | Nightly restic CronJob has not succeeded in >25h | `kubectl -n backup get jobs` and check the most recent job's logs |
-| `ContainerOOMKilled` | Container was OOMKilled and restarted in the last 10m | Raise the container's memory limit (see #176 for precedent) |
-| `CertificateExpiringSoon` | cert-manager certificate is <14d from expiry (automatic renewal failing) | `kubectl -n cert-manager get certificate,order,challenge` |
-| `ResticVerifyStale` | No successful `restic-verify` run in >8d | `kubectl -n backup get jobs` and check the most recent `restic-verify-*` job's logs |
+| Alert                     | Condition                                                                                                                                           | Triage                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ResticBackupStale`       | Nightly restic CronJob has not succeeded in >25h (via `kube_cronjob_status_last_successful_time`, which catches both a failed run and a missed run) | `kubectl -n backup get jobs` and check the most recent job's logs                   |
+| `ContainerOOMKilled`      | Container was OOMKilled and restarted in the last 10m                                                                                               | Raise the container's memory limit (see #176 for precedent)                         |
+| `CertificateExpiringSoon` | cert-manager certificate is \<14d from expiry (automatic renewal, which runs at 30d before expiry, has been failing)                                | `kubectl -n cert-manager get certificate,order,challenge`                           |
+| `ResticVerifyStale`       | No successful `restic-verify` run in >8d                                                                                                            | `kubectl -n backup get jobs` and check the most recent `restic-verify-*` job's logs |
 
 All are `severity: warning` and route to email via the existing Alertmanager
 receiver.
