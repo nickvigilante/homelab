@@ -82,6 +82,54 @@ kubectl -n auth annotate secret smtp-relay --overwrite \
 
 Reflector picks up the change within seconds.
 
+## Restore-verification drill
+
+Untested backups aren't backups.
+`verify-cronjob.yaml` runs a weekly drill (Sunday 05:00 ET,
+one hour after the Sunday prune) in four phases,
+failing the Job on the first broken phase.
+Phase numbering matches the job's log banners
+(phases 1 and 2 share one restic invocation):
+
+- **Phase 1+2: repo check + rotating data read** —
+  `restic check --read-data-subset=n/5` with `n` stepping by epoch week.
+  Verifies index/snapshot structure every run and hash-verifies 1/5 of all
+  pack data, covering 100% of packs every 5 weeks
+  (~32 GiB Storj egress per run ≈ $0.90/mo).
+- **Phase 3: snapshot freshness** — the latest snapshot for each of the
+  8 tags must be < 48 h old.
+  Catches a tag silently disappearing while the backup job stays green.
+- **Phase 4: restore drill** — the 7 small tags (~1.8 GiB total) are
+  restored into an `emptyDir` scratch with `--verify` (restored content
+  re-hashed against the repo index) and checked for a per-tag sentinel file
+  (`PG_VERSION` for the postgres tags, the main SQLite DB for the rest).
+  `syncthing-data` (176 GiB) is deliberately not restored —
+  its pack data is covered by the phase 1+2 rotating read and its
+  freshness by phase 3;
+  see `docs/superpowers/specs/2026-07-01-restic-restore-drill-design.md`.
+
+**Alerting:** intentionally none in-job (no Uptime Kuma push, no SMTP).
+The single signal is the `ResticVerifyStale` Prometheus rule
+(`k8s/homelab-monitoring/prometheusrule.yaml`):
+if no run succeeds for 8 days — failure, crash, or scheduler jam —
+Alertmanager emails.
+The metric only exists after the first successful run,
+so trigger one manually at rollout (below).
+
+**Manual trigger:**
+
+```bash
+kubectl -n backup create job --from=cronjob/restic-verify verify-test-$(date +%s)
+kubectl -n backup logs -f job/$(kubectl -n backup get jobs --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
+```
+
+**When the alert fires:**
+`kubectl -n backup get jobs`, read the newest `restic-verify-*` job's logs,
+and fix the first failed phase — the log names it
+(`Phase 1+2`, `Phase 3`, `Phase 4`) and the failing tag or pack.
+A transient Storj hiccup already got one automatic retry (`backoffLimit: 1`);
+re-run manually after fixing.
+
 ## One-time setup
 
 1. **Generate a strong repo password** (Bitwarden → new item `Homelab Restic Repository`).
