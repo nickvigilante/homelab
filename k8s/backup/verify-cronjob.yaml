@@ -1,0 +1,146 @@
+# Weekly restore-verification drill (#139). Untested backups aren't
+# backups: this job proves the repo is intact, snapshots keep appearing
+# for every tag, and a restore actually produces usable data.
+#
+# Four phases, fail-fast (set -euo pipefail):
+#   1+2. restic check --read-data-subset=n/5 -- structure/index check
+#        PLUS hash-verification of a rotating 1/5 of all pack files.
+#        Subset selection is deterministic by pack ID, so stepping n
+#        weekly covers 100% of packs every 5 weeks (~32 GiB Storj
+#        egress per run, ~$0.90/mo at $7/TB).
+#   3.   Freshness: latest snapshot per tag must be < 48h old. Catches
+#        "backup job green but one tag silently stopped appearing".
+#   4.   Restore drill: the 7 small tags (~1.8 GiB total) restored into
+#        emptyDir scratch with --verify (content re-hashed against the
+#        repo index), then a per-tag sentinel file must exist. Catches
+#        "snapshot fresh but the source dir was empty or wrong".
+#        syncthing-data (176 GiB) is deliberately NOT restored -- pack
+#        integrity is covered by phase 2 and freshness by phase 3; see
+#        docs/superpowers/specs/2026-07-01-restic-restore-drill-design.md.
+#
+# Failure signal: NONE in-job -- no Uptime Kuma push, no SMTP, no ERR
+# trap (unlike the sibling CronJobs). The single signal is the
+# ResticVerifyStale dead-man rule (k8s/homelab-monitoring): a failed,
+# crashed, or never-scheduled run means the success timestamp stops
+# advancing and Alertmanager emails after 8 days.
+#
+# Schedule: Sunday 05:00 ET, one hour after restic-forget's Sunday
+# 04:00 prune, so every prune is verified before Monday's backup
+# builds on it.
+#
+# Manual trigger:
+#   kubectl -n backup create job --from=cronjob/restic-verify verify-test-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restic-verify
+  namespace: backup
+spec:
+  schedule: "0 5 * * 0"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # The read-data phase downloads ~32 GiB; kill a wedged run so
+      # concurrencyPolicy: Forbid can't jam future runs forever.
+      activeDeadlineSeconds: 10800
+      template:
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/hostname: gandalf
+          containers:
+            - name: restic
+              image: restic/restic:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+
+                  # jq is required by the freshness phase. Unlike the
+                  # backup job's best-effort curl install, a missing jq
+                  # must FAIL the job -- the check can't run without it.
+                  apk add --no-cache jq >/dev/null
+
+                  # Phases 1+2 share one invocation: --read-data-subset
+                  # performs the full structure/index check and then
+                  # hash-verifies the selected packs. n cycles 1..5 by
+                  # epoch week, covering every pack every 5 weeks.
+                  n=$(( ($(date +%s) / 604800) % 5 + 1 ))
+                  echo "=== Phase 1+2: repo check, pack subset $n/5 ==="
+                  restic check --read-data-subset="$n/5"
+
+                  echo
+                  echo "=== Phase 3: snapshot freshness (<48h) ==="
+                  now=$(date +%s)
+                  for tag in jellyfin-config pihole-config uptime-kuma-data \
+                             authentik-postgres coder-postgres outline-postgres \
+                             syncthing-data grafana; do
+                    ts=$(restic snapshots --tag "$tag" --latest 1 --json | jq -r '.[0].time // empty')
+                    if [ -z "$ts" ]; then
+                      echo "FAIL: no snapshot found for tag $tag"
+                      exit 1
+                    fi
+                    # busybox date can't parse RFC3339 fractional seconds
+                    # or numeric offsets; strip both and parse as UTC.
+                    # Snapshot times are UTC (backup pod TZ), so this is
+                    # exact; were an offset ever present the error is
+                    # bounded (<= a few hours) and only makes the check
+                    # stricter -- fine against a 48h threshold.
+                    clean=$(echo "$ts" | sed 's/\..*//; s/Z$//; s/[+-][0-9][0-9]:[0-9][0-9]$//')
+                    snap=$(date -u -D "%Y-%m-%dT%H:%M:%S" -d "$clean" +%s)
+                    age=$(( now - snap ))
+                    if [ "$age" -gt 172800 ]; then
+                      echo "FAIL: latest $tag snapshot is ${age}s old (>48h)"
+                      exit 1
+                    fi
+                    echo "OK: $tag latest snapshot ${age}s old"
+                  done
+
+                  echo
+                  echo "=== Phase 4: restore drill (7 small tags) ==="
+                  restore_and_check() {
+                    tag=$1
+                    sentinel=$2
+                    echo "--- $tag"
+                    restic restore latest --tag "$tag" --target "/scratch/$tag" --verify
+                    if [ ! -e "/scratch/$tag$sentinel" ]; then
+                      echo "FAIL: sentinel $sentinel missing from restored $tag"
+                      exit 1
+                    fi
+                    count=$(find "/scratch/$tag" -type f | wc -l)
+                    if [ "$count" -lt 1 ]; then
+                      echo "FAIL: restored $tag contains no files"
+                      exit 1
+                    fi
+                    echo "OK: $tag restored ($count files, sentinel present)"
+                    # Free scratch before the next tag so peak usage is
+                    # one tag's tree, not the sum of all seven.
+                    rm -rf "/scratch/${tag:?}"
+                  }
+                  # Sentinel paths verified against live snapshots
+                  # 2026-07-01; the /backup/<dir> prefix is the absolute
+                  # path the backup pod snapshots, preserved on restore.
+                  restore_and_check jellyfin-config    /backup/jellyfin/data/jellyfin.db
+                  restore_and_check pihole-config      /backup/pihole/gravity.db
+                  restore_and_check uptime-kuma-data   /backup/uptime-kuma/kuma.db
+                  restore_and_check authentik-postgres /backup/authentik-postgres/data/PG_VERSION
+                  restore_and_check coder-postgres     /backup/coder-postgres/data/PG_VERSION
+                  restore_and_check outline-postgres   /backup/outline-postgres/data/PG_VERSION
+                  restore_and_check grafana            /backup/grafana/grafana.db
+
+                  echo
+                  echo "=== All phases passed ==="
+              envFrom:
+                - secretRef:
+                    name: restic-credentials
+              volumeMounts:
+                - name: scratch
+                  mountPath: /scratch
+          volumes:
+            - name: scratch
+              emptyDir: {}
