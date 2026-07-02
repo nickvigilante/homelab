@@ -41,12 +41,12 @@ A scheduled drill that:
 
 ## Decisions
 
-| Decision | Choice | Rationale |
-| --- | --- | --- |
-| Big-tag (syncthing) depth | Rotating `--read-data-subset=n/5` | Full pack coverage every 5 weeks at ~$0.90/mo egress; no 176 GiB scratch. Chosen over full restore (cost/disk) and metadata-only (misses bit-rot on photos with no other replica). |
-| Cadence | Weekly, Sunday 05:00 ET | One hour after the Sunday 04:00 forget/prune, so every prune is verified before the next backup cycle builds on it. |
-| Alerting | Prometheus-only dead-man rule | One `ResticVerifyStale` rule catches job-failed, job-crashed, and never-scheduled. No Uptime Kuma monitor and no direct SMTP — Alertmanager already emails. Revisitable: a Kuma push monitor is a small bolt-on later. |
-| Architecture | Standalone `restic-verify` CronJob | Keeps retention (forget) and verification as separate jobs with separate failure signals. Folding into forget or adding a metrics exporter/Pushgateway rejected (coupling / YAGNI). |
+| Decision                  | Choice                             | Rationale                                                                                                                                                                                                              |
+| ------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Big-tag (syncthing) depth | Rotating `--read-data-subset=n/5`  | Full pack coverage every 5 weeks at ~$0.90/mo egress; no 176 GiB scratch. Chosen over full restore (cost/disk) and metadata-only (misses bit-rot on photos with no other replica).                                     |
+| Cadence                   | Weekly, Sunday 05:00 ET            | One hour after the Sunday 04:00 forget/prune, so every prune is verified before the next backup cycle builds on it.                                                                                                    |
+| Alerting                  | Prometheus-only dead-man rule      | One `ResticVerifyStale` rule catches job-failed, job-crashed, and never-scheduled. No Uptime Kuma monitor and no direct SMTP — Alertmanager already emails. Revisitable: a Kuma push monitor is a small bolt-on later. |
+| Architecture              | Standalone `restic-verify` CronJob | Keeps retention (forget) and verification as separate jobs with separate failure signals. Folding into forget or adding a metrics exporter/Pushgateway rejected (coupling / YAGNI).                                    |
 
 ## Components
 
@@ -72,10 +72,12 @@ The script runs four phases under `set -euo pipefail` (fail-fast):
 
 1. **Structure check** — `restic check`.
    Verifies index, snapshot, and pack metadata consistency. Metadata-only egress.
+
 2. **Rotating data check** — `restic check --read-data-subset=$n/5`
    with `n=$(( ($(date +%s) / 604800) % 5 + 1 ))`.
    Subset selection is deterministic by pack ID,
    so stepping n weekly covers 100% of packs every 5 weeks (~32 GiB egress/run).
+
 3. **Freshness check** — for each of the 8 expected tags, assert
    `restic snapshots --tag <tag> --latest 1 --json` returns a snapshot
    whose timestamp is < 48 h old.
@@ -83,10 +85,12 @@ The script runs four phases under `set -euo pipefail` (fail-fast):
    the backup job uses for curl — but hard-required here: no jq → fail the job,
    since the check cannot run without it).
    Catches "backup job green but one tag silently stopped appearing".
+
 4. **Restore drill** — for each of the 7 small tags:
    `restic restore latest --tag <tag> --target /scratch/<tag> --verify`
    (`--verify` re-hashes every restored file against the repo index — content-level proof),
    then per-tag sentinel assertions:
+
    - authentik-postgres, coder-postgres, outline-postgres: `PG_VERSION` exists in the restored data dir.
    - pihole-config: `gravity.db` exists.
    - jellyfin-config: `data/jellyfin.db` exists.

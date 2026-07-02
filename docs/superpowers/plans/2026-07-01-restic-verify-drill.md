@@ -20,7 +20,7 @@ Spec: `docs/superpowers/specs/2026-07-01-restic-restore-drill-design.md`.
 - All commands below run on **gandalf** (this box) unless stated otherwise. Live cluster commands need `export KUBECONFIG=~/.kube/config` first.
 - `k8s/backup`'s Flux Kustomization has `prune: false` — do NOT flip it; the sibling CronJobs are still manually managed.
 
----
+______________________________________________________________________
 
 ### Task 1: The `restic-verify` CronJob
 
@@ -32,6 +32,7 @@ Spec: `docs/superpowers/specs/2026-07-01-restic-restore-drill-design.md`.
 **Interfaces:**
 
 - Consumes: Secret `backup/restic-credentials` (exists, ESO-managed — referenced by name only).
+
 - Produces: CronJob `backup/restic-verify` whose success timestamp Task 2's alert expression watches via `kube_cronjob_status_last_successful_time{cronjob="restic-verify", namespace="backup"}`.
 
 - [ ] **Step 1: Write `k8s/backup/verify-cronjob.yaml`**
@@ -270,7 +271,7 @@ EOF
 Pre-commit runs yamlfmt/yamllint/betterleaks; if yamlfmt rewrites the file,
 `git add` the reformatted file and re-commit.
 
----
+______________________________________________________________________
 
 ### Task 2: The `ResticVerifyStale` alert rule
 
@@ -282,6 +283,7 @@ Pre-commit runs yamlfmt/yamllint/betterleaks; if yamlfmt rewrites the file,
 **Interfaces:**
 
 - Consumes: metric `kube_cronjob_status_last_successful_time{cronjob="restic-verify", namespace="backup"}` produced (via kube-state-metrics) once Task 1's CronJob has its first successful run.
+
 - Produces: alert `ResticVerifyStale`, routed by the existing Alertmanager email receiver (no Alertmanager config change needed).
 
 - [ ] **Step 1: Append the rule**
@@ -365,7 +367,7 @@ EOF
 )"
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: Backup README — restore-drill runbook
 
@@ -376,6 +378,7 @@ EOF
 **Interfaces:**
 
 - Consumes: nothing from other tasks (documentation of Task 1's CronJob and Task 2's alert).
+
 - Produces: operator runbook; no downstream consumers.
 
 - [ ] **Step 1: Add a "Restore-verification drill" section**
@@ -458,7 +461,7 @@ EOF
 )"
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: Live verification (post-merge, on gandalf)
 
@@ -470,6 +473,7 @@ All commands on **gandalf** with `export KUBECONFIG=~/.kube/config`.
 **Interfaces:**
 
 - Consumes: everything from Tasks 1–3 via Flux reconciliation of `main`.
+
 - Produces: evidence for closing #139.
 
 - [ ] **Step 1: Reconcile and confirm the CronJob exists**
