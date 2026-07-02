@@ -91,7 +91,7 @@ failing the Job on the first broken phase.
 Phase numbering matches the job's log banners
 (phases 1 and 2 share one restic invocation):
 
-- **Phase 1+2: repo check + rotating data read** —
+- **Phase 1+2: repo check and rotating data read** —
   `restic check --read-data-subset=n/5` with `n` stepping by epoch week.
   Verifies index/snapshot structure every run and hash-verifies 1/5 of all
   pack data, covering 100% of packs every 5 weeks
