@@ -1,9 +1,15 @@
-# Authentik Helm values. Targets `authentik/authentik` v2026.2.x.
+# Authentik Helm values. Targets `authentik/authentik` v2026.8.x.
 #
 # Secret material (AUTHENTIK_SECRET_KEY, postgres password, bootstrap
 # admin password) is NOT in this file — it lives in the `authentik-secrets`
 # k8s Secret in namespace `auth`. See README.md for the
 # `kubectl create secret` invocation that sources from Bitwarden.
+#
+# Upgrade note: authentik enforces sequential major.minor upgrades --
+# skipping a major.minor line (e.g. 2026.2.x straight to 2026.8.x)
+# crash-loops the server with "Major version skips are not allowed".
+# Step through each major.minor release in order
+# (see https://docs.goauthentik.io/install-config/upgrade/).
 
 global:
   # Pin every component to gandalf — this is a single-node k3s cluster
@@ -192,3 +198,15 @@ postgresql:
   # the mount.
   volumePermissions:
     enabled: true
+    # The chart's default init-container image (docker.io/debian:13-slim)
+    # reproducibly failed to pull from gandalf on 2026-09-03 (two separate
+    # attempts, "insufficient_scope: authorization failed" -- not a rate
+    # limit, and not seen on any other docker.io image pulled that day).
+    # Point it at the postgres image instead: it's already pulled for the
+    # main container, and a Debian-based image ships the coreutils
+    # (chown/chmod) this init step needs. Keep the tag in sync with the
+    # chart's default postgresql.image.tag above.
+    image:
+      registry: docker.io
+      repository: library/postgres
+      tag: "17.11-bookworm"
