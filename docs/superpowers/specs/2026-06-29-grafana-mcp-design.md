@@ -36,12 +36,12 @@ Let's Encrypt cert validates normally.
 
 ## Components
 
-| Component             | Role                                                      | Placement       |
-| --------------------- | -------------------------------------------------------- | --------------- |
-| `mcp-grafana`         | Exposes Grafana/Prometheus query tools to Claude         | laptop (stdio)  |
-| Grafana               | Already deployed via `kube-prometheus-stack`             | gandalf         |
-| Prometheus            | Queried *through* Grafana's datasource proxy             | gandalf         |
-| Viewer service account| Identity the MCP authenticates as (token in Bitwarden)   | Grafana         |
+| Component              | Role                                                   | Placement      |
+| ---------------------- | ------------------------------------------------------ | -------------- |
+| `mcp-grafana`          | Exposes Grafana/Prometheus query tools to Claude       | laptop (stdio) |
+| Grafana                | Already deployed via `kube-prometheus-stack`           | gandalf        |
+| Prometheus             | Queried *through* Grafana's datasource proxy           | gandalf        |
+| Viewer service account | Identity the MCP authenticates as (token in Bitwarden) | Grafana        |
 
 ## Identity and least privilege
 
