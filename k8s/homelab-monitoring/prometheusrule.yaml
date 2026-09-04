@@ -49,3 +49,21 @@ spec:
           annotations:
             summary: "Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in <14d"
             description: "cert-manager certificate is within 14 days of expiry, meaning automatic renewal has likely been failing. Check `kubectl -n cert-manager get certificate,order,challenge`."
+        # The weekly restore-verification drill (k8s/backup/verify-cronjob.yaml,
+        # schedule "0 5 * * 0"). Same dead-man pattern as ResticBackupStale:
+        # 8d = weekly cadence + 1d grace; failed, crashed, and never-scheduled
+        # runs all stop the success timestamp advancing. Two known gaps, both
+        # accepted: (a) the metric is absent until the FIRST successful run
+        # (mitigated by the manual green-path run at rollout), and (b) if the
+        # CronJob object is deleted the metric goes absent and this never
+        # fires -- the CronJob is git-managed, so its disappearance would be
+        # a reviewed change (same accepted gap as ResticBackupStale).
+        - alert: ResticVerifyStale
+          expr: |
+            (time() - max(kube_cronjob_status_last_successful_time{cronjob="restic-verify", namespace="backup"})) > 8 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Weekly restic restore-verification drill has not succeeded in over 8d"
+            description: "No successful restic-verify CronJob run in >8d -- the backups are currently unverified. Check `kubectl -n backup get jobs` and the most recent restic-verify job's logs."
