@@ -23,3 +23,6 @@ secrets/
 
 # Tooling caches / generated output
 _generated/
+
+# Local git worktrees (superpowers:using-git-worktrees convention)
+.worktrees/

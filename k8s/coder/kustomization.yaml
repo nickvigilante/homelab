@@ -1,0 +1,13 @@
+# Full Flux takeover: both postgres and coder are HelmReleases here
+# (same treatment uptime-kuma got in #147). Namespace and PV/PVC stay
+# as plain manifests; the coder-secrets Secret stays manually-managed
+# for now (BWS/ESO migration tracked separately, #161).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - pv-pvc.yaml
+  - postgres-helmrelease.yaml
+  - helmrelease.yaml
+  - ../../sources/bitnami.yaml
+  - ../../sources/coder.yaml
