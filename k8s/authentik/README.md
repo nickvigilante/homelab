@@ -162,6 +162,15 @@ version so a values-only change never moves the images:
 CHART_VER="$(helm list -n auth -f '^authentik$' -o json | jq -r '.[0].chart' | sed 's/^authentik-//')"
 helm -n auth upgrade authentik authentik/authentik --version "$CHART_VER" -f values.yaml
 kubectl -n auth rollout status deployment/authentik-server
+kubectl -n auth rollout status deployment/authentik-worker
+# Every authentik-worker boot re-applies Authentik's shipped system
+# blueprints, which reset the email scope mapping override back to
+# the stock email_verified: False. Discovery alone won't catch this
+# (content-hash gated, see blueprints/README.md #193) -- reapply it
+# explicitly every time:
+kubectl -n auth exec deploy/authentik-worker -- ak apply_blueprint \
+  "$(kubectl -n auth exec deploy/authentik-worker -- \
+     find /blueprints/mounted -iname 'email-scope-mapping.yaml' | head -1)"
 ```
 
 To intentionally bump Authentik, set `--version` to the target
