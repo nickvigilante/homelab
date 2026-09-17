@@ -96,6 +96,18 @@ spec:
         # failsafe.
         - name: CODER_OIDC_IGNORE_EMAIL_VERIFIED
           value: "false"
+        # Authentik's coder provider issues 5-minute access tokens
+        # (its own default) and only hands out a refresh token if the
+        # client requests the offline_access scope. Without it, Coder
+        # has nothing to silently renew the session with and force
+        # logs users out on every expiry -- every ~5 minutes. Adding
+        # offline_access to Coder's default scope list (openid,
+        # profile, email) fixes it; Authentik's refresh_token_validity
+        # on the coder provider is already 30 days. Existing sessions
+        # need a fresh login to pick up a refresh token -- see
+        # https://coder.com/docs/admin/users/oidc-auth/refresh-tokens.
+        - name: CODER_OIDC_SCOPES
+          value: openid,profile,email,offline_access
 
       service:
         type: ClusterIP
