@@ -68,3 +68,53 @@ Validate on a throwaway scratch instance before prod — see
   copy on every run. The discovery path is idempotent.
 - A fresh instance discovers all mounted files on first boot; files *added*
   to a long-running instance wait for the periodic discovery tick.
+
+## Known gap: `email-scope-mapping.yaml` can silently regress on restart (#193)
+
+`email-scope-mapping.yaml` overrides a *shipped* Authentik object (the
+`goauthentik.io/providers/oauth2/scope-email` scope mapping), not a
+fresh custom one. Shipped system blueprints (e.g.
+`providers-oauth2.yaml`, which ships the stock `email_verified: False`
+expression this file overrides) re-apply on every `authentik-server` /
+`authentik-worker` boot -- including Authentik version upgrades.
+
+Discovery for our own ConfigMap-mounted blueprints is gated on a
+content hash of the file: if `email-scope-mapping.yaml` hasn't
+changed since it was last applied, discovery treats it as
+"already applied" and skips re-writing the database, even though a
+*later* system-blueprint reapply may have already overwritten that
+same row. This happened for real on 2026-09-04's Authentik 2026.8.1
+upgrade -- the override silently reverted to the stock
+`email_verified: False`, broke Coder + Outline login, and neither the
+boot-time discovery nor the hourly discovery cron caught it over the
+following 12 days, because both share the same hash-gated blind spot.
+Full writeup in #193.
+
+**After every `authentik-server` / `authentik-worker` restart or
+Authentik version bump**, explicitly re-apply this one file --
+discovery alone is not sufficient:
+
+```bash
+kubectl -n auth exec deploy/authentik-worker -- ak apply_blueprint \
+  "$(kubectl -n auth exec deploy/authentik-worker -- \
+     find /blueprints/mounted -iname 'email-scope-mapping.yaml' | head -1)"
+```
+
+This is safe specifically for this file because `authentik_providers_oauth2.scopemapping` objects are
+matched by the stable `managed:` key, so re-running it adopts the
+existing row instead of duplicating it -- unlike the
+`ak apply_blueprint` ExpressionPolicy gotcha above. **Do not** loop
+this command over every blueprint file for the same reason that
+gotcha exists; `recovery-flow.yaml`'s ExpressionPolicy has no such
+stable key and will duplicate on repeated `ak apply_blueprint` runs.
+
+Verify it took with a direct DB read (also useful any time Coder or
+Outline OIDC login unexpectedly fails with an email-verification
+error):
+
+```bash
+kubectl -n auth exec deploy/authentik-worker -- ak shell -c "
+from authentik.providers.oauth2.models import ScopeMapping
+print(ScopeMapping.objects.get(managed='goauthentik.io/providers/oauth2/scope-email').expression)
+"
+```
