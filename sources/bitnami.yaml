@@ -4,5 +4,13 @@ metadata:
   name: bitnami
   namespace: flux-system
 spec:
+  # Bitnami's classic index (charts.bitnami.com, now redirecting to
+  # repo.broadcom.com) still resolves, but every chart entry's `urls:`
+  # now points at an OCI reference on Docker Hub instead of a
+  # downloadable tarball (Bitnami's 2025-08 free-tier change). A
+  # non-OCI HelmRepository can't fetch those -- it errors with
+  # "unsupported protocol scheme 'oci'", which broke the coder/postgres
+  # HelmRelease's chart pull. Point straight at the OCI registry instead.
+  type: oci
   interval: 1h
-  url: https://charts.bitnami.com/bitnami
+  url: oci://registry-1.docker.io/bitnamicharts
