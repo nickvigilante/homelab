@@ -109,6 +109,24 @@ spec:
         - name: CODER_OIDC_SCOPES
           value: openid,profile,email,offline_access
 
+        # The DERP healthcheck's STUN test runs against every host in
+        # this list, and doesn't fail fast: on a non-response it
+        # retries every ~2s until the caller's context dies, so one
+        # dead server consumes the ENTIRE health-check window and
+        # drags the whole DERP section down with it (confirmed via a
+        # live pprof goroutine dump -- stun4.l.google.com went silent
+        # while the other four Google STUN hosts still answered).
+        # STUN only helps negotiate direct P2P connections instead of
+        # relaying through the embedded DERP server; in a single-
+        # replica homelab that embedded relay is already same-host
+        # and fast (confirmed via direct testing), so there's no real
+        # P2P win to trade for depending on a public STUN server list
+        # that keeps rotting out from under us. Disabling it removes
+        # this whole failure class instead of trading one flaky
+        # Google host for another.
+        - name: CODER_DERP_SERVER_STUN_ADDRESSES
+          value: disable
+
       service:
         type: ClusterIP
 
