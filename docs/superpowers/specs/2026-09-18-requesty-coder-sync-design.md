@@ -70,6 +70,7 @@ The tool turns the catalog into a desired state in this order.
 1. **Host preference** decides which entry represents a group.
    A _plain_ entry has neither an `@region` suffix nor a `:variant` service-tier suffix (`:flex`, `:priority`), because variants share the canonical name of the plain model but are priced differently.
    The order is: the first-party plain entry (the ID prefix equals the lab, for example `anthropic/claude-sonnet-4-5`), then the cheapest plain entry, then the cheapest entry overall, with the lexicographically smallest ID breaking ties.
+   A small host alias table maps a host prefix to its lab where the two differ, today `minimaxi` to `minimax`.
 1. **Skipped, reported as INFO.** Free entries without tool calling are not registered, because Agents cannot use them.
    Today these are `poolside/laguna-m.1`, `poolside/laguna-xs.2`, and `nvidia/nemotron-3.5-content-safety`.
    Models skipped for a retirement date are reported once per canonical model with the earliest date, but only when no other host keeps that model registered.
@@ -143,7 +144,7 @@ One stdlib-only Python script, `scripts/requesty-coder-sync.py`, with two subcom
 | `MODEL_DRIFT`                           | `context_limit`, `max_output_tokens`, or owning provider differs, including moves into or out of the free provider |
 | `PRICE_DRIFT`                           | Custom price absent or different                                                                     |
 | `ORPHAN_MODEL`                          | Enabled in Coder but no longer selected (retired, or the host preference changed); orphans that are already disabled are not reported, so the alert clears once `--disable-orphans` has run |
-| `INFO`                                  | Models skipped on purpose: free models without tool calling, and models with a Requesty retirement date |
+| `INFO`                                  | Not drift, worth knowing: models skipped on purpose (free models without tool calling, models with a Requesty retirement date), non-plain fallbacks, and models that are selected but disabled in Coder (for example after `--disable-orphans`, when the model later returns), which the operator may have disabled by hand and so is never re-enabled automatically |
 
 A host change for a model appears as a `MISSING_MODEL` and an `ORPHAN_MODEL` reported together.
 Drift on the free provider gets its own summary line, so a newly free model is easy to spot.
