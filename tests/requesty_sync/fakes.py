@@ -179,7 +179,11 @@ class _Handler(BaseHTTPRequestHandler):
         status, payload = self.server.responses.get(
             (self.command, path), (404, {"message": "not found"})
         )
-        raw = b"" if payload is None else json.dumps(payload).encode()
+        raw = (
+            payload
+            if isinstance(payload, bytes)
+            else (b"" if payload is None else json.dumps(payload).encode())
+        )
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))

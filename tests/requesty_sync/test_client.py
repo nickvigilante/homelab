@@ -69,3 +69,17 @@ def test_fetch_catalog_rejects_a_malformed_response(sync, stub):
     stub.responses[("GET", "/v1/models")] = (200, {"oops": True})
     with pytest.raises(sync.SyncError, match="no 'data' list"):
         sync.fetch_catalog(f"http://127.0.0.1:{stub.server_port}/v1/models")
+
+
+def test_a_non_json_success_body_becomes_an_api_error(sync, stub):
+    stub.responses[("GET", "/api/v2/ai/providers")] = (200, b"<html>login</html>")
+    with pytest.raises(sync.ApiError, match="invalid JSON") as excinfo:
+        client_for(sync, stub).list_providers()
+    assert excinfo.value.status == 0
+
+
+def test_a_wrong_shaped_response_becomes_a_sync_error(sync, stub):
+    stub.responses[("GET", "/api/v2/organizations")] = (200, [{"id": "org-1", "is_default": True}])
+    stub.responses[("GET", "/api/v2/ai/providers")] = (200, {"message": "nope"})
+    with pytest.raises(sync.SyncError, match="unexpected response shape"):
+        sync.load_live(client_for(sync, stub))

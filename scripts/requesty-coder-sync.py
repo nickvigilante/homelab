@@ -21,6 +21,7 @@ Exit codes: 0 in sync, 1 drift, 2 error.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -325,7 +326,7 @@ def fetch_catalog(url: str = REQUESTY_MODELS_URL, timeout: float = 60.0) -> list
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read())
-    except (OSError, ValueError) as err:
+    except (OSError, ValueError, http.client.HTTPException) as err:
         raise SyncError(f"fetch {url}: {err}") from err
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
@@ -356,11 +357,19 @@ class CoderClient:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read()
         except urllib.error.HTTPError as err:
-            detail = err.read().decode(errors="replace")[:500]
+            try:
+                detail = err.read().decode(errors="replace")[:500]
+            except (OSError, http.client.HTTPException):
+                detail = ""
             raise ApiError(method, path, err.code, detail) from err
-        except OSError as err:
+        except (OSError, http.client.HTTPException) as err:
             raise ApiError(method, path, 0, str(err)) from err
-        return json.loads(raw) if raw else None
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except ValueError as err:
+            raise ApiError(method, path, 0, f"invalid JSON in response: {err}") from err
 
     def default_org_id(self) -> str:
         for org in self.request("GET", "/api/v2/organizations"):
@@ -406,9 +415,12 @@ def is_managed_name(name: str) -> bool:
 
 
 def load_live(client: CoderClient) -> Live:
-    org_id = client.default_org_id()
-    providers = {p["name"]: p for p in client.list_providers() if is_managed_name(p["name"])}
-    managed_ids = {p["id"] for p in providers.values()}
-    models = [m for m in client.list_models(org_id) if m["ai_provider_id"] in managed_ids]
-    prices = {(p["provider"], p["model"]): p for p in client.list_custom_prices()}
+    try:
+        org_id = client.default_org_id()
+        providers = {p["name"]: p for p in client.list_providers() if is_managed_name(p["name"])}
+        managed_ids = {p["id"] for p in providers.values()}
+        models = [m for m in client.list_models(org_id) if m["ai_provider_id"] in managed_ids]
+        prices = {(p["provider"], p["model"]): p for p in client.list_custom_prices()}
+    except (KeyError, TypeError, AttributeError) as err:
+        raise SyncError(f"unexpected response shape from Coder: {err!r}") from err
     return Live(org_id=org_id, providers=providers, models=models, prices=prices)
