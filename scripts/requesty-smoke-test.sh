@@ -42,7 +42,10 @@ HTTP_STATUS=""
 ANTH_BASES=()
 MODEL_IDS=()
 declare -A MODEL=()
-declare -A EXTRA=()
+EXTRA_KEYS=(anthropic_3p google_3p gemma_google gemma_openai)
+declare -A EXTRA_TYPE=([anthropic_3p]=anthropic [google_3p]=google [gemma_google]=google [gemma_openai]=openai)
+declare -A EXTRA_MODEL=()
+declare -A EXTRA_DISPLAY=()
 declare -A PROVIDER_ID=()
 declare -A RESULT=()
 
@@ -179,7 +182,7 @@ get_credentials() {
 }
 
 pick_models() {
-  local type
+  local type key gemma=nebius/google/gemma-3-27b-it
   say "2. Picking one cheap model per provider type from the public catalog"
   CAT="$(curl -fsS "$REQUESTY_URL/v1/models")" || {
     echo "cannot fetch the Requesty catalog" >&2
@@ -193,10 +196,14 @@ pick_models() {
     }
     note "$type -> ${MODEL[$type]}"
   done
-  EXTRA[anthropic]="$(pick_third_party anthropic claude)"
-  EXTRA[google]="$(pick_third_party google gemini)"
-  for type in anthropic google; do
-    note "$type, hosted elsewhere -> ${EXTRA[$type]:-none found}"
+  EXTRA_MODEL[anthropic_3p]="$(pick_third_party anthropic claude)"
+  EXTRA_MODEL[google_3p]="$(pick_third_party google gemini)"
+  # A model that failed in Coder's google type on the first real run: try it on
+  # the google type again and on the openai type, to tell the two apart.
+  EXTRA_MODEL[gemma_google]="$(jq -r --arg id "$gemma" '.data[] | select(.id == $id) | .id' <<<"$CAT")"
+  EXTRA_MODEL[gemma_openai]="${EXTRA_MODEL[gemma_google]}"
+  for key in "${EXTRA_KEYS[@]}"; do
+    note "extra $key (${EXTRA_TYPE[$key]} type) -> ${EXTRA_MODEL[$key]:-none found}"
   done
 }
 
@@ -278,15 +285,17 @@ create_smoke_objects() {
 # providers, and a model whose output limit exceeds its context limit. These
 # are the shapes the real sync will register.
 extra_models() {
-  local type
+  local key type
   say "5. Extra models: third-party hosts, a duplicate display name, limits"
-  for type in anthropic google; do
-    [[ -n ${EXTRA[$type]:-} && -n ${PROVIDER_ID[$type]:-} ]] || continue
-    # The display name is the model ID, so the picker shows which one is which.
-    if create_model "$type" "${EXTRA[$type]}" "${EXTRA[$type]}"; then
-      RESULT[extra_created_$type]=yes
+  for key in "${EXTRA_KEYS[@]}"; do
+    type=${EXTRA_TYPE[$key]}
+    [[ -n ${EXTRA_MODEL[$key]:-} && -n ${PROVIDER_ID[$type]:-} ]] || continue
+    # The display name says which model and type, so the picker shows which is which.
+    EXTRA_DISPLAY[$key]="${EXTRA_MODEL[$key]} ($type type)"
+    if create_model "$type" "${EXTRA_MODEL[$key]}" "${EXTRA_DISPLAY[$key]}"; then
+      RESULT[extra_created_$key]=yes
     else
-      RESULT[extra_created_$type]=no
+      RESULT[extra_created_$key]=no
     fi
   done
   # A duplicate display name across providers, on a model nobody chats with: the
@@ -329,7 +338,7 @@ api_probes() {
 }
 
 ui_checks() {
-  local type base i
+  local type key base i
   say "7. Browser checks"
   note "Open $CODER_URL, go to Coder Agents, start a chat and pick each 'Smoke' model."
   note "Send: $PROMPT"
@@ -339,6 +348,7 @@ ui_checks() {
       RESULT[chat_$type]=yes
     else
       RESULT[chat_$type]=no
+      RESULT[error_$type]="$(ask 'What error did the chat show (short, optional)')"
     fi
   done
   RESULT[chat_anthropic]=no
@@ -357,12 +367,13 @@ ui_checks() {
       fi
     done
   fi
-  for type in anthropic google; do
-    [[ ${RESULT[extra_created_$type]:-no} == yes ]] || continue
-    if yesno "Did the chat with ${EXTRA[$type]} (third-party host, Smoke $type) reply?"; then
-      RESULT[chat_extra_$type]=yes
+  for key in "${EXTRA_KEYS[@]}"; do
+    [[ ${RESULT[extra_created_$key]:-no} == yes ]] || continue
+    if yesno "Did the chat with '${EXTRA_DISPLAY[$key]}' reply?"; then
+      RESULT[chat_extra_$key]=yes
     else
-      RESULT[chat_extra_$type]=no
+      RESULT[chat_extra_$key]=no
+      RESULT[error_$key]="$(ask 'What error did the chat show (short, optional)')"
     fi
   done
   if yesno "On the AI settings Models page, do the three Requesty logos render in both light and dark themes?"; then
@@ -419,16 +430,19 @@ role_probe() {
 }
 
 report() {
-  local type recommend=""
+  local type key recommend=""
   local anth_base=${RESULT[anthropic_base]:-none}
   if [[ $anth_base != none && $anth_base != "$REQUESTY_URL/v1" ]]; then
-    recommend+="  BASE_URL_BY_TYPE = {\"anthropic\": \"$anth_base\"}"$'\n'
+    recommend+="  BASE_URL_BY_TYPE = {\"anthropic\": \"$anth_base\"} (already set in the header when this is https://router.requesty.ai)"$'\n'
   fi
   if [[ ${RESULT[chat_anthropic]:-no} != yes ]]; then
     recommend+="  NATIVE_TYPES: remove \"anthropic\" (the anthropic type did not work)"$'\n'
   fi
   if [[ ${RESULT[chat_google]:-no} != yes ]]; then
     recommend+="  NATIVE_TYPES: remove \"google\" (the google type did not work)"$'\n'
+  fi
+  if [[ ${RESULT[chat_extra_gemma_google]:-} == no && ${RESULT[chat_extra_gemma_openai]:-} == yes ]]; then
+    recommend+="  NATIVE_TYPES: remove \"google\" (gemma failed on the google type but worked on the openai type)"$'\n'
   fi
   [[ -n $recommend ]] || recommend="  none: the defaults in the script header are right"$'\n'
   say "Results"
@@ -439,11 +453,12 @@ report() {
     echo "- Direct OpenAI-shape call, openai model (${MODEL[openai]:-?}): ${RESULT[direct_openai]:-?}"
     echo "- Direct OpenAI-shape call, google model (${MODEL[google]:-?}): ${RESULT[direct_google]:-?}"
     echo "- Direct Anthropic-shape call: /v1/messages returned ${RESULT[direct_v1_messages]:-?}, /messages returned ${RESULT[direct_messages]:-?}"
-    echo "- Coder chat, openai type: ${RESULT[chat_openai]:-not run}"
-    echo "- Coder chat, google type: ${RESULT[chat_google]:-not run}"
+    echo "- Coder chat, openai type: ${RESULT[chat_openai]:-not run}${RESULT[error_openai]:+ (error: ${RESULT[error_openai]})}"
+    echo "- Coder chat, google type: ${RESULT[chat_google]:-not run}${RESULT[error_google]:+ (error: ${RESULT[error_google]})}"
     echo "- Coder chat, anthropic type: ${RESULT[chat_anthropic]:-not run} (base URL that worked: $anth_base)"
-    echo "- Coder chat, third-party-hosted anthropic model (${EXTRA[anthropic]:-none}): ${RESULT[chat_extra_anthropic]:-not run}"
-    echo "- Coder chat, third-party-hosted google model (${EXTRA[google]:-none}): ${RESULT[chat_extra_google]:-not run}"
+    for key in "${EXTRA_KEYS[@]}"; do
+      echo "- Coder chat, ${EXTRA_MODEL[$key]:-none} on the ${EXTRA_TYPE[$key]} type: ${RESULT[chat_extra_$key]:-not run}${RESULT[error_$key]:+ (error: ${RESULT[error_$key]})}"
+    done
     echo "- Requesty logos rendered on both themes: ${RESULT[logos]:-not run}"
     echo "- Duplicate display names across providers: ${RESULT[duplicate_display_names]:-not run}"
     echo "- Output limit above context limit: ${RESULT[limits_mismatch]:-not run}"
