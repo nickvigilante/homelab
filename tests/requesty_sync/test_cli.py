@@ -179,3 +179,12 @@ def test_an_unexpected_exception_exits_2_and_pings_down(sync, tmp_path, stub, ca
     assert code == 2
     assert "unexpected RuntimeError: boom" in capsys.readouterr().err
     assert "status=down" in stub.requests[-1]["query"]
+
+
+def test_a_malformed_push_url_warns_without_echoing_it(sync, tmp_path, capsys):
+    env = {**ENV, "UPTIME_KUMA_PUSH_URL": "not-a-url-with-token-abc123"}
+    code, _ = run(sync, ["check", "--catalog-file", write_catalog(tmp_path)], env, FakeCoder())
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "heartbeat failed" in err
+    assert "abc123" not in err

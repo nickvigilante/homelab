@@ -749,12 +749,17 @@ def emit(findings: list[Finding], summary: str, as_json: bool, out: TextIO) -> N
 def push_heartbeat(url: str, status: str, message: str) -> None:
     query = urllib.parse.urlencode({"status": status, "msg": message[:200], "ping": ""})
     separator = "&" if "?" in url else "?"
-    request = urllib.request.Request(f"{url}{separator}{query}", headers={"User-Agent": USER_AGENT})
     try:
+        request = urllib.request.Request(
+            f"{url}{separator}{query}", headers={"User-Agent": USER_AGENT}
+        )
         with urllib.request.urlopen(request, timeout=15) as response:
             response.read()
     except OSError as err:
         print(f"warning: heartbeat failed: {err}", file=sys.stderr)
+    except (ValueError, http.client.HTTPException) as err:
+        # The message can embed the push URL, which carries a token: name the class only.
+        print(f"warning: heartbeat failed: {type(err).__name__}", file=sys.stderr)
 
 
 def default_catalog_loader(args: argparse.Namespace) -> list[dict[str, Any]]:
