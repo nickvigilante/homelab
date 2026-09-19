@@ -424,3 +424,182 @@ def load_live(client: CoderClient) -> Live:
     except (KeyError, TypeError, AttributeError) as err:
         raise SyncError(f"unexpected response shape from Coder: {err!r}") from err
     return Live(org_id=org_id, providers=providers, models=models, prices=prices)
+
+
+# ---- drift detection -------------------------------------------------------
+
+MISSING_PROVIDER = "MISSING_PROVIDER"
+MISSING_MODEL = "MISSING_MODEL"
+PROVIDER_DRIFT = "PROVIDER_DRIFT"
+MODEL_DRIFT = "MODEL_DRIFT"
+PRICE_DRIFT = "PRICE_DRIFT"
+ORPHAN_MODEL = "ORPHAN_MODEL"
+INFO = "INFO"
+DRIFT_CATEGORIES = (
+    MISSING_PROVIDER,
+    MISSING_MODEL,
+    PROVIDER_DRIFT,
+    MODEL_DRIFT,
+    PRICE_DRIFT,
+    ORPHAN_MODEL,
+)
+
+
+@dataclass
+class Finding:
+    category: str
+    subject: str
+    detail: str = ""
+    provider: str = ""
+    action: dict[str, Any] | None = None
+
+
+def provider_changes(want: DesiredProvider, have: dict[str, Any]) -> dict[str, Any]:
+    changes: dict[str, Any] = {}
+    for field in ("base_url", "icon", "display_name"):
+        if have.get(field) != getattr(want, field):
+            changes[field] = getattr(want, field)
+    if have.get("enabled") is not True:
+        changes["enabled"] = True
+    return changes
+
+
+def model_changes(
+    want: DesiredModel, have: dict[str, Any], provider_names: dict[str, str]
+) -> tuple[dict[str, Any], list[str], str | None]:
+    """Returns the PATCH payload, human-readable notes, and a provider to move to."""
+    payload: dict[str, Any] = {}
+    notes: list[str] = []
+    move_to = None
+    current = provider_names.get(have["ai_provider_id"])
+    if current != want.provider:
+        move_to = want.provider
+        notes.append(f"provider {current} -> {want.provider}")
+    if have.get("context_limit") != want.context_limit:
+        payload["context_limit"] = want.context_limit
+        notes.append(f"context_limit {have.get('context_limit')} -> {want.context_limit}")
+    config = have.get("model_config") or {}
+    if (
+        want.max_output_tokens is not None
+        and config.get("max_output_tokens") != want.max_output_tokens
+    ):
+        # Merge, so tuning an operator set in the UI (temperature, ...) survives.
+        payload["model_config"] = {**config, "max_output_tokens": want.max_output_tokens}
+        notes.append(
+            f"max_output_tokens {config.get('max_output_tokens')} -> {want.max_output_tokens}"
+        )
+    return payload, notes, move_to
+
+
+def price_payload(want: DesiredModel) -> dict[str, Any]:
+    input_price, output_price, cache_read, cache_write = want.prices
+    return {
+        "provider": want.provider_type,
+        "model": want.model,
+        "input_price": input_price,
+        "output_price": output_price,
+        "cache_read_price": cache_read,
+        "cache_write_price": cache_write,
+    }
+
+
+def compute_diff(desired: Desired, live: Live) -> list[Finding]:
+    findings: list[Finding] = []
+
+    for name in sorted(desired.providers):
+        want = desired.providers[name]
+        have = live.providers.get(name)
+        if have is None:
+            detail = f"create ({want.type}, {want.base_url})"
+            action = {"op": "create_provider", "provider": want}
+            findings.append(Finding(MISSING_PROVIDER, name, detail, name, action))
+            continue
+        changes = provider_changes(want, have)
+        if changes:
+            detail = ", ".join(f"{k}: {have.get(k)!r} -> {v!r}" for k, v in changes.items())
+            action = {"op": "update_provider", "id": have["id"], "name": name, "payload": changes}
+            findings.append(Finding(PROVIDER_DRIFT, name, detail, name, action))
+        if not have.get("api_keys"):
+            action = {"op": "set_key", "id": have["id"], "name": name}
+            findings.append(Finding(PROVIDER_DRIFT, name, "no API key configured", name, action))
+
+    provider_names = {p["id"]: name for name, p in live.providers.items()}
+    live_by_model = {m["model"]: m for m in live.models}
+
+    for model_id in sorted(desired.models):
+        want = desired.models[model_id]
+        have = live_by_model.get(model_id)
+        if have is None:
+            detail = f"create under {want.provider}"
+            action = {"op": "create_model", "model": want}
+            findings.append(Finding(MISSING_MODEL, model_id, detail, want.provider, action))
+            continue
+        payload, notes, move_to = model_changes(want, have, provider_names)
+        if notes:
+            action = {
+                "op": "update_model",
+                "id": have["id"],
+                "payload": payload,
+                "move_to": move_to,
+            }
+            findings.append(Finding(MODEL_DRIFT, model_id, "; ".join(notes), want.provider, action))
+
+    for have in sorted(live.models, key=lambda m: m["model"]):
+        if have["model"] not in desired.models and have.get("enabled"):
+            owner = provider_names.get(have["ai_provider_id"], "")
+            action = {"op": "disable_model", "id": have["id"]}
+            detail = f"no longer selected (under {owner})"
+            findings.append(Finding(ORPHAN_MODEL, have["model"], detail, owner, action))
+
+    for model_id in sorted(desired.models):
+        want = desired.models[model_id]
+        have = live.prices.get((want.provider_type, model_id))
+        current = (
+            None
+            if have is None
+            else (
+                have.get("input_price"),
+                have.get("output_price"),
+                have.get("cache_read_price"),
+                have.get("cache_write_price"),
+            )
+        )
+        if current != want.prices:
+            detail = "absent" if current is None else f"{current} -> {want.prices}"
+            action = {"op": "upsert_price", "price": price_payload(want)}
+            findings.append(Finding(PRICE_DRIFT, model_id, detail, want.provider, action))
+
+    findings.extend(Finding(INFO, line) for line in desired.info)
+    return findings
+
+
+def has_drift(findings: list[Finding]) -> bool:
+    return any(f.category != INFO for f in findings)
+
+
+def summarize(findings: list[Finding]) -> str:
+    drift = [f for f in findings if f.category != INFO]
+    if not drift:
+        return "in sync"
+    counts = Counter(f.category for f in drift)
+    parts = [f"{counts[c]} {c.lower().replace('_', ' ')}" for c in DRIFT_CATEGORIES if counts[c]]
+    text = "drift: " + ", ".join(parts)
+    new_free = sum(
+        1 for f in drift if f.category == MISSING_MODEL and f.provider == FREE_PROVIDER_NAME
+    )
+    if new_free:
+        text += f"; {new_free} new free model{'s' if new_free != 1 else ''}"
+    return text
+
+
+def format_report(findings: list[Finding], summary: str) -> str:
+    lines: list[str] = []
+    for category in (*DRIFT_CATEGORIES, INFO):
+        group = [f for f in findings if f.category == category]
+        if not group:
+            continue
+        lines.append(f"{category} ({len(group)})")
+        lines.extend(f"  {f.subject}: {f.detail}" if f.detail else f"  {f.subject}" for f in group)
+        lines.append("")
+    lines.append(summary)
+    return "\n".join(lines)
