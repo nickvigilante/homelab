@@ -61,6 +61,8 @@ This settles what the spec calls the two knobs (`NATIVE_TYPES` and `BASE_URL_BY_
 
 Run every command in this task in the operator's own terminal on **gandalf**, in one shell session, because the steps share variables.
 
+**Shortcut:** `scripts/requesty-smoke-test.sh` runs Steps 1 to 7 interactively, prompting for the credentials, and additionally probes the Coder API behaviours the final review flagged (price list shape, null-price round trip, partial PATCH, API key replace versus append, duplicate display names, third-party-hosted models on the native types). It deletes its `smoke-*` objects when it finishes and writes a results file with no secrets in it. Step 6 (the role probe) is optional inside it. The manual steps below remain the reference.
+
 - [ ] **Step 1: Load credentials without echoing them (operator, gandalf)**
 
 ```bash
