@@ -87,7 +87,7 @@ Exact counts come from the implementation and its tests.
 | -------------- | ---------------------------------------------------------------------------------------------- |
 | `name`         | `<lab>-via-requesty`, or `free-via-requesty`                                                   |
 | `display_name` | "\<Vendor> via Requesty" from a small proper-name table, and "Free models via Requesty"        |
-| `base_url`     | `https://router.requesty.ai/v1`                                                                |
+| `base_url`     | `https://router.requesty.ai/v1`, except `https://router.requesty.ai` for the `anthropic` type, because Coder's Anthropic client appends `/v1/messages` itself |
 | `type`         | `anthropic` for Anthropic, `google` for Google, and `openai` for every other vendor and free   |
 | `api_keys`     | The Requesty key, set on creation or with `--rotate-key`                                       |
 | `enabled`      | `true`                                                                                         |
