@@ -242,3 +242,18 @@ def test_a_non_plain_fallback_is_reported(sync):
     assert set(desired.models) == {"acme/foo:flex", "acme/bar"}
     assert "only a non-plain entry is available: acme/foo:flex" in desired.info
     assert not any("acme/bar" in line for line in desired.info)
+
+
+def test_an_aliased_first_party_host_beats_a_cheaper_host(sync):
+    desired = sync.build_desired(
+        [
+            make_entry("minimaxi/m2", lab="minimax", canonical="m2", inp=2e-6, out=2e-6),
+            make_entry("inceptron/m2", lab="minimax", canonical="m2", inp=1e-6, out=1e-6),
+        ]
+    )
+    assert list(desired.models) == ["minimaxi/m2"]
+
+
+def test_retire_date_tolerates_a_non_numeric_value(sync):
+    assert sync.retire_date("someday") == "someday"
+    assert sync.retire_date(1_792_108_800) == "2026-10-16"

@@ -158,7 +158,10 @@ def is_retiring(entry: dict[str, Any]) -> bool:
 
 
 def retire_date(timestamp: float) -> str:
-    return datetime.fromtimestamp(timestamp, UTC).date().isoformat()
+    try:
+        return datetime.fromtimestamp(timestamp, UTC).date().isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return str(timestamp)
 
 
 def is_free(entry: dict[str, Any]) -> bool:
@@ -181,8 +184,12 @@ def is_plain(entry: dict[str, Any]) -> bool:
     return "@" not in tail and ":" not in tail
 
 
+HOST_ALIASES = {"minimaxi": "minimax"}
+
+
 def host_of(entry: dict[str, Any]) -> str:
-    return entry["id"].split("/", 1)[0]
+    host = entry["id"].split("/", 1)[0]
+    return HOST_ALIASES.get(host, host)
 
 
 def pick(entries: list[dict[str, Any]], lab: str) -> dict[str, Any]:
@@ -367,14 +374,20 @@ class CoderClient:
         except ValueError as err:
             raise ApiError(method, path, 0, f"invalid JSON in response: {err}") from err
 
+    def _get_list(self, path: str) -> list[dict[str, Any]]:
+        result = self.request("GET", path)
+        if not isinstance(result, list):
+            raise ApiError("GET", path, 0, f"expected a JSON list, got {type(result).__name__}")
+        return result
+
     def default_org_id(self) -> str:
-        for org in self.request("GET", "/api/v2/organizations"):
+        for org in self._get_list("/api/v2/organizations"):
             if org.get("is_default"):
                 return org["id"]
         raise SyncError("Coder has no default organization")
 
     def list_providers(self) -> list[dict[str, Any]]:
-        return self.request("GET", "/api/v2/ai/providers")
+        return self._get_list("/api/v2/ai/providers")
 
     def create_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", "/api/v2/ai/providers", payload)
@@ -383,7 +396,11 @@ class CoderClient:
         self.request("PATCH", f"/api/v2/ai/providers/{provider_id}", payload)
 
     def list_models(self, org_id: str) -> list[dict[str, Any]]:
-        return self.request("GET", f"/api/v2/organizations/{org_id}/chats/models")["models"]
+        path = f"/api/v2/organizations/{org_id}/chats/models"
+        models = self.request("GET", path)["models"]
+        if not isinstance(models, list):
+            raise ApiError("GET", path, 0, f"expected a JSON list, got {type(models).__name__}")
+        return models
 
     def create_model(self, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", f"/api/v2/organizations/{org_id}/chats/models", payload)
@@ -392,7 +409,7 @@ class CoderClient:
         self.request("PATCH", f"/api/v2/organizations/{org_id}/chats/models/{model_id}", payload)
 
     def list_custom_prices(self) -> list[dict[str, Any]]:
-        return self.request("GET", "/api/experimental/ai/model-prices?source=custom")
+        return self._get_list("/api/experimental/ai/model-prices?source=custom")
 
     def upsert_prices(self, prices: list[dict[str, Any]]) -> None:
         self.request("POST", "/api/experimental/ai/model-prices", {"prices": prices})
@@ -539,6 +556,8 @@ def compute_diff(desired: Desired, live: Live) -> list[Finding]:
                 "move_to": move_to,
             }
             findings.append(Finding(MODEL_DRIFT, model_id, "; ".join(notes), want.provider, action))
+        if have.get("enabled") is False:
+            findings.append(Finding(INFO, f"selected but disabled in Coder: {model_id}"))
 
     for have in sorted(live.models, key=lambda m: m["model"]):
         if have["model"] not in desired.models and have.get("enabled"):

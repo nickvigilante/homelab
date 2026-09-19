@@ -80,6 +80,19 @@ def test_a_non_json_success_body_becomes_an_api_error(sync, stub):
 
 def test_a_wrong_shaped_response_becomes_a_sync_error(sync, stub):
     stub.responses[("GET", "/api/v2/organizations")] = (200, [{"id": "org-1", "is_default": True}])
-    stub.responses[("GET", "/api/v2/ai/providers")] = (200, {"message": "nope"})
+    stub.responses[("GET", "/api/v2/ai/providers")] = (200, [{"message": "nope"}])
     with pytest.raises(sync.SyncError, match="unexpected response shape"):
         sync.load_live(client_for(sync, stub))
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("list_providers", "/api/v2/ai/providers"),
+        ("list_custom_prices", "/api/experimental/ai/model-prices"),
+    ],
+)
+def test_a_json_object_from_a_list_endpoint_is_an_api_error(sync, stub, method, path):
+    stub.responses[("GET", path)] = (200, {})
+    with pytest.raises(sync.ApiError, match="expected a JSON list"):
+        getattr(client_for(sync, stub), method)()

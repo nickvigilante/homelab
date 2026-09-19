@@ -75,7 +75,9 @@ def test_enabled_and_display_name_are_not_drift(sync, desired, fake):
     model = next(m for m in fake.models.values() if m["model"] == "openai/gpt-x")
     model["enabled"] = False
     model["display_name"] = "My favourite"
-    assert diff(sync, desired, fake) == []
+    findings = diff(sync, desired, fake)
+    assert not sync.has_drift(findings)
+    assert [f.subject for f in findings] == ["selected but disabled in Coder: openai/gpt-x"]
 
 
 def test_a_model_that_becomes_free_moves_to_the_free_provider(sync, fake):
