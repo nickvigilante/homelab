@@ -144,7 +144,7 @@ on_exit() {
 }
 
 get_credentials() {
-  local version
+  local version out
   say "1. Credentials"
   CODER_URL="$(ask 'Coder URL' "$CODER_URL")"
   if [[ -z $CODER_SESSION_TOKEN ]]; then
@@ -152,8 +152,15 @@ get_credentials() {
   fi
   if [[ -z $CODER_SESSION_TOKEN ]]; then
     need coder
-    note "Creating a 2h token (run 'coder login $CODER_URL' as an admin first if this fails)"
-    CODER_SESSION_TOKEN="$(CODER_URL="$CODER_URL" coder tokens create --name requesty-smoke --lifetime 2h 2>&1 | grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' | head -1)"
+    note "Creating a 2h token with the coder CLI (needs 'coder login $CODER_URL' as an admin)"
+    out="$(CODER_URL="$CODER_URL" coder tokens create --name requesty-smoke --lifetime 2h 2>&1)"
+    CODER_SESSION_TOKEN="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
+    if [[ -z $CODER_SESSION_TOKEN ]]; then
+      echo "coder tokens create did not return a token. Its output was:" >&2
+      printf '%s\n' "$out" | sed 's/^/   /' >&2
+      echo "If it says you are signed out or the session expired, run: coder login $CODER_URL" >&2
+      exit 2
+    fi
   fi
   [[ -n $CODER_SESSION_TOKEN ]] || {
     echo "no Coder token" >&2
