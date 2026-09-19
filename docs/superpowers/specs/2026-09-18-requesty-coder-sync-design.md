@@ -44,6 +44,7 @@ Concretely:
 - Prices are USD per token: `input_price`, `output_price`, `cached_price`, with tiered `pricing[]` for long context.
 - There is no cache-write price in the catalog.
 - 12 entries are free (`input_price` and `output_price` both zero), of which 9 support tool calling, and 4 of those 9 also have a paid twin under another host.
+- 63 entries carry a `retires` Unix timestamp (61 of them tool-capable), for example `poolside/laguna-m.1` on 2026-09-21, several Gemini 2.5 entries on 2026-10-16, and several OpenAI models on 2026-12-10, while the other 629 entries have no such field.
 - Only two canonical names appear under more than one lab today: `kimi-k2.6` (`moonshot` and `moonshotai`) and `glm-5.2` (`zai` and `deepinfra`).
 - Requesty publishes provider logos at `https://www.requesty.ai/provider_logos/v2/<name>.png`, and 15 of the 23 relevant labs match directly.
 
@@ -58,16 +59,23 @@ Everything else in Coder is ignored: never read for drift and never modified.
 
 The tool turns the catalog into a desired state in this order.
 
-1. **Eligible entries** are those with `api == chat` and `supports_tool_calling == true`.
+1. **Eligible entries** are those with `api == chat`, `supports_tool_calling == true`, and no `retires` date.
+   Any retirement date excludes an entry, however distant, because the operator does not want models that are already scheduled to disappear.
+   A canonical model still registers through any host that is not retiring.
 1. **Free pool.** Every eligible entry with `input_price == 0` and `output_price == 0` goes to the free pool, whether or not a paid twin exists elsewhere.
    Within the pool, duplicates of the same `(lab, canonical)` collapse to one entry using the host preference below.
 1. **Paid pool.** The remaining eligible entries are grouped by `(lab, canonical)` after applying the lab alias table (`moonshotai` to `moonshot`, `qwen` to `alibaba`).
    If a canonical name still appears under several labs, only the lab with the most catalog entries for it keeps it, with ties broken alphabetically.
    This handles `glm-5.2` (keep `zai`, drop `deepinfra`) and `kimi-k2.6`.
-1. **Host preference** decides which entry represents a group:
-   first the first-party host without a region suffix (the ID prefix equals the lab, for example `anthropic/claude-sonnet-4-5`), then the cheapest entry without a region suffix, then the cheapest entry overall, with the lexicographically smallest ID breaking ties.
+1. **Host preference** decides which entry represents a group.
+   A _plain_ entry has neither an `@region` suffix nor a `:variant` service-tier suffix (`:flex`, `:priority`), because variants share the canonical name of the plain model but are priced differently.
+   The order is: the first-party plain entry (the ID prefix equals the lab, for example `anthropic/claude-sonnet-4-5`), then the cheapest plain entry, then the cheapest entry overall, with the lexicographically smallest ID breaking ties.
 1. **Skipped, reported as INFO.** Free entries without tool calling are not registered, because Agents cannot use them.
    Today these are `poolside/laguna-m.1`, `poolside/laguna-xs.2`, and `nvidia/nemotron-3.5-content-safety`.
+   Models skipped for a retirement date are reported once per canonical model with the earliest date, but only when no other host keeps that model registered.
+   A model that gains a `retires` date after it was registered stops being selected, so it shows up as an orphan and is disabled by `--disable-orphans`.
+   When the only entry left for a model is not plain, it is still registered and reported as INFO, so the operator can see it.
+   Today that is `openai/o3:flex` (a slower service tier, because the plain entry retires) and `azure/gpt-5.2-codex@eastus2` (regional-only).
 
 The result today is roughly 200 models across about 23 vendor providers and the free provider.
 Exact counts come from the implementation and its tests.
@@ -134,8 +142,8 @@ One stdlib-only Python script, `scripts/requesty-coder-sync.py`, with two subcom
 | `PROVIDER_DRIFT`                        | Wrong `base_url`, `icon`, or `display_name`, disabled, or no API key set (key values are masked)     |
 | `MODEL_DRIFT`                           | `context_limit`, `max_output_tokens`, or owning provider differs, including moves into or out of the free provider |
 | `PRICE_DRIFT`                           | Custom price absent or different                                                                     |
-| `ORPHAN_MODEL`                          | In Coder but no longer selected (retired, or the host preference changed)                            |
-| `INFO`                                  | Free models skipped for lacking tool calling                                                         |
+| `ORPHAN_MODEL`                          | Enabled in Coder but no longer selected (retired, or the host preference changed); orphans that are already disabled are not reported, so the alert clears once `--disable-orphans` has run |
+| `INFO`                                  | Models skipped on purpose: free models without tool calling, and models with a Requesty retirement date |
 
 A host change for a model appears as a `MISSING_MODEL` and an `ORPHAN_MODEL` reported together.
 Drift on the free provider gets its own summary line, so a newly free model is easy to spot.
@@ -162,8 +170,8 @@ A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux
 - **Coder URL** is the in-cluster service DNS name, confirmed at planning time.
 - **Secrets:** a check-only Coder token for a dedicated `requesty-sync` user, delivered by an ExternalSecret from BWS.
   The CronJob never holds write access or the Requesty key, and `apply` uses the operator's own admin token by hand.
-- **Alerting** follows the restic pattern: an Uptime Kuma push monitor `requesty-sync`, with its URL added to the `uptime-kuma-push-urls` Secret.
-  Exit 0 pings `up`, and drift or an error pings `down` with the summary line.
+- **Alerting** follows the restic pattern: an Uptime Kuma push monitor `requesty-sync`, whose push URL reaches the pod as `UPTIME_KUMA_PUSH_URL` from the same ExternalSecret as the token.
+  The script itself pings the monitor after `check`: exit 0 pings `up`, and drift or an error pings `down` with the summary line.
 
 ### Testing
 
@@ -176,6 +184,7 @@ A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux
 1. **Smoke test.** Create one provider per type (`anthropic`, `google`, `openai`) with one model each by hand, price them, and run an Agents chat.
    This settles the base URL and suffix for each type, whether slash-containing model IDs are accepted, whether the Requesty PNG icons load and look right on both themes, and which Coder role can read providers, models, and prices.
    If the `anthropic` type fails against Requesty, the fallback is the `openai` type for Anthropic as well.
+   The script isolates the two outcomes in `NATIVE_TYPES` (which labs use a native type) and `BASE_URL_BY_TYPE` (a per-type base URL override, needed if a type appends its own `/v1`), so either fallback is a one-line change.
 1. Build the tool test-first in a worktree.
 1. Run `check` against the live Coder (expecting everything missing), run `apply` by hand on gandalf, then run `check` again and expect exit 0.
 1. Deploy the CronJob, ExternalSecret, and Uptime Kuma monitor, trigger a manual job, and verify the heartbeat.
@@ -199,3 +208,6 @@ A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux
 1. Requesty's PNG logos are used for all vendors, including Anthropic, OpenAI, and Google, in place of Coder's built-in icons.
 1. Cross-lab duplicates collapse to the lab with the most entries.
 1. The check runs daily rather than weekly.
+1. Any `retires` date excludes an entry, even one months away.
+   Today that removes nine canonical models entirely (for example `gpt-5-pro`, `o3-pro`, `deepseek-chat`, and `deepseek-reasoner`), while popular models such as `gpt-5-mini` and Gemini 2.5 Pro stay registered through hosts that are not retiring.
+   If that proves too strict, a horizon (for example, skip only entries retiring within 60 days) is a small change to one function.
