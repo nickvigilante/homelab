@@ -313,3 +313,102 @@ def build_desired(entries: list[dict[str, Any]]) -> Desired:
         for name, timestamp in sorted(retiring.items())
     )
     return desired
+
+
+# ---- catalog and Coder API -------------------------------------------------
+
+
+def fetch_catalog(url: str = REQUESTY_MODELS_URL, timeout: float = 60.0) -> list[dict[str, Any]]:
+    request = urllib.request.Request(
+        url, headers={"Accept": "application/json", "User-Agent": USER_AGENT}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read())
+    except (OSError, ValueError) as err:
+        raise SyncError(f"fetch {url}: {err}") from err
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        raise SyncError(f"fetch {url}: response has no 'data' list")
+    return data
+
+
+class CoderClient:
+    def __init__(self, base_url: str, token: str, timeout: float = 30.0) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
+
+    def request(self, method: str, path: str, body: Any = None) -> Any:
+        data = None if body is None else json.dumps(body).encode()
+        request = urllib.request.Request(
+            self.base_url + path,
+            data=data,
+            method=method,
+            headers={
+                "Coder-Session-Token": self.token,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as err:
+            detail = err.read().decode(errors="replace")[:500]
+            raise ApiError(method, path, err.code, detail) from err
+        except OSError as err:
+            raise ApiError(method, path, 0, str(err)) from err
+        return json.loads(raw) if raw else None
+
+    def default_org_id(self) -> str:
+        for org in self.request("GET", "/api/v2/organizations"):
+            if org.get("is_default"):
+                return org["id"]
+        raise SyncError("Coder has no default organization")
+
+    def list_providers(self) -> list[dict[str, Any]]:
+        return self.request("GET", "/api/v2/ai/providers")
+
+    def create_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.request("POST", "/api/v2/ai/providers", payload)
+
+    def update_provider(self, provider_id: str, payload: dict[str, Any]) -> None:
+        self.request("PATCH", f"/api/v2/ai/providers/{provider_id}", payload)
+
+    def list_models(self, org_id: str) -> list[dict[str, Any]]:
+        return self.request("GET", f"/api/v2/organizations/{org_id}/chats/models")["models"]
+
+    def create_model(self, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.request("POST", f"/api/v2/organizations/{org_id}/chats/models", payload)
+
+    def update_model(self, org_id: str, model_id: str, payload: dict[str, Any]) -> None:
+        self.request("PATCH", f"/api/v2/organizations/{org_id}/chats/models/{model_id}", payload)
+
+    def list_custom_prices(self) -> list[dict[str, Any]]:
+        return self.request("GET", "/api/experimental/ai/model-prices?source=custom")
+
+    def upsert_prices(self, prices: list[dict[str, Any]]) -> None:
+        self.request("POST", "/api/experimental/ai/model-prices", {"prices": prices})
+
+
+@dataclass
+class Live:
+    org_id: str
+    providers: dict[str, dict[str, Any]]  # managed providers by name
+    models: list[dict[str, Any]]  # models under managed providers
+    prices: dict[tuple[str, str], dict[str, Any]]  # custom prices by (type, model)
+
+
+def is_managed_name(name: str) -> bool:
+    return name.endswith(PROVIDER_SUFFIX)
+
+
+def load_live(client: CoderClient) -> Live:
+    org_id = client.default_org_id()
+    providers = {p["name"]: p for p in client.list_providers() if is_managed_name(p["name"])}
+    managed_ids = {p["id"] for p in providers.values()}
+    models = [m for m in client.list_models(org_id) if m["ai_provider_id"] in managed_ids]
+    prices = {(p["provider"], p["model"]): p for p in client.list_custom_prices()}
+    return Live(org_id=org_id, providers=providers, models=models, prices=prices)
