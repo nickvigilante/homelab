@@ -257,3 +257,11 @@ def test_an_aliased_first_party_host_beats_a_cheaper_host(sync):
 def test_retire_date_tolerates_a_non_numeric_value(sync):
     assert sync.retire_date("someday") == "someday"
     assert sync.retire_date(1_792_108_800) == "2026-10-16"
+
+
+def test_the_anthropic_type_uses_the_root_url_and_the_others_use_v1(sync):
+    # Coder's Anthropic client appends /v1/messages itself (smoke test, 2026-09-18).
+    assert sync.lab_provider("anthropic").base_url == "https://router.requesty.ai"
+    assert sync.lab_provider("openai").base_url == "https://router.requesty.ai/v1"
+    assert sync.lab_provider("google").base_url == "https://router.requesty.ai/v1"
+    assert sync.free_provider().base_url == "https://router.requesty.ai/v1"

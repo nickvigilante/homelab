@@ -48,7 +48,7 @@ EXIT_OK, EXIT_DRIFT, EXIT_ERROR = 0, 1, 2
 # every other lab uses "openai". BASE_URL_BY_TYPE overrides the base URL for a
 # provider type whose client appends its own "/v1".
 NATIVE_TYPES = {"anthropic": "anthropic", "google": "google"}
-BASE_URL_BY_TYPE: dict[str, str] = {}
+BASE_URL_BY_TYPE: dict[str, str] = {"anthropic": "https://router.requesty.ai"}
 
 LAB_ALIASES = {"moonshotai": "moonshot", "qwen": "alibaba"}
 

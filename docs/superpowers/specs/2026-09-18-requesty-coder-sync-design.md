@@ -212,3 +212,22 @@ A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux
 1. Any `retires` date excludes an entry, even one months away.
    Today that removes nine canonical models entirely (for example `gpt-5-pro`, `o3-pro`, `deepseek-chat`, and `deepseek-reasoner`), while popular models such as `gpt-5-mini` and Gemini 2.5 Pro stay registered through hosts that are not retiring.
    If that proves too strict, a horizon (for example, skip only entries retiring within 60 days) is a small change to one function.
+
+## Smoke test results
+
+Run on gandalf on 2026-09-18 with `scripts/requesty-smoke-test.sh`, against the live Coder v2.37.0+8a148a9 and Requesty.
+
+- Direct OpenAI-shape calls worked for `openai/gpt-4.1-nano` and `google/gemini-3.1-flash-lite`.
+- The direct Anthropic-shape call returned 200 at `/v1/messages` and 404 at `/messages`.
+- A Coder `anthropic` provider with base URL `https://router.requesty.ai` (no `/v1`) chatted successfully, so `BASE_URL_BY_TYPE` now carries that override.
+- Coder `openai` and `google` providers with base URL `https://router.requesty.ai/v1` chatted successfully with first-party models.
+- The third-party-hosted `bedrock/claude-haiku-4-5` chatted successfully on the `anthropic` type.
+- The third-party-hosted `nebius/google/gemma-3-27b-it` was created in Coder but its chat failed on the `google` type, and the cause is not yet known (a small open model, so possibly no real tool calling).
+  The script now probes a third-party Gemini model instead, which is what the `google` type mostly carries.
+- The Requesty logos rendered on both themes.
+- Coder returned the price list as an array, returned null prices as null, kept the key and `enabled` on a single-field provider PATCH, and replaced (did not append) the key set on an `api_keys` PATCH.
+- Coder accepted an output limit above the context limit, and accepted two models with the same display name under different providers.
+  The model picker keys options by model ID and groups them by provider name, so same-named twins show as separate entries.
+- The default service-account role could read the model list but got 403 for AI providers and model prices.
+  In Coder's role tests only the Owner role can read either, so the CronJob token needs an Owner service account narrowed with token scopes (`ai_provider:read`, `ai_model_price:read`, `chat_model_config:read`, `organization:read`).
+  That scoped token is still to be probed with `scripts/requesty-smoke-test.sh --role-only`.
