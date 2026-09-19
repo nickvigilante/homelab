@@ -585,7 +585,12 @@ def summarize(findings: list[Finding]) -> str:
     parts = [f"{counts[c]} {c.lower().replace('_', ' ')}" for c in DRIFT_CATEGORIES if counts[c]]
     text = "drift: " + ", ".join(parts)
     new_free = sum(
-        1 for f in drift if f.category == MISSING_MODEL and f.provider == FREE_PROVIDER_NAME
+        1
+        for f in drift
+        if (
+            (f.category == MISSING_MODEL and f.provider == FREE_PROVIDER_NAME)
+            or (f.category == MODEL_DRIFT and (f.action or {}).get("move_to") == FREE_PROVIDER_NAME)
+        )
     )
     if new_free:
         text += f"; {new_free} new free model{'s' if new_free != 1 else ''}"

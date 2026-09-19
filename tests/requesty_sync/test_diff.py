@@ -149,3 +149,11 @@ def test_report_groups_findings_by_category(sync, desired):
     assert "MISSING_PROVIDER (3)" in report
     assert "  openai/gpt-x: create under openai-via-requesty" in report
     assert report.endswith(sync.summarize(findings))
+
+
+def test_summary_flags_a_paid_model_that_becomes_free(sync, fake):
+    catalog = small_catalog()
+    catalog[1] = make_entry("openai/gpt-x", "openai", inp=0, out=0, ctx=400_000, maxout=128_000)
+    desired = sync.build_desired(catalog)
+    summary = sync.summarize(diff(sync, desired, fake))
+    assert summary == "drift: 1 model drift, 1 price drift; 1 new free model"
