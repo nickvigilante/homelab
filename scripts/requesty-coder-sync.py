@@ -608,3 +608,93 @@ def format_report(findings: list[Finding], summary: str) -> str:
         lines.append("")
     lines.append(summary)
     return "\n".join(lines)
+
+
+# ---- apply -----------------------------------------------------------------
+
+
+def apply_changes(
+    client: CoderClient,
+    live: Live,
+    findings: list[Finding],
+    api_key: str | None,
+    rotate_key: bool,
+    log: Callable[[str], None],
+) -> None:
+    """Runs the findings' actions in dependency order. Never deletes anything."""
+    actions = [f.action for f in findings if f.action]
+
+    def of(op: str) -> list[dict[str, Any]]:
+        return [a for a in actions if a["op"] == op]
+
+    needs_key = rotate_key or bool(of("create_provider")) or bool(of("set_key"))
+    if needs_key and not api_key:
+        raise SyncError("REQUESTY_API_KEY is required for the pending changes")
+
+    provider_ids = {name: p["id"] for name, p in live.providers.items()}
+    names_by_id = {p["id"]: name for name, p in live.providers.items()}
+
+    for action in of("create_provider"):
+        provider = action["provider"]
+        created = client.create_provider(
+            {
+                "type": provider.type,
+                "name": provider.name,
+                "display_name": provider.display_name,
+                "icon": provider.icon,
+                "enabled": True,
+                "base_url": provider.base_url,
+                "api_keys": [api_key],
+            }
+        )
+        provider_ids[provider.name] = created["id"]
+        log(f"created provider {provider.name}")
+
+    for action in of("update_provider"):
+        client.update_provider(action["id"], action["payload"])
+        log(f"updated provider {action['name']}")
+
+    rekey = {a["id"] for a in of("set_key")}
+    if rotate_key:
+        rekey |= set(names_by_id)
+    for provider_id in sorted(rekey):
+        client.update_provider(provider_id, {"api_keys": [{"api_key": api_key}]})
+        log(f"set API key on provider {names_by_id[provider_id]}")
+
+    created_models = 0
+    for action in of("create_model"):
+        model = action["model"]
+        payload: dict[str, Any] = {
+            "ai_provider_id": provider_ids[model.provider],
+            "model": model.model,
+            "display_name": model.display_name,
+            "enabled": True,
+            "context_limit": model.context_limit,
+        }
+        if model.max_output_tokens:
+            payload["model_config"] = {"max_output_tokens": model.max_output_tokens}
+        client.create_model(live.org_id, payload)
+        created_models += 1
+    if created_models:
+        log(f"created {created_models} model(s)")
+
+    updated_models = 0
+    for action in of("update_model"):
+        payload = dict(action["payload"])
+        if action["move_to"]:
+            payload["ai_provider_id"] = provider_ids[action["move_to"]]
+        client.update_model(live.org_id, action["id"], payload)
+        updated_models += 1
+    if updated_models:
+        log(f"updated {updated_models} model(s)")
+
+    disabled = of("disable_model")
+    for action in disabled:
+        client.update_model(live.org_id, action["id"], {"enabled": False})
+    if disabled:
+        log(f"disabled {len(disabled)} orphaned model(s)")
+
+    prices = [a["price"] for a in of("upsert_price")]
+    if prices:
+        client.upsert_prices(prices)
+        log(f"upserted {len(prices)} price(s)")
