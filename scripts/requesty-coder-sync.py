@@ -14,10 +14,6 @@ Environment:
 Exit codes: 0 in sync, 1 drift, 2 error.
 """
 
-# TEMPORARY: the header imports names that later sections of this script use.
-# Remove this line once the last section lands.
-# ruff: noqa: F401
-
 from __future__ import annotations
 
 import argparse
@@ -698,3 +694,166 @@ def apply_changes(
     if prices:
         client.upsert_prices(prices)
         log(f"upserted {len(prices)} price(s)")
+
+
+# ---- command line ----------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--catalog-file", help="read the Requesty catalog from this JSON file, not the network"
+    )
+    parser = argparse.ArgumentParser(
+        prog="requesty-coder-sync.py", description="Sync the Requesty catalog into Coder Agents."
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    check = commands.add_parser("check", parents=[common], help="report drift (read-only)")
+    check.add_argument("--json", action="store_true", help="machine-readable output")
+    apply = commands.add_parser("apply", parents=[common], help="make Coder match Requesty")
+    apply.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    apply.add_argument(
+        "--disable-orphans",
+        action="store_true",
+        help="disable models that Requesty no longer selects (never deletes)",
+    )
+    apply.add_argument(
+        "--rotate-key",
+        action="store_true",
+        help="replace the API key on every managed provider with REQUESTY_API_KEY",
+    )
+    return parser
+
+
+def emit(findings: list[Finding], summary: str, as_json: bool, out: TextIO) -> None:
+    if as_json:
+        payload = {
+            "summary": summary,
+            "drift": has_drift(findings),
+            "findings": [
+                {
+                    "category": f.category,
+                    "subject": f.subject,
+                    "detail": f.detail,
+                    "provider": f.provider,
+                }
+                for f in findings
+            ],
+        }
+        json.dump(payload, out, indent=2)
+        out.write("\n")
+    else:
+        out.write(format_report(findings, summary) + "\n")
+
+
+def push_heartbeat(url: str, status: str, message: str) -> None:
+    query = urllib.parse.urlencode({"status": status, "msg": message[:200], "ping": ""})
+    separator = "&" if "?" in url else "?"
+    request = urllib.request.Request(f"{url}{separator}{query}", headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            response.read()
+    except OSError as err:
+        print(f"warning: heartbeat failed: {err}", file=sys.stderr)
+
+
+def default_catalog_loader(args: argparse.Namespace) -> list[dict[str, Any]]:
+    if not args.catalog_file:
+        return fetch_catalog()
+    with open(args.catalog_file, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return payload["data"] if isinstance(payload, dict) else payload
+
+
+def run_apply(
+    args: argparse.Namespace,
+    env: Any,
+    client: CoderClient,
+    desired: Desired,
+    live: Live,
+    findings: list[Finding],
+    confirm: Callable[[str], str],
+    out: TextIO,
+) -> int:
+    todo = [
+        f for f in findings if f.action and (f.category != ORPHAN_MODEL or args.disable_orphans)
+    ]
+    if not todo and not args.rotate_key:
+        out.write("Nothing to apply.\n")
+        return EXIT_OK
+    if not args.yes and confirm("Apply? [y/N] ").strip().lower() not in ("y", "yes"):
+        out.write("Aborted.\n")
+        return EXIT_DRIFT
+    apply_changes(
+        client,
+        live,
+        todo,
+        env.get("REQUESTY_API_KEY"),
+        args.rotate_key,
+        lambda m: out.write(m + "\n"),
+    )
+    remaining = [
+        f
+        for f in compute_diff(desired, load_live(client))
+        if f.category not in (INFO, ORPHAN_MODEL)
+    ]
+    if remaining:
+        out.write("Drift remains after apply:\n")
+        out.write(format_report(remaining, summarize(remaining)) + "\n")
+        return EXIT_DRIFT
+    out.write("Applied.\n")
+    return EXIT_OK
+
+
+def run(
+    args: argparse.Namespace,
+    env: Any,
+    client_factory: Callable[[str, str], Any],
+    load_catalog: Callable[[argparse.Namespace], list[dict[str, Any]]],
+    confirm: Callable[[str], str],
+    out: TextIO,
+) -> tuple[int, str]:
+    token = env.get("CODER_SESSION_TOKEN")
+    if not token:
+        raise SyncError("CODER_SESSION_TOKEN is not set")
+    desired = build_desired(load_catalog(args))
+    client = client_factory(env.get("CODER_URL", DEFAULT_CODER_URL), token)
+    live = load_live(client)
+    findings = compute_diff(desired, live)
+    summary = summarize(findings)
+    if args.command == "check":
+        emit(findings, summary, args.json, out)
+        return (EXIT_DRIFT if has_drift(findings) else EXIT_OK), summary
+    emit(findings, summary, False, out)
+    return run_apply(args, env, client, desired, live, findings, confirm, out), summary
+
+
+def main(
+    argv: list[str] | None = None,
+    env: Any = None,
+    *,
+    client_factory: Callable[[str, str], Any] = CoderClient,
+    load_catalog: Callable[[argparse.Namespace], list[dict[str, Any]]] = default_catalog_loader,
+    confirm: Callable[[str], str] = input,
+    out: TextIO | None = None,
+) -> int:
+    env = os.environ if env is None else env
+    out = sys.stdout if out is None else out
+    args = build_parser().parse_args(argv)
+    try:
+        code, summary = run(args, env, client_factory, load_catalog, confirm, out)
+    except SyncError as err:
+        print(f"error: {err}", file=sys.stderr)
+        code, summary = EXIT_ERROR, f"error: {err}"
+    except Exception as err:
+        message = f"unexpected {type(err).__name__}: {err}"
+        print(f"error: {message}", file=sys.stderr)
+        code, summary = EXIT_ERROR, f"error: {message}"
+    push_url = env.get("UPTIME_KUMA_PUSH_URL")
+    if args.command == "check" and push_url:
+        push_heartbeat(push_url, "up" if code == EXIT_OK else "down", summary)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
