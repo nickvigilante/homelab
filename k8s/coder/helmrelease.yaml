@@ -63,10 +63,12 @@ spec:
         - name: CODER_ACCESS_URL
           value: https://coder.vigihome.net
 
-        # Disable telemetry. Coder phones home with anonymized usage
-        # stats by default; turn off for a home lab.
+        # Telemetry stays on: the Premium license (AI Governance) requires
+        # it. Coder sends anonymized usage stats. This is the default,
+        # but it is set explicitly so nobody flips it off again for
+        # privacy without knowing it breaks license compliance.
         - name: CODER_TELEMETRY_ENABLE
-          value: "false"
+          value: "true"
 
         # OIDC via Authentik. Local password auth stays enabled by
         # default so you can fall back to the bootstrap owner account
