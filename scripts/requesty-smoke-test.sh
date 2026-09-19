@@ -356,7 +356,7 @@ ui_checks() {
       RESULT[chat_$type]=yes
     else
       RESULT[chat_$type]=no
-      RESULT[error_$type]="$(ask 'What error did the chat show (short, optional)')"
+      RESULT[error_$type]="$(ask 'What error did the chat show (ONE line: a multi-line paste answers the next prompts)')"
     fi
   done
   RESULT[chat_anthropic]=no
@@ -381,7 +381,7 @@ ui_checks() {
       RESULT[chat_extra_$key]=yes
     else
       RESULT[chat_extra_$key]=no
-      RESULT[error_$key]="$(ask 'What error did the chat show (short, optional)')"
+      RESULT[error_$key]="$(ask 'What error did the chat show (ONE line: a multi-line paste answers the next prompts)')"
     fi
   done
   if yesno "On the AI settings Models page, do the three Requesty logos render in both light and dark themes?"; then

@@ -222,8 +222,11 @@ Run on gandalf on 2026-09-18 with `scripts/requesty-smoke-test.sh`, against the 
 - A Coder `anthropic` provider with base URL `https://router.requesty.ai` (no `/v1`) chatted successfully, so `BASE_URL_BY_TYPE` now carries that override.
 - Coder `openai` and `google` providers with base URL `https://router.requesty.ai/v1` chatted successfully with first-party models.
 - The third-party-hosted `bedrock/claude-haiku-4-5` chatted successfully on the `anthropic` type.
-- The third-party-hosted `nebius/google/gemma-3-27b-it` was created in Coder but its chat failed on the `google` type, and the cause is not yet known (a small open model, so possibly no real tool calling).
-  The script now probes a third-party Gemini model instead, which is what the `google` type mostly carries.
+- The third-party-hosted `vertex/claude-haiku-4-5` chatted successfully on the `anthropic` type, and `vertex/gemini-2.5-flash-lite` on the `google` type, so third-party hosts work on both native types.
+- `nebius/google/gemma-3-27b-it` answers correctly when called directly on Requesty, with and without tools, but fails in a Coder chat on the `google` type with "Conversation roles must alternate user/assistant/user/assistant/..." (HTTP 400).
+  The upstream chat template of Gemma 3 rejects the system prompt that Coder Agents always sends, so this is a model and host limitation, not a provider-type problem, and it means Requesty's `supports_tool_calling` flag does not guarantee that a model works in Agents.
+  The `google` type stays.
+  Whether the same model also fails on the `openai` type was not recorded (the operator's multi-line paste answered the following prompts), but the error is host-side, so it is expected to.
 - The Requesty logos rendered on both themes.
 - Coder returned the price list as an array, returned null prices as null, kept the key and `enabled` on a single-field provider PATCH, and replaced (did not append) the key set on an `api_keys` PATCH.
 - Coder accepted an output limit above the context limit, and accepted two models with the same display name under different providers.
