@@ -140,3 +140,176 @@ class Desired:
     providers: dict[str, DesiredProvider]
     models: dict[str, DesiredModel]  # keyed by Requesty model ID
     info: list[str]
+
+
+# ---- catalog selection -----------------------------------------------------
+
+
+def is_eligible(entry: dict[str, Any]) -> bool:
+    return (
+        entry.get("api") == "chat"
+        and entry.get("supports_tool_calling") is True
+        and entry.get("input_price") is not None
+        and entry.get("output_price") is not None
+        and (entry.get("context_window") or 0) > 0
+    )
+
+
+def is_retiring(entry: dict[str, Any]) -> bool:
+    """Requesty lists a retirement date (Unix seconds) for this entry."""
+    return entry.get("retires") is not None
+
+
+def retire_date(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, UTC).date().isoformat()
+
+
+def is_free(entry: dict[str, Any]) -> bool:
+    # An explicit zero, never a missing price.
+    return entry.get("input_price") == 0 and entry.get("output_price") == 0
+
+
+def lab_of(entry: dict[str, Any]) -> str:
+    lab = entry.get("model_lab") or "unknown"
+    return LAB_ALIASES.get(lab, lab)
+
+
+def canonical_of(entry: dict[str, Any]) -> str:
+    return entry.get("model_canonical_name") or entry["id"]
+
+
+def is_plain(entry: dict[str, Any]) -> bool:
+    """No @region suffix and no :variant (service tier) suffix."""
+    tail = entry["id"].rsplit("/", 1)[-1]
+    return "@" not in tail and ":" not in tail
+
+
+def host_of(entry: dict[str, Any]) -> str:
+    return entry["id"].split("/", 1)[0]
+
+
+def pick(entries: list[dict[str, Any]], lab: str) -> dict[str, Any]:
+    """First-party plain entry, else cheapest plain, else cheapest overall."""
+
+    def rank(entry: dict[str, Any]) -> tuple[bool, bool, float, str]:
+        plain = is_plain(entry)
+        first_party = plain and host_of(entry) == lab
+        price = entry["input_price"] + entry["output_price"]
+        return (not first_party, not plain, price, entry["id"])
+
+    return min(entries, key=rank)
+
+
+def select(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """One entry per canonical model. A canonical name that spans several labs
+    stays with the lab holding the most entries (ties go alphabetically)."""
+    by_canonical: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for entry in entries:
+        labs = by_canonical.setdefault(canonical_of(entry), {})
+        labs.setdefault(lab_of(entry), []).append(entry)
+    chosen: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for canonical in sorted(by_canonical):
+        labs = by_canonical[canonical]
+        counts = {lab: len(items) for lab, items in labs.items()}
+        winner = max(sorted(counts), key=counts.__getitem__)
+        for lab in sorted(counts):
+            if lab != winner:
+                notes.append(f"collapsed {canonical}: kept lab {winner}, dropped lab {lab}")
+        chosen.append(pick(labs[winner], winner))
+    return chosen, notes
+
+
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def micro(per_token: float | None) -> int | None:
+    """USD per token to micro-dollars per million tokens."""
+    if per_token is None:
+        return None
+    return round(per_token * 1e12)
+
+
+def icon_for(lab: str) -> str:
+    logo = LAB_LOGOS.get(lab)
+    return f"{LOGO_BASE_URL}{logo}.png" if logo else FALLBACK_ICON
+
+
+def lab_provider(lab: str) -> DesiredProvider:
+    provider_type = NATIVE_TYPES.get(lab, "openai")
+    return DesiredProvider(
+        name=slugify(lab) + PROVIDER_SUFFIX,
+        display_name=f"{LAB_NAMES.get(lab, lab.title())} via Requesty",
+        type=provider_type,
+        base_url=BASE_URL_BY_TYPE.get(provider_type, REQUESTY_BASE_URL),
+        icon=icon_for(lab),
+    )
+
+
+def free_provider() -> DesiredProvider:
+    return DesiredProvider(
+        name=FREE_PROVIDER_NAME,
+        display_name="Free models via Requesty",
+        type="openai",
+        base_url=BASE_URL_BY_TYPE.get("openai", REQUESTY_BASE_URL),
+        icon=FALLBACK_ICON,
+    )
+
+
+def build_desired(entries: list[dict[str, Any]]) -> Desired:
+    candidates = [e for e in entries if is_eligible(e)]
+    eligible = [e for e in candidates if not is_retiring(e)]
+    if len(eligible) < MIN_ELIGIBLE_MODELS:
+        raise SyncError(
+            f"catalog has only {len(eligible)} eligible chat models "
+            f"(minimum {MIN_ELIGIBLE_MODELS}); refusing to continue"
+        )
+    info = sorted(
+        f"skipped (free, no tool calling): {e['id']}"
+        for e in entries
+        if e.get("api") == "chat" and e.get("supports_tool_calling") is not True and is_free(e)
+    )
+    desired = Desired(providers={}, models={}, info=info)
+    pools = (
+        (True, [e for e in eligible if is_free(e)]),
+        (False, [e for e in eligible if not is_free(e)]),
+    )
+    for free, pool in pools:
+        chosen, notes = select(pool)
+        desired.info.extend(notes)
+        for entry in chosen:
+            provider = free_provider() if free else lab_provider(lab_of(entry))
+            if not is_plain(entry):
+                desired.info.append(f"only a non-plain entry is available: {entry['id']}")
+            desired.providers.setdefault(provider.name, provider)
+            prices: Prices = (
+                (0, 0, 0, 0)
+                if free
+                else (
+                    micro(entry["input_price"]),
+                    micro(entry["output_price"]),
+                    micro(entry.get("cached_price")),
+                    None,
+                )
+            )
+            desired.models[entry["id"]] = DesiredModel(
+                provider=provider.name,
+                provider_type=provider.type,
+                model=entry["id"],
+                display_name=canonical_of(entry),
+                context_limit=int(entry["context_window"]),
+                max_output_tokens=int(entry.get("max_output_tokens") or 0) or None,
+                prices=prices,
+            )
+    registered = {m.display_name for m in desired.models.values()}
+    retiring: dict[str, float] = {}
+    for entry in candidates:
+        name = canonical_of(entry)
+        if is_retiring(entry) and name not in registered:
+            retiring[name] = min(retiring.get(name, entry["retires"]), entry["retires"])
+    desired.info.extend(
+        f"skipped (retires {retire_date(timestamp)}): {name}"
+        for name, timestamp in sorted(retiring.items())
+    )
+    return desired
