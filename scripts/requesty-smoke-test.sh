@@ -33,6 +33,7 @@ RESULTS_FILE="${SMOKE_RESULTS_FILE:-./requesty-smoke-results.md}"
 CODER_SESSION_TOKEN="${CODER_SESSION_TOKEN:-}"
 REQUESTY_API_KEY="${REQUESTY_API_KEY:-}"
 PROMPT="Reply with the single word ok."
+RUN_ID="$(date +%s)"
 
 ORG=""
 CAT=""
@@ -153,7 +154,7 @@ get_credentials() {
   if [[ -z $CODER_SESSION_TOKEN ]]; then
     need coder
     note "Creating a 2h token with the coder CLI (needs 'coder login $CODER_URL' as an admin)"
-    out="$(CODER_URL="$CODER_URL" coder tokens create --name requesty-smoke --lifetime 2h 2>&1)"
+    out="$(CODER_URL="$CODER_URL" coder tokens create --name "requesty-smoke-$RUN_ID" --lifetime 2h 2>&1)"
     CODER_SESSION_TOKEN="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
     if [[ -z $CODER_SESSION_TOKEN ]]; then
       echo "coder tokens create did not return a token. Its output was:" >&2
@@ -408,7 +409,7 @@ role_probe() {
     return 0
   fi
   coder users edit-roles requesty-sync --roles owner --yes || note "edit-roles failed; set the role in the dashboard and rerun"
-  out="$(coder tokens create --user requesty-sync --name requesty-smoke-check --lifetime 1h \
+  out="$(coder tokens create --user requesty-sync --name "requesty-smoke-check-$RUN_ID" --lifetime 1h \
     --scope ai_provider:read --scope ai_model_price:read --scope chat_model_config:read --scope organization:read 2>&1)"
   check_token="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
   if [[ -z $check_token ]]; then
