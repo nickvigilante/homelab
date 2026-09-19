@@ -78,6 +78,22 @@ spec:
         - name: CODER_EXPERIMENTS
           value: oauth2
 
+        # Lets Coder Agents' MCP client reach the homelab's private
+        # addresses. Coder's SSRF guard blocks RFC 1918 and CGNAT
+        # destinations for MCP traffic (OAuth discovery, token
+        # exchange, and tool calls) unless the range is listed here.
+        # Every `*.vigihome.net` name resolves to one of gandalf's two
+        # addresses -- LAN and tailnet, per Pi-hole's dnsmasq wildcard
+        # -- and Traefik fronts the services behind them, so allowing
+        # exactly those two /32s covers Outline and Home Assistant
+        # without opening the pod or service CIDRs. Both are needed
+        # because the resolver may return either one first. Changing
+        # this restarts the coder pod; running workspaces are
+        # unaffected. The MCP servers themselves are registered from
+        # the infrastructure repo's `coder/` context (#204).
+        - name: CODER_MCP_ALLOWED_PRIVATE_CIDRS
+          value: 192.168.50.135/32,100.92.2.25/32
+
         # OIDC via Authentik. Local password auth stays enabled by
         # default so you can fall back to the bootstrap owner account
         # when Authentik is down -- Coder is downstream of Authentik in
