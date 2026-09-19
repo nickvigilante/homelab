@@ -292,3 +292,17 @@ Browser-based port forwarding from a workspace uses URLs like
 
 Workspace SSH (`coder ssh <workspace>`) does not need any of this and
 works out of the box.
+
+### MCP servers for Coder Agents
+
+Coder Agents can call external MCP servers registered under AI Settings → Coder Agents → MCP servers.
+The registrations are managed with OpenTofu in the sibling `infrastructure` repo, under `coder/`, not here (#204).
+Coder keeps them in its database, outside these manifests, and the provider's write-only attributes keep the secrets out of state.
+
+This directory owns one related setting: `CODER_MCP_ALLOWED_PRIVATE_CIDRS` in `helmrelease.yaml`.
+Coder's SSRF guard blocks private and CGNAT destinations for MCP traffic by default, and every `*.vigihome.net` name resolves to one of gandalf's two addresses.
+The setting allows exactly those two `/32`s, so it covers every service behind Traefik without opening the pod or service CIDRs.
+If Pi-hole's wildcard ever points at different addresses, update it to match, or MCP servers on `*.vigihome.net` will fail to connect.
+
+Registered servers reach Outline and Home Assistant through their public `*.vigihome.net` hostnames, not cluster-internal service DNS.
+Outline forces HTTPS and advertises its public URL in its OAuth metadata, so an in-cluster HTTP URL would break discovery.
