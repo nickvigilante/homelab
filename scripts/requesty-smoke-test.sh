@@ -14,6 +14,9 @@
 # on Ctrl-C. The one thing it can leave behind is the optional `requesty-sync`
 # service account, which the CronJob token needs later.
 #
+# The chats run through the Coder Agents API, so the only browser step left is the
+# logo check.
+#
 # Usage, on gandalf (needs curl and jq, plus the coder CLI for the optional
 # token and service-account steps):
 #   scripts/requesty-smoke-test.sh              the whole walkthrough
@@ -48,6 +51,14 @@ declare -A EXTRA_TYPE=([anthropic_3p]=anthropic [google_3p]=google [gemma_google
 declare -A EXTRA_MODEL=()
 declare -A EXTRA_DISPLAY=()
 declare -A PROVIDER_ID=()
+declare -A MODEL_CFG=()
+CHAT_IDS=()
+CHAT_RESULT=""
+CHAT_COST=""
+TOTAL_COST_MICROS=0
+LAST_MODEL_ID=""
+CHAT_TIMEOUT="${SMOKE_CHAT_TIMEOUT:-120}"
+CHAT_POLL="${SMOKE_POLL_SECONDS:-2}"
 declare -A RESULT=()
 
 say() { printf '\n== %s\n' "$*"; }
@@ -131,6 +142,9 @@ cleanup() {
   CLEANED=1
   [[ -n $ORG && -n $CODER_SESSION_TOKEN ]] || return 0
   say "Cleaning up the smoke-* objects"
+  for id in "${CHAT_IDS[@]}"; do
+    coder_api -X PATCH "$CODER_URL/api/v2/chats/$id" -d '{"archived": true}' >/dev/null
+  done
   for id in "${MODEL_IDS[@]}"; do
     coder_api -X DELETE "$CODER_URL/api/v2/organizations/$ORG/chats/models/$id" >/dev/null
   done
@@ -269,6 +283,7 @@ create_model() {
     return 1
   fi
   MODEL_IDS+=("$id")
+  LAST_MODEL_ID=$id
   note "model $model -> $id"
 }
 
@@ -283,6 +298,7 @@ create_smoke_objects() {
     fi
     create_provider "$type" "$base" || continue
     create_model "$type" "${MODEL[$type]}" "${MODEL[$type]}" || continue
+    MODEL_CFG[$type]=$LAST_MODEL_ID
     coder_json POST /api/experimental/ai/model-prices \
       "$(jq -n --arg t "$type" --arg m "${MODEL[$type]}" '{prices: [{provider: $t, model: $m, input_price: 1000000, output_price: 5000000, cache_read_price: null, cache_write_price: null}]}')"
     [[ $HTTP_STATUS == 204 ]] || note "price upsert for $type: HTTP $HTTP_STATUS $(head -c 300 <<<"$BODY")"
@@ -301,6 +317,7 @@ extra_models() {
     # The display name says which model and type, so the picker shows which is which.
     EXTRA_DISPLAY[$key]="${EXTRA_MODEL[$key]} ($type type)"
     if create_model "$type" "${EXTRA_MODEL[$key]}" "${EXTRA_DISPLAY[$key]}"; then
+      MODEL_CFG[$key]=$LAST_MODEL_ID
       RESULT[extra_created_$key]=yes
     else
       RESULT[extra_created_$key]=no
@@ -345,46 +362,92 @@ api_probes() {
   note "api_keys PATCH sent twice: ${RESULT[key_patch]}"
 }
 
-ui_checks() {
-  local type key base i
-  say "7. Browser checks"
-  note "Open $CODER_URL, go to Coder Agents, start a chat and pick each 'Smoke' model."
-  note "Send: $PROMPT"
-  for type in openai google; do
-    [[ -n ${PROVIDER_ID[$type]:-} ]] || continue
-    if yesno "Did the chat with ${MODEL[$type]} (Smoke $type) reply?"; then
-      RESULT[chat_$type]=yes
-    else
-      RESULT[chat_$type]=no
-      RESULT[error_$type]="$(ask 'What error did the chat show (ONE line: a multi-line paste answers the next prompts)')"
+# api_chat CONFIG_ID: runs one real Coder Agents chat against that model config
+# through the API, and sets CHAT_RESULT ("ok", or "FAILED: ..." with Coder's own
+# error) and CHAT_COST (micro-dollars). A chat counts as working when its turn
+# finished (waiting, or requires_action for a tool call) and an assistant message
+# exists.
+api_chat() {
+  local cfg=$1 body chat_id status="" waited=0 replies
+  CHAT_RESULT=""
+  CHAT_COST=""
+  body="$(jq -n --arg org "$ORG" --arg m "$cfg" --arg p "$PROMPT" --arg run "$RUN_ID" \
+    '{organization_id: $org, model_config_id: $m, client_type: "api", labels: {probe: ("requesty-smoke-" + $run)}, content: [{type: "text", text: $p}]}')"
+  coder_json POST /api/v2/chats "$body"
+  chat_id="$(jq -r '.id // empty' <<<"$BODY" 2>/dev/null)"
+  if [[ -z $chat_id ]]; then
+    CHAT_RESULT="FAILED: could not create the chat (HTTP $HTTP_STATUS): $(jq -c . <<<"$BODY" 2>/dev/null | head -c 300)"
+    return 1
+  fi
+  CHAT_IDS+=("$chat_id")
+  while ((waited < CHAT_TIMEOUT)); do
+    sleep "$CHAT_POLL"
+    waited=$((waited + CHAT_POLL))
+    coder_json GET "/api/v2/chats/$chat_id"
+    status="$(jq -r '.status // empty' <<<"$BODY" 2>/dev/null)"
+    if [[ $status == error ]]; then
+      CHAT_RESULT="FAILED: $(jq -r '.last_error | "\(.message // "unknown error")\(if .detail then " - " + .detail else "" end) (upstream HTTP \(.status_code // "?"), \(.provider // "?"))"' <<<"$BODY" 2>/dev/null)"
+      return 1
+    fi
+    if [[ $status == waiting || $status == requires_action ]]; then
+      coder_json GET "/api/v2/chats/$chat_id/messages"
+      replies="$(jq -r '[.messages[]? | select(.role == "assistant")] | length' <<<"$BODY" 2>/dev/null)"
+      if [[ ${replies:-0} -gt 0 || $status == requires_action ]]; then
+        CHAT_RESULT=ok
+        coder_json GET "/api/v2/chats/$chat_id/cost"
+        CHAT_COST="$(jq -r '.total_cost_micros // empty' <<<"$BODY" 2>/dev/null)"
+        return 0
+      fi
     fi
   done
-  RESULT[chat_anthropic]=no
+  CHAT_RESULT="FAILED: no reply within ${CHAT_TIMEOUT}s (last status: ${status:-none})"
+  return 1
+}
+
+# chat_and_report KEY CONFIG_ID LABEL: one chat, printed and stored under RESULT[chat_KEY].
+chat_and_report() {
+  api_chat "$2" || true
+  RESULT[chat_$1]=$CHAT_RESULT
+  RESULT[cost_$1]=$CHAT_COST
+  TOTAL_COST_MICROS=$((TOTAL_COST_MICROS + ${CHAT_COST:-0}))
+  note "$3: $CHAT_RESULT${CHAT_COST:+ (cost $CHAT_COST micro-dollars)}"
+}
+
+agent_chats() {
+  local type key base i
+  say "7. Real Coder Agents chats, through the API"
+  note "Each model gets one chat: '$PROMPT' (waits up to ${CHAT_TIMEOUT}s per model)."
+  for type in openai google; do
+    [[ -n ${MODEL_CFG[$type]:-} ]] || continue
+    chat_and_report "$type" "${MODEL_CFG[$type]}" "${MODEL[$type]} (smoke $type)"
+  done
+  RESULT[chat_anthropic]="not run"
   RESULT[anthropic_base]=none
-  if [[ -n ${PROVIDER_ID[anthropic]:-} ]]; then
+  if [[ -n ${MODEL_CFG[anthropic]:-} ]]; then
     for i in "${!ANTH_BASES[@]}"; do
       base=${ANTH_BASES[$i]}
       if ((i > 0)); then
         note "Retrying the Anthropic provider with base URL $base"
         coder_json PATCH /api/v2/ai/providers/smoke-anthropic "$(jq -n --arg b "$base" '{base_url: $b}')"
       fi
-      if yesno "Did the chat with ${MODEL[anthropic]} (Smoke anthropic, base $base) reply?"; then
-        RESULT[chat_anthropic]=yes
+      chat_and_report anthropic "${MODEL_CFG[anthropic]}" "${MODEL[anthropic]} (smoke anthropic, base $base)"
+      if [[ ${RESULT[chat_anthropic]} == ok ]]; then
         RESULT[anthropic_base]=$base
         break
       fi
     done
   fi
   for key in "${EXTRA_KEYS[@]}"; do
-    [[ ${RESULT[extra_created_$key]:-no} == yes ]] || continue
-    if yesno "Did the chat with '${EXTRA_DISPLAY[$key]}' reply?"; then
-      RESULT[chat_extra_$key]=yes
-    else
-      RESULT[chat_extra_$key]=no
-      RESULT[error_$key]="$(ask 'What error did the chat show (ONE line: a multi-line paste answers the next prompts)')"
-    fi
+    [[ -n ${MODEL_CFG[$key]:-} ]] || continue
+    chat_and_report "extra_$key" "${MODEL_CFG[$key]}" "${EXTRA_MODEL[$key]} (${EXTRA_TYPE[$key]} type)"
   done
-  if yesno "On the AI settings Models page, do the three Requesty logos render in both light and dark themes?"; then
+  note "Total cost of these chats: $TOTAL_COST_MICROS micro-dollars"
+}
+
+logo_check() {
+  say "8. Logos (the one thing that needs your eyes)"
+  note "Open the AI settings Models page at $CODER_URL while the smoke providers exist."
+  if yesno "Do the three Requesty logos render in both light and dark themes?"; then
     RESULT[logos]=yes
   else
     RESULT[logos]=no
@@ -393,7 +456,7 @@ ui_checks() {
 
 role_probe() {
   local out check_token p code ok=yes
-  say "8. Read-only access for the CronJob's check token (optional)"
+  say "9. Read-only access for the CronJob's check token (optional)"
   note "Built-in roles other than Owner cannot read AI providers or model prices, so the"
   note "check token has to belong to an Owner and be narrowed with token scopes."
   if ! yesno "Probe this now?"; then
@@ -443,13 +506,13 @@ report() {
   if [[ $anth_base != none && $anth_base != "$REQUESTY_URL/v1" ]]; then
     recommend+="  BASE_URL_BY_TYPE = {\"anthropic\": \"$anth_base\"} (already set in the header when this is https://router.requesty.ai)"$'\n'
   fi
-  if [[ ${RESULT[chat_anthropic]:-no} != yes ]]; then
+  if [[ ${RESULT[chat_anthropic]:-not run} != ok ]]; then
     recommend+="  NATIVE_TYPES: remove \"anthropic\" (the anthropic type did not work)"$'\n'
   fi
-  if [[ ${RESULT[chat_google]:-no} != yes ]]; then
+  if [[ ${RESULT[chat_google]:-not run} != ok ]]; then
     recommend+="  NATIVE_TYPES: remove \"google\" (the google type did not work)"$'\n'
   fi
-  if [[ ${RESULT[chat_extra_gemma_google]:-} == no && ${RESULT[chat_extra_gemma_openai]:-} == yes ]]; then
+  if [[ ${RESULT[chat_extra_gemma_google]:-ok} == FAILED* && ${RESULT[chat_extra_gemma_openai]:-} == ok ]]; then
     recommend+="  NATIVE_TYPES: remove \"google\" (gemma failed on the google type but worked on the openai type)"$'\n'
   fi
   [[ -n $recommend ]] || recommend="  none: the defaults in the script header are right"$'\n'
@@ -461,13 +524,14 @@ report() {
     echo "- Direct OpenAI-shape call, openai model (${MODEL[openai]:-?}): ${RESULT[direct_openai]:-?}"
     echo "- Direct OpenAI-shape call, google model (${MODEL[google]:-?}): ${RESULT[direct_google]:-?}"
     echo "- Direct Anthropic-shape call: /v1/messages returned ${RESULT[direct_v1_messages]:-?}, /messages returned ${RESULT[direct_messages]:-?}"
-    echo "- Coder chat, openai type: ${RESULT[chat_openai]:-not run}${RESULT[error_openai]:+ (error: ${RESULT[error_openai]})}"
-    echo "- Coder chat, google type: ${RESULT[chat_google]:-not run}${RESULT[error_google]:+ (error: ${RESULT[error_google]})}"
+    echo "- Coder chat, openai type: ${RESULT[chat_openai]:-not run}"
+    echo "- Coder chat, google type: ${RESULT[chat_google]:-not run}"
     echo "- Coder chat, anthropic type: ${RESULT[chat_anthropic]:-not run} (base URL that worked: $anth_base)"
     for key in "${EXTRA_KEYS[@]}"; do
-      echo "- Coder chat, ${EXTRA_MODEL[$key]:-none} on the ${EXTRA_TYPE[$key]} type: ${RESULT[chat_extra_$key]:-not run}${RESULT[error_$key]:+ (error: ${RESULT[error_$key]})}"
+      echo "- Coder chat, ${EXTRA_MODEL[$key]:-none} on the ${EXTRA_TYPE[$key]} type: ${RESULT[chat_extra_$key]:-not run}"
     done
     echo "- Requesty logos rendered on both themes: ${RESULT[logos]:-not run}"
+    echo "- Cost of all the chats: $TOTAL_COST_MICROS micro-dollars (divide by 1,000,000 for dollars)"
     echo "- Duplicate display names across providers: ${RESULT[duplicate_display_names]:-not run}"
     echo "- Output limit above context limit: ${RESULT[limits_mismatch]:-not run}"
     echo "- Price list endpoint returns: ${RESULT[prices_list_type]:-?}"
@@ -502,7 +566,8 @@ main() {
   create_smoke_objects
   extra_models
   api_probes
-  ui_checks
+  agent_chats
+  logo_check
   role_probe
   cleanup
   report
