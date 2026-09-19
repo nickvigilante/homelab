@@ -6,7 +6,8 @@
 #     URL the Anthropic type needs
 #   - whether third-party-hosted models work on the native provider types
 #   - whether the Requesty logos render
-#   - which Coder role can read AI configuration (for the CronJob's check token)
+#   - whether an Owner service account with a scoped token can read AI configuration
+#     (for the CronJob's check token; Owner is the only built-in role that can)
 #   - the Coder API behaviours the sync relies on (see api_probes)
 #
 # It creates only objects named smoke-* and deletes them when it finishes, also
@@ -15,7 +16,8 @@
 #
 # Usage, on gandalf (needs curl and jq, plus the coder CLI for the optional
 # token and service-account steps):
-#   scripts/requesty-smoke-test.sh
+#   scripts/requesty-smoke-test.sh              the whole walkthrough
+#   scripts/requesty-smoke-test.sh --role-only  only the scoped read-only token probe
 #
 # It prompts for what it needs. Set CODER_URL, CODER_SESSION_TOKEN or
 # REQUESTY_API_KEY in the environment to skip those prompts. Secrets are read
@@ -114,9 +116,10 @@ pick_first_party() {
   jq -r --arg lab "$1" '[.data[] | select((.id | startswith($lab + "/")) and (.id | test("[@:]") | not) and .supports_tool_calling and .retires == null and .input_price > 0)] | min_by(.output_price) | .id // empty' <<<"$CAT"
 }
 
-# The same, but hosted somewhere other than the lab itself.
+# The same, but hosted somewhere other than the lab itself, and limited to the
+# lab's flagship family (a small open model is a poor probe for a native type).
 pick_third_party() {
-  jq -r --arg lab "$1" '[.data[] | select(.model_lab == $lab and (.id | startswith($lab + "/") | not) and (.id | test("[@:]") | not) and .supports_tool_calling and .retires == null and .input_price > 0)] | min_by(.output_price) | .id // empty' <<<"$CAT"
+  jq -r --arg lab "$1" --arg family "$2" '[.data[] | select(.model_lab == $lab and (.model_canonical_name | startswith($family)) and (.id | startswith($lab + "/") | not) and (.id | test("[@:]") | not) and .supports_tool_calling and .retires == null and .input_price > 0)] | min_by(.output_price) | .id // empty' <<<"$CAT"
 }
 
 cleanup() {
@@ -190,8 +193,9 @@ pick_models() {
     }
     note "$type -> ${MODEL[$type]}"
   done
+  EXTRA[anthropic]="$(pick_third_party anthropic claude)"
+  EXTRA[google]="$(pick_third_party google gemini)"
   for type in anthropic google; do
-    EXTRA[$type]="$(pick_third_party "$type")"
     note "$type, hosted elsewhere -> ${EXTRA[$type]:-none found}"
   done
 }
@@ -274,22 +278,26 @@ create_smoke_objects() {
 # providers, and a model whose output limit exceeds its context limit. These
 # are the shapes the real sync will register.
 extra_models() {
-  local type created=0
-  say "5. Extra models: third-party hosts, duplicate names, limits"
+  local type
+  say "5. Extra models: third-party hosts, a duplicate display name, limits"
   for type in anthropic google; do
     [[ -n ${EXTRA[$type]:-} && -n ${PROVIDER_ID[$type]:-} ]] || continue
-    if create_model "$type" "${EXTRA[$type]}" "smoke-duplicate-name"; then
+    # The display name is the model ID, so the picker shows which one is which.
+    if create_model "$type" "${EXTRA[$type]}" "${EXTRA[$type]}"; then
       RESULT[extra_created_$type]=yes
-      created=$((created + 1))
     else
       RESULT[extra_created_$type]=no
     fi
   done
-  case $created in
-    2) RESULT[duplicate_display_names]="accepted across providers" ;;
-    1) RESULT[duplicate_display_names]="one extra create FAILED (see the error above: a duplicate display name, or a model ID Coder does not accept)" ;;
-    *) RESULT[duplicate_display_names]="not tested (no extra model could be created)" ;;
-  esac
+  # A duplicate display name across providers, on a model nobody chats with: the
+  # sync registers free and paid twins under the same name.
+  if [[ -n ${PROVIDER_ID[google]:-} && -n ${PROVIDER_ID[openai]:-} ]]; then
+    if create_model google "smoke/duplicate-probe" "${MODEL[openai]}"; then
+      RESULT[duplicate_display_names]="accepted across providers"
+    else
+      RESULT[duplicate_display_names]="REJECTED (see the error above)"
+    fi
+  fi
   if [[ -n ${PROVIDER_ID[openai]:-} ]]; then
     if create_model openai "smoke/limits-probe" "smoke-limits-probe" 16384 40960; then
       RESULT[limits_mismatch]="accepted (max_output_tokens above context_limit)"
@@ -365,37 +373,49 @@ ui_checks() {
 }
 
 role_probe() {
-  local out check_token p code all again
-  say "8. Least-privileged role for the read-only check token (optional)"
+  local out check_token p code ok=yes
+  say "8. Read-only access for the CronJob's check token (optional)"
+  note "Built-in roles other than Owner cannot read AI providers or model prices, so the"
+  note "check token has to belong to an Owner and be narrowed with token scopes."
   if ! yesno "Probe this now?"; then
-    RESULT[role]="not probed"
+    RESULT[scoped_token]="not probed"
     return 0
   fi
   need coder
   if yesno "Create the 'requesty-sync' service account with the coder CLI now (say n if it exists)?"; then
     coder users create --service-account --username requesty-sync || note "coder users create failed; continue if the user already exists"
   fi
-  out="$(coder tokens create --user requesty-sync --name requesty-smoke-check --lifetime 1h 2>&1)"
-  check_token="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
-  if [[ -z $check_token ]]; then
-    note "could not create a token for requesty-sync"
-    RESULT[role]="not probed"
+  if ! yesno "Give 'requesty-sync' the OWNER role (it stays Owner; only ever give its tokens narrow scopes)?"; then
+    RESULT[scoped_token]="not probed (Owner role declined)"
     return 0
   fi
-  while true; do
-    all=yes
-    for p in /api/v2/ai/providers "/api/v2/organizations/$ORG/chats/models" /api/experimental/ai/model-prices; do
-      code="$(curl -sS -o /dev/null -w '%{http_code}' -K <(printf 'header = "Coder-Session-Token: %s"\n' "$check_token") "$CODER_URL$p")"
-      note "$p -> HTTP $code"
-      [[ $code == 200 ]] || all=no
-    done
-    [[ $all == yes ]] && break
-    note "Set the user's role in the dashboard (Admin > Users > requesty-sync), one step higher than before."
-    # End of input (Ctrl-D) also stops the loop, so it can never spin forever.
-    read -r -p "Press Enter to probe again, or type q to stop: " again || break
-    [[ $again == q* ]] && break
+  coder users edit-roles requesty-sync --roles owner --yes || note "edit-roles failed; set the role in the dashboard and rerun"
+  out="$(coder tokens create --user requesty-sync --name requesty-smoke-check --lifetime 1h \
+    --scope ai_provider:read --scope ai_model_price:read --scope chat_model_config:read --scope organization:read 2>&1)"
+  check_token="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
+  if [[ -z $check_token ]]; then
+    note "could not create a scoped token for requesty-sync"
+    RESULT[scoped_token]="not probed (token creation failed)"
+    return 0
+  fi
+  note "Reads (all should be 200):"
+  for p in /api/v2/organizations /api/v2/ai/providers "/api/v2/organizations/$ORG/chats/models" /api/experimental/ai/model-prices; do
+    code="$(curl -sS -o /dev/null -w '%{http_code}' -K <(printf 'header = "Coder-Session-Token: %s"\n' "$check_token") "$CODER_URL$p")"
+    note "  GET $p -> HTTP $code"
+    [[ $code == 200 ]] || ok=no
   done
-  RESULT[role]="$(ask "Role the user had when all three probes returned 200 (or 'none works')")"
+  note "Writes (all should be 403, meaning the scope really blocks them):"
+  for p in /api/v2/ai/providers /api/experimental/ai/model-prices; do
+    code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' \
+      -K <(printf 'header = "Coder-Session-Token: %s"\n' "$check_token") "$CODER_URL$p")"
+    note "  POST $p -> HTTP $code"
+    [[ $code == 403 ]] || ok=no
+  done
+  if [[ $ok == yes ]]; then
+    RESULT[scoped_token]="works: reads 200, writes 403 (scopes ai_provider:read ai_model_price:read chat_model_config:read organization:read)"
+  else
+    RESULT[scoped_token]="did NOT behave as expected (see the codes above)"
+  fi
 }
 
 report() {
@@ -431,7 +451,7 @@ report() {
     echo "- Null prices round trip: ${RESULT[price_nulls]:-?}"
     echo "- Provider PATCH with a single field: ${RESULT[patch_partial]:-?}"
     echo "- API key PATCH sent twice: ${RESULT[key_patch]:-?}"
-    echo "- Least-privileged role that can read providers, models and prices: ${RESULT[role]:-not probed}"
+    echo "- Owner service account with a scoped read-only token: ${RESULT[scoped_token]:-not probed}"
     for type in openai google anthropic; do
       [[ -z ${RESULT[create_$type]:-} ]] || echo "- Creating the $type provider: ${RESULT[create_$type]}"
     done
@@ -448,6 +468,12 @@ main() {
   trap on_exit EXIT
   trap 'exit 130' INT TERM
   get_credentials
+  if [[ ${1:-} == --role-only ]]; then
+    role_probe
+    say "Result"
+    echo "- Owner service account with a scoped read-only token: ${RESULT[scoped_token]:-not probed}"
+    return 0
+  fi
   pick_models
   direct_calls
   create_smoke_objects
