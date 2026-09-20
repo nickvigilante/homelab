@@ -28,16 +28,18 @@ Verify drives the chats API with a thread pool and reports pass, fail, or inconc
   Read them before writing tests.
 - The Markdown rule for any docs you touch is one sentence per line.
 
----
+______________________________________________________________________
 
 ### Task 1: Limited check mode
 
 **Files:**
+
 - Modify: `scripts/requesty-coder-sync.py`
 - Modify: `tests/requesty_sync/fakes.py`
 - Create: `tests/requesty_sync/test_limited.py`
 
 **Interfaces:**
+
 - Produces: `CoderClient.list_models_response(org_id) -> dict`, `Live.limited: bool`, `load_live_limited(client, desired) -> Live`, `LIMITED_SUFFIX`, the `check --limited` flag, and `FakeCoder.list_models_response`.
 
 **Background you need.**
@@ -65,8 +67,8 @@ Read `load_live`, `Live`, `compute_diff`, `provider_changes`, `run`, `build_pars
 5. `compute_diff` (and `provider_changes`, via a new keyword argument `limited: bool = False`) must, when `live.limited` is true:
    - not compare `base_url`;
    - skip the whole price section, and append exactly one `Finding(INFO, "prices and provider base URLs are not checked in limited mode")`.
-   Everything else, including `MISSING_PROVIDER`, `PROVIDER_DRIFT` (icon, display name, enabled, missing key), `MODEL_DRIFT` (`context_limit`, `max_output_tokens`, owning provider), `MISSING_MODEL`, `ORPHAN_MODEL`, and the "selected but disabled" INFO line, behaves as in full mode.
-   Full mode (`live.limited` false) must behave exactly as before.
+     Everything else, including `MISSING_PROVIDER`, `PROVIDER_DRIFT` (icon, display name, enabled, missing key), `MODEL_DRIFT` (`context_limit`, `max_output_tokens`, owning provider), `MISSING_MODEL`, `ORPHAN_MODEL`, and the "selected but disabled" INFO line, behaves as in full mode.
+     Full mode (`live.limited` false) must behave exactly as before.
 6. CLI: `check` gets a `--limited` flag (not `apply`, which stays full).
    In `run`, `check --limited` calls `load_live_limited(client, desired)` and every other path keeps calling `load_live(client)`.
    `--limited` is chosen only by the flag; never fall back to it on a 403.
@@ -76,41 +78,61 @@ Read `load_live`, `Live`, `compute_diff`, `provider_changes`, `run`, `build_pars
 **Tests to write** (`tests/requesty_sync/test_limited.py`), each as its own test function, using `FakeCoder`, `seed_in_sync`, `small_catalog`, and `sync.main(...)` the way `test_cli.py` does:
 
 - A fully seeded fake has no drift under `check --limited`; exit code 0; the report contains the "not checked in limited mode" INFO line; the summary is "in sync".
+
 - `check --limited` never calls `list_providers` or `list_custom_prices` (assert on `fake.reads`), and full `check` still does.
+
 - Providers and models of unrelated providers (a fake provider named `openai` with display name "OpenAI") are ignored.
+
 - A missing model gives `MISSING_MODEL`; a wrong `context_limit` gives `MODEL_DRIFT`; a wrong `max_output_tokens` inside `model_config` gives `MODEL_DRIFT`.
+
 - A wrong icon, a disabled provider, and a provider with no API key each give `PROVIDER_DRIFT`.
+
 - A wrong `base_url` on a provider is **not** drift under `--limited` but **is** drift in full mode.
+
 - A missing custom price is **not** drift under `--limited` but **is** in full mode.
+
 - A provider whose display name was changed by hand (so it no longer matches) yields `MISSING_PROVIDER`, and its models yield `MISSING_MODEL`.
+
 - A recognized descriptor with no desired provider (an extra fake provider with display name "Retired Lab via Requesty" holding an enabled model) yields an `ORPHAN_MODEL` whose provider name is `retired-lab-via-requesty`.
+
 - A model that is selected but disabled produces the existing "selected but disabled in Coder" INFO line, and no drift, in limited mode.
+
 - `check --limited --json` includes the limited-mode INFO finding and `"drift": false` for an in-sync fake.
+
 - `apply --limited` is rejected by argparse with exit code 2 (`SystemExit`).
+
 - `load_live_limited` turns a wrong-shaped response into `SyncError` (use the `stub` HTTP server fixture with a `CoderClient`, or a small fake client object).
+
 - `list_models_response` raises `ApiError` for a JSON list body and for an object with a non-list `models` (use the `stub` fixture, like `test_client.py`).
 
 - [ ] **Step 1: Read the existing code and tests** named above.
+
 - [ ] **Step 2: Write the tests and the `FakeCoder` additions, run them, and record the RED output.**
+
 - [ ] **Step 3: Implement the behavior**, then run the new tests GREEN.
+
 - [ ] **Step 4: Run the whole suite and lint.**
+
 - [ ] **Step 5: Commit** as one commit with subject `feat(coder): add a limited check mode for narrow tokens`, a short body explaining why (a member-level token cannot read AI providers or prices), and the trailer.
 
----
+______________________________________________________________________
 
 ### Task 2: The verify command
 
 **Files:**
+
 - Modify: `scripts/requesty-coder-sync.py`
 - Modify: `tests/requesty_sync/fakes.py`
 - Create: `tests/requesty_sync/test_verify.py`
 
 **Interfaces:**
+
 - Consumes: `CoderClient`, `Live`, `load_live`, `SyncError`, `ApiError`, and `main`.
 - Produces: `CoderClient.create_chat`, `get_chat`, `get_chat_messages`, `get_chat_cost`, `archive_chat`; `VerifyResult`; `verify_model(...)`; `select_models_to_verify(...)`; `run_verify(...)`; the `verify` subcommand; and chat support in `FakeCoder`.
 
 **Background you need.**
 The Coder chats API (v2.37.0) works like this, verified against a live server:
+
 - `POST /api/v2/chats` with `{"organization_id", "model_config_id", "client_type": "api", "labels": {...}, "content": [{"type": "text", "text": "..."}]}` returns 201 and a chat object with an `id` and a `status`.
   No workspace is needed.
 - `GET /api/v2/chats/{id}` returns the chat.
@@ -119,8 +141,8 @@ The Coder chats API (v2.37.0) works like this, verified against a live server:
 - `GET /api/v2/chats/{id}/messages` returns `{"messages": [{"role": "user"|"assistant"|"system"|"tool", ...}], "queued_messages": [], "has_more": false}`.
 - `GET /api/v2/chats/{id}/cost` returns `{"chat_id", "total_cost_micros", "request_count", "unpriced_request_count"}`.
 - `PATCH /api/v2/chats/{id}` with `{"archived": true}` archives a chat.
-A model that the upstream host rejects shows up as `status: error`, for example `last_error = {"message": "Google returned an unexpected error.", "detail": "Conversation roles must alternate user/assistant/user/assistant/...", "status_code": 400, "provider": "google", "retryable": false}`.
-Read `CoderClient`, `Live`, `load_live`, `run`, `main`, `build_parser`, and `apply_changes` in the script first, and follow their style (dataclasses, injected clients so tests can use `FakeCoder`, `SyncError` for fatal problems).
+  A model that the upstream host rejects shows up as `status: error`, for example `last_error = {"message": "Google returned an unexpected error.", "detail": "Conversation roles must alternate user/assistant/user/assistant/...", "status_code": 400, "provider": "google", "retryable": false}`.
+  Read `CoderClient`, `Live`, `load_live`, `run`, `main`, `build_parser`, and `apply_changes` in the script first, and follow their style (dataclasses, injected clients so tests can use `FakeCoder`, `SyncError` for fatal problems).
 
 **Required behavior** (from the spec section "Verify"):
 
@@ -159,21 +181,37 @@ Read `CoderClient`, `Live`, `load_live`, `run`, `main`, `build_parser`, and `app
 **Tests to write** (`tests/requesty_sync/test_verify.py`), each its own function, using `FakeCoder` seeded with `seed_in_sync` and `sync.main(["verify", ...], env, client_factory=..., confirm=..., out=...)` the way `test_cli.py` does, with `--poll 0` so tests are fast:
 
 - All models ok: exit 0, the summary line counts them, the total cost is `n * 1500` micro-dollars formatted in dollars, and every chat was archived.
+
 - A non-retryable error is reported as `FAIL` with the message, detail, `HTTP 400`, and provider in the line; exit 1; the chat is still archived.
+
 - A retryable error is reported as `INCONCLUSIVE`, not `FAIL`, and is **not** disabled by `--disable-failures`.
+
 - `requires_action` counts as ok.
+
 - A chat that never finishes is `INCONCLUSIVE` after a short `--timeout` (for example 0.2 with `--poll 0`).
+
 - `--disable-failures --yes` disables only the failed model (its `enabled` becomes false in the fake), and the other models stay enabled; without `--yes` a "n" answer disables nothing and a "y" answer disables the failed model.
+
 - After `--disable-failures`, `check` (full mode, against the same catalog) reports no drift and the INFO line "selected but disabled in Coder: <model>", and `apply --yes` does not re-enable it.
+
 - `--provider`, `--model`, and `--limit` narrow the set; disabled models and models of unmanaged providers are skipped; `No models to verify.` and exit 0 when nothing is selected.
+
 - Creating a chat that raises `ApiError` (make a subclass of `FakeCoder` whose `create_chat` raises) gives `INCONCLUSIVE` with the error text.
+
 - `--concurrency 4` with eight models returns eight results.
+
 - A missing `CODER_SESSION_TOKEN` exits 2, and `verify` never sends a heartbeat (set `UPTIME_KUMA_PUSH_URL` to the `stub` fixture URL and assert it received no requests).
+
 - `verify_model` unit test with injected `sleep` and `clock` for the timeout path, so it does not wait in real time.
+
 - `CoderClient` methods use the right verbs and paths (use the `stub` HTTP server fixture, like `test_client.py`), including `archive_chat` sending `{"archived": true}` and tolerating an empty or 204 response.
 
 - [ ] **Step 1: Read the existing code and tests** named above.
+
 - [ ] **Step 2: Write the tests and the `FakeCoder` chat support, run them, and record the RED output.**
+
 - [ ] **Step 3: Implement the behavior**, then run the new tests GREEN.
+
 - [ ] **Step 4: Run the whole suite and lint.**
+
 - [ ] **Step 5: Commit** as one commit with subject `feat(coder): add verify, which tests each model through a real Agents chat`, a short body, and the trailer.

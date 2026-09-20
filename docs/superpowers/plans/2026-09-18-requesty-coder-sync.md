@@ -28,35 +28,37 @@ A daily CronJob runs `check` from a stock `python:3.14-alpine` image with the sc
 - Repo rules for Kubernetes: manifest filenames must match the kubeconform filter in `.github/workflows/lint.yml` (`*-cronjob.yaml`, `external-secret.yaml`), and YAML is formatted with `yamlfmt -conf .yamlfmt`.
 - Label every command with the machine it runs on: everything in this plan runs on **gandalf** unless stated otherwise.
 
----
+______________________________________________________________________
 
 ## File Structure
 
-| Path | Responsibility |
-| --- | --- |
-| `scripts/requesty-coder-sync.py` | The whole tool: catalog selection, Coder client, drift detection, apply, and CLI, in that order |
-| `pyproject.toml` | pytest and ruff configuration only (nothing is packaged) |
-| `tests/requesty_sync/conftest.py` | Loads the hyphen-named script as a module and provides shared fixtures |
-| `tests/requesty_sync/fakes.py` | Catalog entry factory, an in-memory `FakeCoder`, and a stub HTTP server |
-| `tests/requesty_sync/fixtures/catalog_snapshot.json` | A 51-entry trimmed snapshot of the real Requesty catalog (already committed with this plan) |
-| `tests/requesty_sync/test_*.py` | One test file per script section |
-| `k8s/requesty-sync/` | CronJob, ExternalSecret, kustomization (with the ConfigMap generator), and README |
-| `clusters/gandalf/requesty-sync.yaml` | The Flux Kustomization that reconciles the directory |
-| `.pre-commit-config.yaml`, `.github/workflows/lint.yml` | Add ruff and an always-run pytest job |
+| Path                                                    | Responsibility                                                                                  |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `scripts/requesty-coder-sync.py`                        | The whole tool: catalog selection, Coder client, drift detection, apply, and CLI, in that order |
+| `pyproject.toml`                                        | pytest and ruff configuration only (nothing is packaged)                                        |
+| `tests/requesty_sync/conftest.py`                       | Loads the hyphen-named script as a module and provides shared fixtures                          |
+| `tests/requesty_sync/fakes.py`                          | Catalog entry factory, an in-memory `FakeCoder`, and a stub HTTP server                         |
+| `tests/requesty_sync/fixtures/catalog_snapshot.json`    | A 51-entry trimmed snapshot of the real Requesty catalog (already committed with this plan)     |
+| `tests/requesty_sync/test_*.py`                         | One test file per script section                                                                |
+| `k8s/requesty-sync/`                                    | CronJob, ExternalSecret, kustomization (with the ConfigMap generator), and README               |
+| `clusters/gandalf/requesty-sync.yaml`                   | The Flux Kustomization that reconciles the directory                                            |
+| `.pre-commit-config.yaml`, `.github/workflows/lint.yml` | Add ruff and an always-run pytest job                                                           |
 
 The script is one file on purpose: it ships to the pod as a single ConfigMap key, and its five sections have one direction of dependency (selection, then client, then diff, then apply, then CLI).
 Each task appends one section to the end of the file.
 
----
+______________________________________________________________________
 
 ### Task 1: Smoke test the riskiest assumptions **(operator)**
 
 This settles what the spec calls the two knobs (`NATIVE_TYPES` and `BASE_URL_BY_TYPE`) before any code depends on them, and finds the least-privileged role that can read AI configuration.
 
 **Files:**
+
 - Modify: `docs/superpowers/specs/2026-09-18-requesty-coder-sync-design.md` (append a `## Smoke test results` section)
 
 **Interfaces:**
+
 - Produces: values for `NATIVE_TYPES` and `BASE_URL_BY_TYPE` used in Task 2, and the role for the check-only token used in Task 8.
 
 Run every command in this task in the operator's own terminal on **gandalf**, in one shell session, because the steps share variables.
@@ -149,9 +151,11 @@ Then open the AI settings Models page and check the icons in both the light and 
 Record:
 
 - Which of the three chats replied.
+
 - For `smoke-anthropic`, whether it needed the base URL changed.
   If the Anthropic chat fails, retry with the root URL and chat again:
   `echo '{"base_url":"https://router.requesty.ai"}' | api -X PATCH "$CODER_URL/api/v2/ai/providers/smoke-anthropic" -d @-`
+
 - Whether the three Requesty logos rendered, and whether they look acceptable on both themes.
 
 - [ ] **Step 6: Find the least-privileged role that can read AI configuration (operator, gandalf)**
@@ -215,11 +219,12 @@ Carry the outcomes into Task 2 as follows.
 - If the `anthropic` type could not be made to work at all, remove `"anthropic"` from `NATIVE_TYPES`, so Anthropic uses the `openai` type.
 - If the `google` type failed, remove `"google"` from `NATIVE_TYPES` in the same way.
 
----
+______________________________________________________________________
 
 ### Task 2: Scaffold, tooling, and shared test support
 
 **Files:**
+
 - Create: `pyproject.toml`
 - Create: `tests/requesty_sync/conftest.py`
 - Create: `tests/requesty_sync/fakes.py`
@@ -229,7 +234,9 @@ Carry the outcomes into Task 2 as follows.
 - Modify: `.github/workflows/lint.yml`
 
 **Interfaces:**
+
 - Produces: `sync` (a session fixture returning the loaded script module), `relaxed_guard` (autouse, sets `MIN_ELIGIBLE_MODELS` to 1), `stub` (a stub HTTP server with `.requests`, `.responses`, `.server_port`), and from `fakes.py`: `make_entry`, `small_catalog`, `FakeCoder`, `seed_in_sync`, `start_stub`.
+
 - Produces: in the script, `SyncError`, `ApiError(method, path, status, body)`, `DesiredProvider`, `DesiredModel`, `Desired`, `Prices`, the constants (`REQUESTY_MODELS_URL`, `REQUESTY_BASE_URL`, `LOGO_BASE_URL`, `FALLBACK_ICON`, `DEFAULT_CODER_URL`, `PROVIDER_SUFFIX`, `FREE_PROVIDER_NAME`, `MIN_ELIGIBLE_MODELS`, `USER_AGENT`, `EXIT_OK`, `EXIT_DRIFT`, `EXIT_ERROR`, `NATIVE_TYPES`, `BASE_URL_BY_TYPE`, `LAB_ALIASES`, `LAB_LOGOS`, `LAB_NAMES`).
 
 - [ ] **Step 1: Create the worktree checkout state**
@@ -725,19 +732,22 @@ git add pyproject.toml scripts/requesty-coder-sync.py tests .pre-commit-config.y
 git commit -m "build(coder): scaffold the Requesty sync tool and its test tooling" -m "Assisted-by: AI"
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: Catalog selection
 
 Turns the Requesty catalog into the desired state: eligibility, retirement filter, free pool, host preference, cross-lab collapse, providers, icons, and prices.
 
 **Files:**
+
 - Modify: `scripts/requesty-coder-sync.py` (append the selection section)
 - Create: `tests/requesty_sync/test_selection.py`
 - Already present: `tests/requesty_sync/fixtures/catalog_snapshot.json`
 
 **Interfaces:**
+
 - Consumes: the Task 2 constants and dataclasses.
+
 - Produces: `is_eligible(entry)`, `is_retiring(entry)`, `retire_date(timestamp) -> str`, `is_free(entry)`, `lab_of(entry)`, `canonical_of(entry)`, `is_plain(entry)`, `host_of(entry)`, `pick(entries, lab)`, `select(entries) -> (chosen, notes)`, `slugify(text)`, `micro(per_token)`, `icon_for(lab)`, `lab_provider(lab) -> DesiredProvider`, `free_provider() -> DesiredProvider`, and `build_desired(entries) -> Desired`.
 
 - [ ] **Step 1: Confirm the fixture is present**
@@ -1191,16 +1201,19 @@ git add scripts/requesty-coder-sync.py tests
 git commit -m "feat(coder): select and price Requesty models for Coder" -m "Assisted-by: AI"
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: Catalog fetch and Coder API client
 
 **Files:**
+
 - Modify: `scripts/requesty-coder-sync.py` (append the client section)
 - Create: `tests/requesty_sync/test_client.py`
 
 **Interfaces:**
+
 - Consumes: `SyncError`, `ApiError`, `USER_AGENT`, `REQUESTY_MODELS_URL`, `PROVIDER_SUFFIX`.
+
 - Produces: `fetch_catalog(url=REQUESTY_MODELS_URL, timeout=60.0) -> list[dict]`, `CoderClient(base_url, token, timeout=30.0)` with `request`, `default_org_id`, `list_providers`, `create_provider(payload) -> dict`, `update_provider(provider_id, payload)`, `list_models(org_id)`, `create_model(org_id, payload) -> dict`, `update_model(org_id, model_id, payload)`, `list_custom_prices`, `upsert_prices(prices)`, plus `Live(org_id, providers, models, prices)`, `is_managed_name(name)`, and `load_live(client) -> Live`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1401,17 +1414,21 @@ git add scripts/requesty-coder-sync.py tests
 git commit -m "feat(coder): add the Requesty catalog fetch and Coder API client" -m "Assisted-by: AI"
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: Drift detection
 
 **Files:**
+
 - Modify: `scripts/requesty-coder-sync.py` (append the drift section)
 - Create: `tests/requesty_sync/test_diff.py`
 
 **Interfaces:**
+
 - Consumes: `Desired`, `DesiredProvider`, `DesiredModel`, `Live`, `FREE_PROVIDER_NAME`, and the test doubles `FakeCoder`, `seed_in_sync`, `small_catalog`.
+
 - Produces: the category constants (`MISSING_PROVIDER`, `MISSING_MODEL`, `PROVIDER_DRIFT`, `MODEL_DRIFT`, `PRICE_DRIFT`, `ORPHAN_MODEL`, `INFO`, `DRIFT_CATEGORIES`), `Finding(category, subject, detail="", provider="", action=None)`, `compute_diff(desired, live) -> list[Finding]`, `has_drift(findings) -> bool`, `summarize(findings) -> str`, and `format_report(findings, summary) -> str`.
+
 - The `Finding.action` dictionaries, consumed by Task 6: `{"op": "create_provider", "provider": DesiredProvider}`, `{"op": "update_provider", "id", "name", "payload"}`, `{"op": "set_key", "id", "name"}`, `{"op": "create_model", "model": DesiredModel}`, `{"op": "update_model", "id", "payload", "move_to"}`, `{"op": "disable_model", "id"}`, and `{"op": "upsert_price", "price"}`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1772,16 +1789,19 @@ git add scripts/requesty-coder-sync.py tests
 git commit -m "feat(coder): detect drift between Requesty and Coder" -m "Assisted-by: AI"
 ```
 
----
+______________________________________________________________________
 
 ### Task 6: Apply
 
 **Files:**
+
 - Modify: `scripts/requesty-coder-sync.py` (append the apply section)
 - Create: `tests/requesty_sync/test_apply.py`
 
 **Interfaces:**
+
 - Consumes: `CoderClient` (or `FakeCoder`), `Live`, `Finding`, `SyncError`.
+
 - Produces: `apply_changes(client, live, findings, api_key, rotate_key, log)`, which runs the findings' actions in order (providers, keys, models, orphan disables, then one price batch), raises `SyncError` before any call when a key is needed but missing, and never deletes.
 
 - [ ] **Step 1: Write the failing tests**
@@ -2002,17 +2022,21 @@ git add scripts/requesty-coder-sync.py tests
 git commit -m "feat(coder): apply Requesty catalog changes to Coder without deleting" -m "Assisted-by: AI"
 ```
 
----
+______________________________________________________________________
 
 ### Task 7: Command line, reporting, and heartbeat
 
 **Files:**
+
 - Modify: `scripts/requesty-coder-sync.py` (append the CLI section)
 - Create: `tests/requesty_sync/test_cli.py`
 
 **Interfaces:**
+
 - Consumes: everything from Tasks 3 to 6.
+
 - Produces: `build_parser()`, `emit(findings, summary, as_json, out)`, `push_heartbeat(url, status, message)`, `default_catalog_loader(args)`, `run_apply(...)`, `run(...)`, and `main(argv=None, env=None, *, client_factory=CoderClient, load_catalog=default_catalog_loader, confirm=input, out=None) -> int`.
+
 - The command line: `requesty-coder-sync.py check [--json] [--catalog-file PATH]` and `requesty-coder-sync.py apply [--yes] [--disable-orphans] [--rotate-key] [--catalog-file PATH]`, configured by `CODER_URL`, `CODER_SESSION_TOKEN`, `REQUESTY_API_KEY`, and `UPTIME_KUMA_PUSH_URL`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -2364,14 +2388,7 @@ Expected: `77 passed`.
 
 - [ ] **Step 5: Try it against the real catalog without touching Coder**
 
-Run: `curl -fsS https://router.requesty.ai/v1/models > /tmp/catalog.json && python3 - <<'EOF'
-import importlib.util, json, sys
-spec = importlib.util.spec_from_file_location("sync", "scripts/requesty-coder-sync.py")
-sync = importlib.util.module_from_spec(spec); sys.modules["sync"] = sync; spec.loader.exec_module(sync)
-desired = sync.build_desired(json.load(open("/tmp/catalog.json"))["data"])
-print(len(desired.providers), "providers,", len(desired.models), "models")
-print("free:", sorted(k for k, v in desired.models.items() if v.provider == sync.FREE_PROVIDER_NAME))
-EOF`
+Run: `curl -fsS https://router.requesty.ai/v1/models > /tmp/catalog.json && python3 - <<'EOF' import importlib.util, json, sys spec = importlib.util.spec_from_file_location("sync", "scripts/requesty-coder-sync.py") sync = importlib.util.module_from_spec(spec); sys.modules["sync"] = sync; spec.loader.exec_module(sync) desired = sync.build_desired(json.load(open("/tmp/catalog.json"))["data"]) print(len(desired.providers), "providers,", len(desired.models), "models") print("free:", sorted(k for k, v in desired.models.items() if v.provider == sync.FREE_PROVIDER_NAME)) EOF`
 
 Expected: roughly `24 providers, 189 models`, and a `free:` list of about nine models (exact numbers move as Requesty's catalog changes).
 
@@ -2383,11 +2400,12 @@ git add scripts/requesty-coder-sync.py tests
 git commit -m "feat(coder): add the sync command line, report, and Uptime Kuma heartbeat" -m "Assisted-by: AI"
 ```
 
----
+______________________________________________________________________
 
 ### Task 8: In-cluster CronJob, secrets, and README
 
 **Files:**
+
 - Create: `k8s/requesty-sync/kustomization.yaml`
 - Create: `k8s/requesty-sync/requesty-sync-cronjob.yaml`
 - Create: `k8s/requesty-sync/external-secret.yaml`
@@ -2395,7 +2413,9 @@ git commit -m "feat(coder): add the sync command line, report, and Uptime Kuma h
 - Create: `clusters/gandalf/requesty-sync.yaml`
 
 **Interfaces:**
+
 - Consumes: the script from Tasks 2 to 7, the check-only token role from Task 1, and the existing `bitwarden` ClusterSecretStore.
+
 - Produces: a Secret `coder/requesty-sync-secrets` with keys `CODER_SESSION_TOKEN` and `UPTIME_KUMA_PUSH_URL`, and a CronJob `coder/requesty-sync`.
 
 - [ ] **Step 1: Create the Uptime Kuma push monitor (operator, browser)**
@@ -2609,7 +2629,7 @@ spec:
 
 `k8s/requesty-sync/README.md`:
 
-```markdown
+````markdown
 # requesty-sync
 
 Keeps Coder Agents in step with the Requesty model catalog.
@@ -2651,7 +2671,7 @@ To run it by hand:
 ```bash
 kubectl -n coder create job --from=cronjob/requesty-sync test-sync-$(date +%s)
 kubectl -n coder logs -f job/<the job name printed above>
-```
+````
 
 ## Fixing drift
 
@@ -2675,14 +2695,14 @@ Flags for `apply`:
 
 ## Reading a report
 
-| Category | Meaning | Fixed by |
-| --- | --- | --- |
-| `MISSING_PROVIDER`, `MISSING_MODEL` | In the desired state and absent in Coder | `apply` |
-| `PROVIDER_DRIFT` | Wrong `base_url`, `icon`, or `display_name`, disabled, or no API key | `apply` (a key needs `REQUESTY_API_KEY`) |
-| `MODEL_DRIFT` | Context or output limit differs, or the model belongs under a different provider (for example it became free) | `apply` |
-| `PRICE_DRIFT` | Custom price absent or different | `apply` |
-| `ORPHAN_MODEL` | Enabled in Coder but no longer selected (retired, or its best host changed) | `apply --disable-orphans` |
-| `INFO` | Skipped on purpose: free models without tool calling, models with a retirement date, and non-plain fallbacks | Nothing to fix |
+| Category                            | Meaning                                                                                                       | Fixed by                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `MISSING_PROVIDER`, `MISSING_MODEL` | In the desired state and absent in Coder                                                                      | `apply`                                  |
+| `PROVIDER_DRIFT`                    | Wrong `base_url`, `icon`, or `display_name`, disabled, or no API key                                          | `apply` (a key needs `REQUESTY_API_KEY`) |
+| `MODEL_DRIFT`                       | Context or output limit differs, or the model belongs under a different provider (for example it became free) | `apply`                                  |
+| `PRICE_DRIFT`                       | Custom price absent or different                                                                              | `apply`                                  |
+| `ORPHAN_MODEL`                      | Enabled in Coder but no longer selected (retired, or its best host changed)                                   | `apply --disable-orphans`                |
+| `INFO`                              | Skipped on purpose: free models without tool calling, models with a retirement date, and non-plain fallbacks  | Nothing to fix                           |
 
 Disabling a model in the UI is not drift, and neither is renaming it, so you can hide models you do not want.
 
@@ -2692,7 +2712,8 @@ Disabling a model in the UI is not drift, and neither is renaming it, so you can
 - **A Coder API failure with status 404 or 405 after a Coder upgrade** usually means an experimental endpoint moved, because model prices live under `/api/experimental`.
 - **The monitor is DOWN but the job succeeded** means drift, so read the job log.
 - **Icons do not load** means Requesty moved its logo files, so refresh the `LAB_LOGOS` table in the script from `https://www.requesty.ai/provider_logos/v2/`.
-```
+
+````
 
 If Task 1 found that nothing below Owner can read AI configuration, replace the "Token" bullet's role text with a sentence saying the `requesty-sync` user is Owner-scoped and why.
 
@@ -2703,7 +2724,7 @@ yamlfmt -conf .yamlfmt -lint k8s/requesty-sync clusters/gandalf/requesty-sync.ya
 yamllint -c .github/yamllint.yml k8s/requesty-sync clusters/gandalf/requesty-sync.yaml && echo "yamllint ok"
 kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/requesty-sync | grep -E '^kind:|name: requesty-sync-script'
 kubeconform -summary -strict -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' k8s/requesty-sync/requesty-sync-cronjob.yaml k8s/requesty-sync/external-secret.yaml
-```
+````
 
 Expected: `yamlfmt ok` and `yamllint ok`, three kinds (`ConfigMap`, `CronJob`, `ExternalSecret`) with the ConfigMap name carrying a hash suffix that also appears in the CronJob's volume, and `Valid: 2, Invalid: 0`.
 If `kubeconform` is not installed locally, CI runs it, so run `pre-commit run --all-files` instead and rely on CI for that check.
@@ -2715,15 +2736,18 @@ git add k8s/requesty-sync clusters/gandalf/requesty-sync.yaml
 git commit -m "feat(coder): run the Requesty drift check daily in the cluster" -m "Assisted-by: AI"
 ```
 
----
+______________________________________________________________________
 
 ### Task 9: Roll out and verify **(operator)**
 
 **Files:**
+
 - No new files.
 
 **Interfaces:**
+
 - Consumes: everything above.
+
 - Produces: Coder populated with the catalog, a green daily check, and a PR that Flux applies after merge.
 
 - [ ] **Step 1: Dry run against the live Coder (operator, gandalf)**
