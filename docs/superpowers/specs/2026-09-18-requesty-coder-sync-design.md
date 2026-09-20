@@ -128,10 +128,11 @@ One custom price per selected entry, keyed by the provider type and the model st
 
 ### Interface
 
-One stdlib-only Python script, `scripts/requesty-coder-sync.py`, with two subcommands.
+One stdlib-only Python script, `scripts/requesty-coder-sync.py`, with three subcommands.
 
-- `check` is read-only and prints a drift report.
+- `check` is read-only and prints a drift report, and `check --limited` does the same using only what a narrow member-level token can read (see Limited check mode).
 - `apply` computes the same diff, prints it, asks "Apply?", and then makes the changes.
+- `verify` runs one real Coder Agents chat per registered model and reports which models fail (see Verify).
 - `--yes` skips the prompt, `--json` gives machine-readable output, and `--disable-orphans` sets `enabled=false` on orphaned models.
 - Configuration is by environment: `CODER_URL`, `CODER_SESSION_TOKEN`, and `REQUESTY_API_KEY` for `apply` only.
 
@@ -166,11 +167,13 @@ Drift on the free provider gets its own summary line, so a newly free model is e
 
 A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux Kustomization at `clusters/gandalf/requesty-sync.yaml` that depends on `infrastructure` and `coder`.
 
-- **CronJob** at 06:00 America/New_York daily, with a pinned `python:3-alpine` image, a gandalf node selector, and `concurrencyPolicy: Forbid`, running `check --json`.
+- **CronJob** at 06:00 America/New_York daily, with a pinned `python:3-alpine` image, a gandalf node selector, and `concurrencyPolicy: Forbid`, running `check --limited`.
 - **Script delivery** through a kustomize `configMapGenerator` from `scripts/requesty-coder-sync.py`, so there is no custom image and the script has one source.
 - **Coder URL** is the in-cluster service DNS name, confirmed at planning time.
-- **Secrets:** a check-only Coder token for a dedicated `requesty-sync` user, delivered by an ExternalSecret from BWS.
-  The CronJob never holds write access or the Requesty key, and `apply` uses the operator's own admin token by hand.
+- **Secrets:** a narrow Coder token for the `requesty-sync` service account, delivered by an ExternalSecret from BWS.
+  The service account has no role (a plain member, and service accounts take no license seat), and the token is limited to the scopes `chat_model_config:read` and `organization:read` with a 1-year lifetime, so it can read the model list and nothing else.
+  The CronJob never holds write access or the Requesty key, and `apply` and `verify` use the operator's own admin token by hand.
+  A Todoist reminder covers rotating the token before it expires.
 - **Alerting** follows the restic pattern: an Uptime Kuma push monitor `requesty-sync`, whose push URL reaches the pod as `UPTIME_KUMA_PUSH_URL` from the same ExternalSecret as the token.
   The script itself pings the monitor after `check`: exit 0 pings `up`, and drift or an error pings `down` with the summary line.
 
@@ -195,7 +198,8 @@ A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux
 ### Risks
 
 - Protocol and base-URL compatibility per provider type, covered by the smoke test.
-- The read-only token role may not exist below Owner, in which case the CronJob token is an Owner-scoped dedicated user and the README says so.
+- Coder v2.37.0 accepts no scope that reads AI providers or model prices, and no role below Owner can read them, so the daily check runs in limited mode: it cannot see prices or a provider's `base_url`.
+  Price drift is checked by hand, by running the full `check` with the operator's own token.
 - Coder's experimental endpoints may change on upgrade, and the daily check fails loudly if they do.
 - Requesty could move its logo URLs, which would silently break icons until the static table is refreshed.
 - About 200 models is a long Models page.
@@ -235,6 +239,38 @@ Run on gandalf on 2026-09-18 with `scripts/requesty-smoke-test.sh`, against the 
 - Coder returned the price list as an array, returned null prices as null, kept the key and `enabled` on a single-field provider PATCH, and replaced (did not append) the key set on an `api_keys` PATCH.
 - Coder accepted an output limit above the context limit, and accepted two models with the same display name under different providers.
   The model picker keys options by model ID and groups them by provider name, so same-named twins show as separate entries.
-- The default service-account role could read the model list but got 403 for AI providers and model prices.
-  In Coder's role tests only the Owner role can read either, so the CronJob token needs an Owner service account narrowed with token scopes (`ai_provider:read`, `ai_model_price:read`, `chat_model_config:read`, `organization:read`).
-  That scoped token is still to be probed with `scripts/requesty-smoke-test.sh --role-only`.
+- The default service-account role could read the model list but got 403 for AI providers and model prices, and in Coder's role tests only the Owner role can read either.
+  Coder v2.37.0 refuses to issue a token with `ai_provider:read` ("invalid or unsupported API key scope"), because its curated list of external scopes has `chat_model_config:read` and `organization:read` but no AI provider or price scope, so a scoped token cannot read them.
+  A token limited to `chat_model_config:read` and `organization:read` on a role-less service account can read the model list with each model's `model_config`, plus a descriptor per provider, and is otherwise empty or denied (0 users, 0 templates, 0 workspaces, 403 for audit logs, AI providers, and prices).
+  The provider descriptor carries `id`, `type`, `display_name`, `icon`, `enabled`, `has_api_key`, and `available`, but not the provider's `name` or `base_url`.
+
+## Limited check mode
+
+`check --limited` exists because the daily CronJob cannot hold a credential that reads AI providers or prices (see Risks).
+It reads only `GET /api/v2/organizations` (to find the default organization) and `GET /api/v2/organizations/{org}/chats/models`, whose response carries the models and one descriptor per provider.
+
+- **Managed providers** are the descriptors whose `display_name` ends with " via Requesty", because a descriptor has no `name`.
+  A desired provider is matched to a descriptor by its exact display name, so a provider renamed by hand looks missing and its models look missing too.
+  A recognized descriptor with no desired provider is kept, named `slugify(display name without the suffix) + "-via-requesty"`, so its enabled models show up as orphans.
+- **Managed models** are the models whose `ai_provider_id` is a managed descriptor.
+- **Compared:** the same model fields as the full check (`context_limit`, `model_config.max_output_tokens`, and the owning provider), plus a provider's `display_name` (its identity), `icon`, and `enabled`, and whether it has an API key.
+- **Not compared:** prices and a provider's `base_url`, which a member-level token cannot read.
+  Every limited run reports the INFO line "prices and provider base URLs are not checked in limited mode".
+- Categories, the summary, exit codes, and the Uptime Kuma heartbeat are the same as the full check.
+- `apply` is unaffected and always uses the full read.
+- The mode is chosen by the flag alone, never by detecting a permission error, so a broken token cannot silently downgrade the check.
+
+## Verify
+
+`verify` tests every registered model through the real Coder Agents path, using the chats API, so it catches failures that catalog metadata cannot, such as a host that rejects the system prompt.
+It needs the operator's own unscoped token, because `chat:create` is not an external scope, and it runs by hand after `apply`, never in the CronJob, because each chat costs money.
+
+- For each managed, enabled model it creates a chat with `POST /api/v2/chats` (`organization_id`, `model_config_id`, `client_type: "api"`, a `probe` label, and one text part asking for the single word ok), polls `GET /api/v2/chats/{id}`, and archives the chat with `PATCH /api/v2/chats/{id}` whether or not it worked.
+- A chat **passes** when its status is `waiting` and an assistant message exists, or its status is `requires_action` (the model answered with a tool call).
+- A chat **fails** when its status is `error` and `last_error.retryable` is false; the report shows the error message, detail, upstream status code, and provider.
+- A chat is **inconclusive** when it errors with `retryable: true` (a rate limit or a 5xx) or does not finish within the timeout, so a transient problem never marks a good model as broken.
+- The report shows each result as it arrives, the counts, and the total cost from `GET /api/v2/chats/{id}/cost`.
+- Options: `--provider NAME` and `--model ID` narrow the set, `--limit N` caps it, `--concurrency N` (default 4) and `--timeout SECONDS` (default 180) tune it.
+- `--disable-failures` sets `enabled=false` on the models that failed (not the inconclusive ones), after showing them and asking for confirmation unless `--yes` is given.
+  `apply` never re-enables a disabled model, and `check` reports it as "selected but disabled in Coder".
+- Exit codes: 0 when every model passed, 1 when any failed or was inconclusive, and 2 for an error.
