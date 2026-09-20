@@ -19,6 +19,14 @@ spec:
         kind: HelmRepository
         name: kubernetes-mcp-server
         namespace: flux-system
+  # First install, not a takeover: the OCI chart pull, cold image pulls, and
+  # any ESO lag on grafana-mcp-token all count against the timeout. The
+  # helm-controller defaults are 5m and no install retries, so one slow first
+  # pull would fail the release for good.
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
   # The chart's Service template has no clusterIP field. Coder's SSRF guard
   # allowlists exact /32 addresses, so pin the address with a patch.
   postRenderers:
@@ -81,6 +89,14 @@ spec:
         kind: HelmRepository
         name: grafana-community
         namespace: flux-system
+  # First install, not a takeover: the chart pull, cold image pulls, and ESO
+  # lag on grafana-mcp-token all count against the timeout. The helm-controller
+  # defaults are 5m and no install retries, so one slow first pull would fail
+  # the release for good.
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
   values:
     fullnameOverride: grafana-mcp
     nodeSelector:
