@@ -11,8 +11,9 @@
 #   - the Coder API behaviours the sync relies on (see api_probes)
 #
 # It creates only objects named smoke-* and deletes them when it finishes, also
-# on Ctrl-C. The one thing it can leave behind is the optional `requesty-sync`
-# service account, which the CronJob token needs later.
+# on Ctrl-C. It can leave behind the optional `requesty-sync` service account, which
+# the CronJob token needs later, and short-lived tokens named requesty-smoke-*, which
+# expire on their own.
 #
 # The chats run through the Coder Agents API, so the only browser step left is the
 # logo check.
@@ -63,6 +64,10 @@ CHAT_POLL="${SMOKE_POLL_SECONDS:-2}"
 declare -A RESULT=()
 
 say() { printf '\n== %s\n' "$*"; }
+
+# redact: hide anything that looks like a token or key (20 or more token characters in a row)
+# before echoing output from another program, in case its format ever changes.
+redact() { sed -E 's/[A-Za-z0-9_-]{20,}/<redacted>/g'; }
 note() { printf '   %s\n' "$*"; }
 
 need() {
@@ -175,7 +180,7 @@ get_credentials() {
     CODER_SESSION_TOKEN="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
     if [[ -z $CODER_SESSION_TOKEN ]]; then
       echo "coder tokens create did not return a token. Its output was:" >&2
-      printf '%s\n' "$out" | sed 's/^/   /' >&2
+      printf '%s\n' "$out" | redact | sed 's/^/   /' >&2
       echo "If it says you are signed out or the session expired, run: coder login $CODER_URL" >&2
       exit 2
     fi
@@ -483,7 +488,7 @@ role_probe() {
   check_token="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
   if [[ -z $check_token ]]; then
     note "could not create a narrow token for requesty-sync:"
-    printf '%s\n' "$out" | sed 's/^/     /'
+    printf '%s\n' "$out" | redact | sed 's/^/     /'
     RESULT[scoped_token]="not probed (token creation failed)"
     return 0
   fi
