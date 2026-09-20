@@ -7,6 +7,7 @@ import pathlib
 import sys
 
 import pytest
+from fakes import FakeCoder
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "requesty-debug-chat.py"
 TOKEN = "sekrit-coder-token-123"
@@ -304,3 +305,312 @@ def test_the_digest_marks_a_message_with_tool_calls_and_null_content(debug):
     assert "assistant(0)" in text
     assert "tool_calls" in text
     assert "tool(6)" in text
+
+
+# ---- the client ---------------------------------------------------------------------
+
+
+def debug_client(debug, stub):
+    return debug.DebugClient(f"http://127.0.0.1:{stub.server_port}", TOKEN)
+
+
+def test_the_client_reads_and_sets_the_admin_gate(debug, stub):
+    path = "/api/v2/chats/config/debug-logging"
+    stub.responses[("GET", path)] = (200, {"allow_users": True, "forced_by_deployment": False})
+    stub.responses[("PUT", path)] = (204, None)
+    client = debug_client(debug, stub)
+    assert client.get_debug_logging() == {"allow_users": True, "forced_by_deployment": False}
+    client.set_debug_logging_allow_users(False)
+    put = stub.requests[-1]
+    assert (put["method"], put["path"]) == ("PUT", path)
+    assert json.loads(put["body"]) == {"allow_users": False}
+    assert put["headers"]["coder-session-token"] == TOKEN
+
+
+def test_the_client_reads_and_sets_the_users_own_toggle(debug, stub):
+    path = "/api/v2/chats/config/user-debug-logging"
+    reply = {"debug_logging_enabled": False, "user_toggle_allowed": True}
+    stub.responses[("GET", path)] = (200, reply)
+    stub.responses[("PUT", path)] = (204, None)
+    client = debug_client(debug, stub)
+    assert client.get_user_debug_logging() == reply
+    client.set_user_debug_logging(True)
+    assert json.loads(stub.requests[-1]["body"]) == {"debug_logging_enabled": True}
+
+
+def test_debug_runs_are_read_from_the_documented_v2_path(debug, stub):
+    stub.responses[("GET", "/api/v2/chats/c1/debug/runs")] = (200, [{"id": "r1"}])
+    stub.responses[("GET", "/api/v2/chats/c1/debug/runs/r1")] = (200, {"id": "r1", "steps": []})
+    client = debug_client(debug, stub)
+    assert client.list_debug_runs("c1") == [{"id": "r1"}]
+    assert client.get_debug_run("c1", "r1") == {"id": "r1", "steps": []}
+    assert [r["path"] for r in stub.requests] == [
+        "/api/v2/chats/c1/debug/runs",
+        "/api/v2/chats/c1/debug/runs/r1",
+    ]
+
+
+def test_debug_runs_fall_back_to_the_experimental_path_v2_37_serves(debug, stub):
+    """In v2.37.0 the run routes are mounted only under /api/experimental."""
+    stub.responses[("GET", "/api/experimental/chats/c1/debug/runs")] = (200, [{"id": "r1"}])
+    stub.responses[("GET", "/api/experimental/chats/c1/debug/runs/r1")] = (200, {"id": "r1"})
+    client = debug_client(debug, stub)
+    assert client.list_debug_runs("c1") == [{"id": "r1"}]
+    assert client.get_debug_run("c1", "r1") == {"id": "r1"}
+    paths = [r["path"] for r in stub.requests]
+    assert paths == [
+        "/api/v2/chats/c1/debug/runs",
+        "/api/experimental/chats/c1/debug/runs",
+        "/api/experimental/chats/c1/debug/runs/r1",
+    ]
+
+
+def test_debug_runs_report_a_404_on_both_paths(debug, sync, stub):
+    client = debug_client(debug, stub)
+    with pytest.raises(sync.ApiError) as excinfo:
+        client.list_debug_runs("c1")
+    assert excinfo.value.status == 404
+
+
+def test_a_null_run_list_is_empty(debug, stub):
+    stub.responses[("GET", "/api/v2/chats/c1/debug/runs")] = (200, b"null")
+    assert debug_client(debug, stub).list_debug_runs("c1") == []
+
+
+# ---- a fake Coder with the debug endpoints ------------------------------------------
+
+
+class FakeDebugCoder(FakeCoder):
+    """FakeCoder plus the debug-logging endpoints, kept in memory."""
+
+    def __init__(self, sync, allow_users=True, user_stored=True, forced=False, is_admin=True):
+        super().__init__()
+        self.ApiError = sync.ApiError
+        self.allow_users = allow_users
+        self.user_stored = user_stored  # what the user's own toggle holds
+        self.forced = forced
+        self.is_admin = is_admin
+        self.toggle_calls = []  # ("admin" | "user", value), in order
+        self.runs = {}  # chat id -> list of run details
+        self.run_error = None
+        self.get_chat_error = None
+
+    def get_debug_logging(self):
+        if not self.is_admin:
+            raise self.ApiError("GET", "/api/v2/chats/config/debug-logging", 404, "nope")
+        return {"allow_users": self.allow_users, "forced_by_deployment": self.forced}
+
+    def set_debug_logging_allow_users(self, allow):
+        if not self.is_admin:
+            raise self.ApiError("PUT", "/api/v2/chats/config/debug-logging", 403, "no")
+        self.toggle_calls.append(("admin", allow))
+        self.allow_users = allow
+
+    def get_user_debug_logging(self):
+        enabled = self.forced or (self.allow_users and self.user_stored)
+        return {
+            "debug_logging_enabled": enabled,
+            "user_toggle_allowed": not self.forced and self.allow_users,
+            "forced_by_deployment": self.forced,
+        }
+
+    def set_user_debug_logging(self, enabled):
+        path = "/api/v2/chats/config/user-debug-logging"
+        if self.forced:
+            raise self.ApiError("PUT", path, 409, "forced on by deployment")
+        if not self.allow_users:
+            raise self.ApiError("PUT", path, 403, "an admin has not enabled it")
+        self.toggle_calls.append(("user", enabled))
+        self.user_stored = enabled
+
+    def get_chat(self, chat_id):
+        if self.get_chat_error:
+            raise self.get_chat_error
+        return super().get_chat(chat_id)
+
+    def list_debug_runs(self, chat_id):
+        if self.run_error:
+            raise self.run_error
+        return [{"id": r["id"]} for r in self.runs.get(chat_id, [])]
+
+    def get_debug_run(self, chat_id, run_id):
+        return next(r for r in self.runs[chat_id] if r["id"] == run_id)
+
+
+def api_error(sync, status, method="GET", path="/x"):
+    return sync.ApiError(method, path, status, "boom")
+
+
+# ---- reading the state --------------------------------------------------------------
+
+
+def test_state_when_the_admin_gate_is_off(debug, sync):
+    state = debug.read_state(FakeDebugCoder(sync, allow_users=False))
+    assert (state.on, state.allow_users, state.toggle_allowed, state.forced) == (
+        False,
+        False,
+        False,
+        False,
+    )
+
+
+def test_state_when_only_the_users_toggle_is_off(debug, sync):
+    state = debug.read_state(FakeDebugCoder(sync, user_stored=False))
+    assert (state.on, state.allow_users, state.toggle_allowed) == (False, True, True)
+
+
+def test_state_when_logging_is_on(debug, sync):
+    assert debug.read_state(FakeDebugCoder(sync)).on is True
+
+
+def test_state_when_the_deployment_forces_logging_on(debug, sync):
+    state = debug.read_state(FakeDebugCoder(sync, allow_users=False, forced=True))
+    assert (state.on, state.forced) == (True, True)
+
+
+def test_state_for_a_token_that_cannot_read_the_admin_gate(debug, sync):
+    state = debug.read_state(FakeDebugCoder(sync, is_admin=False, allow_users=False))
+    assert state.allow_users is None
+    assert state.on is False
+
+
+def test_state_propagates_an_unexpected_error(debug, sync):
+    fake = FakeDebugCoder(sync)
+    fake.get_debug_logging = lambda: (_ for _ in ()).throw(api_error(sync, 500))
+    with pytest.raises(sync.ApiError):
+        debug.read_state(fake)
+
+
+# ---- what to turn on ----------------------------------------------------------------
+
+
+def test_the_hint_names_both_layers_when_the_admin_gate_is_off(debug, sync):
+    text = "\n".join(debug.enable_hint(debug.read_state(FakeDebugCoder(sync, allow_users=False))))
+    assert "Let users record chat debug logs" in text
+    assert "Admin settings > AI > Coder Agents > Lifecycle" in text
+    assert "Record debug logs for my chats" in text
+    assert "Agents > Settings > General" in text
+    assert "--enable" in text
+
+
+def test_the_hint_names_only_the_users_toggle_when_the_gate_is_on(debug, sync):
+    text = "\n".join(debug.enable_hint(debug.read_state(FakeDebugCoder(sync, user_stored=False))))
+    assert "Record debug logs for my chats" in text
+    assert "Let users record chat debug logs" not in text
+
+
+# ---- turning it on and putting it back ----------------------------------------------
+
+
+def toggles(debug, fake):
+    return debug.Toggles(fake, lambda line: None)
+
+
+def test_enable_sets_the_gate_and_the_toggle_and_restore_undoes_both(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=False, user_stored=False)
+    toggles_ = toggles(debug, fake)
+    toggles_.enable(debug.read_state(fake))
+    assert (fake.allow_users, fake.user_stored) == (True, True)
+    assert fake.toggle_calls == [("admin", True), ("user", True)]
+    fake.toggle_calls.clear()
+    assert toggles_.restore() == []
+    # The toggle goes back while the gate is still on (the API refuses it otherwise).
+    assert fake.toggle_calls == [("user", False), ("admin", False)]
+    assert (fake.allow_users, fake.user_stored) == (False, False)
+
+
+def test_enable_keeps_a_stored_user_toggle_that_was_already_on(debug, sync):
+    """With the gate off, the API hides the stored value, so it is read again once on."""
+    fake = FakeDebugCoder(sync, allow_users=False, user_stored=True)
+    toggles_ = toggles(debug, fake)
+    toggles_.enable(debug.read_state(fake))
+    assert fake.toggle_calls == [("admin", True)]
+    fake.toggle_calls.clear()
+    toggles_.restore()
+    assert fake.toggle_calls == [("admin", False)]
+    assert fake.user_stored is True
+
+
+def test_enable_changes_only_the_users_toggle_when_the_gate_is_on(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=True, user_stored=False)
+    toggles_ = toggles(debug, fake)
+    toggles_.enable(debug.read_state(fake))
+    assert fake.toggle_calls == [("user", True)]
+    fake.toggle_calls.clear()
+    toggles_.restore()
+    assert fake.toggle_calls == [("user", False)]
+    assert fake.allow_users is True
+
+
+def test_enable_changes_nothing_when_logging_is_already_on(debug, sync):
+    fake = FakeDebugCoder(sync)
+    toggles_ = toggles(debug, fake)
+    toggles_.enable(debug.read_state(fake))
+    toggles_.restore()
+    assert fake.toggle_calls == []
+
+
+def test_enable_changes_nothing_when_the_deployment_forces_it_on(debug, sync):
+    fake = FakeDebugCoder(sync, forced=True, allow_users=False)
+    toggles_ = toggles(debug, fake)
+    toggles_.enable(debug.read_state(fake))
+    toggles_.restore()
+    assert fake.toggle_calls == []
+
+
+def test_enable_says_so_when_the_token_cannot_set_the_admin_gate(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=False, is_admin=False)
+    with pytest.raises(sync.SyncError, match="ask an administrator"):
+        toggles(debug, fake).enable(debug.read_state(fake))
+    assert fake.toggle_calls == []
+
+
+def test_enable_explains_a_403_on_the_users_toggle(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=True, user_stored=False)
+    state = debug.read_state(fake)
+    fake.allow_users = False  # the admin turned the gate off in between
+    with pytest.raises(sync.SyncError, match="has not enabled"):
+        toggles(debug, fake).enable(state)
+
+
+def test_enable_explains_a_409_on_the_users_toggle(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=True, user_stored=False)
+    state = debug.read_state(fake)
+    fake.forced = True  # the deployment forced it on in between
+    toggles(debug, fake).enable(state)  # nothing left to do, so no error
+
+
+def test_a_failed_enable_still_restores_what_it_had_changed(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=False, user_stored=False)
+    toggles_ = toggles(debug, fake)
+    state = debug.read_state(fake)
+    original = fake.set_user_debug_logging
+    fake.set_user_debug_logging = lambda enabled: (_ for _ in ()).throw(api_error(sync, 500, "PUT"))
+    with pytest.raises(sync.ApiError):
+        toggles_.enable(state)
+    fake.set_user_debug_logging = original
+    assert toggles_.restore() == []
+    assert fake.allow_users is False
+
+
+def test_restore_reports_what_it_could_not_put_back_and_keeps_going(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=False, user_stored=False)
+    toggles_ = toggles(debug, fake)
+    toggles_.enable(debug.read_state(fake))
+    original = fake.set_user_debug_logging
+    fake.set_user_debug_logging = lambda enabled: (_ for _ in ()).throw(api_error(sync, 500, "PUT"))
+    problems = toggles_.restore()
+    fake.set_user_debug_logging = original
+    assert len(problems) == 1
+    assert "Record debug logs for my chats" in problems[0]
+    assert fake.allow_users is False  # the gate was still put back
+
+
+def test_restore_is_idempotent(debug, sync):
+    fake = FakeDebugCoder(sync, allow_users=True, user_stored=False)
+    toggles_ = toggles(debug, fake)
+    toggles_.enable(debug.read_state(fake))
+    toggles_.restore()
+    fake.toggle_calls.clear()
+    toggles_.restore()
+    assert fake.toggle_calls == []

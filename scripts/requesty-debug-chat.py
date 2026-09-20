@@ -45,6 +45,8 @@ import contextlib
 import importlib.util
 import json
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -365,3 +367,195 @@ def digest_capture(result: dict[str, Any]) -> list[str]:
         for step in run.get("steps") or []:
             lines.extend(digest_step(step, "    "))
     return lines
+
+
+# ---- the Coder client ------------------------------------------------------------------
+
+ADMIN_GATE_PATH = "/api/v2/chats/config/debug-logging"
+USER_TOGGLE_PATH = "/api/v2/chats/config/user-debug-logging"
+ADMIN_GATE_NAME = "Let users record chat debug logs"
+USER_TOGGLE_NAME = "Record debug logs for my chats"
+# The docs give /api/v2, but Coder v2.37.0 mounts the run routes only under /api/experimental.
+RUN_PREFIXES = ("/api/v2", "/api/experimental")
+
+
+class DebugClient(sync.CoderClient):
+    """CoderClient plus the chat debug logging endpoints."""
+
+    _run_prefix: str | None = None
+
+    def get_debug_logging(self) -> dict[str, Any]:
+        """The admin gate: {"allow_users": bool, "forced_by_deployment": bool}."""
+        return self._request_object("GET", ADMIN_GATE_PATH)
+
+    def set_debug_logging_allow_users(self, allow: bool) -> None:
+        self.request("PUT", ADMIN_GATE_PATH, {"allow_users": allow})
+
+    def get_user_debug_logging(self) -> dict[str, Any]:
+        """The caller's own state: debug_logging_enabled (effective), user_toggle_allowed,
+        and forced_by_deployment."""
+        return self._request_object("GET", USER_TOGGLE_PATH)
+
+    def set_user_debug_logging(self, enabled: bool) -> None:
+        self.request("PUT", USER_TOGGLE_PATH, {"debug_logging_enabled": enabled})
+
+    def _get_run_path(self, suffix: str) -> Any:
+        prefixes = (self._run_prefix,) if self._run_prefix else RUN_PREFIXES
+        for index, prefix in enumerate(prefixes):
+            try:
+                result = self.request("GET", f"{prefix}/chats/{suffix}")
+            except sync.ApiError as err:
+                if err.status == 404 and index < len(prefixes) - 1:
+                    continue
+                raise
+            self._run_prefix = prefix
+            return result
+        raise AssertionError("unreachable")
+
+    def list_debug_runs(self, chat_id: str) -> list[dict[str, Any]]:
+        """The chat's newest runs (up to 100), as summaries."""
+        result = self._get_run_path(f"{chat_id}/debug/runs")
+        if result is None:
+            return []
+        if not isinstance(result, list):
+            raise sync.ApiError(
+                "GET", "debug runs", 0, f"expected a JSON list, got {result!r}"[:200]
+            )
+        return result
+
+    def get_debug_run(self, chat_id: str, run_id: str) -> dict[str, Any]:
+        """One run with all its steps, attempts, and bodies."""
+        result = self._get_run_path(f"{chat_id}/debug/runs/{run_id}")
+        if not isinstance(result, dict):
+            raise sync.ApiError(
+                "GET", "debug run", 0, f"expected a JSON object, got {result!r}"[:200]
+            )
+        return result
+
+
+# ---- debug logging state ---------------------------------------------------------------
+
+
+@dataclass
+class State:
+    allow_users: bool | None  # the admin gate; None when the token cannot read it
+    toggle_allowed: bool  # the gate is on and the deployment does not force logging
+    user_enabled: bool  # effective for the caller's chats (includes the deployment override)
+    forced: bool  # CODER_CHAT_DEBUG_LOGGING_ENABLED
+
+    @property
+    def on(self) -> bool:
+        return self.user_enabled
+
+
+def read_state(client: Any) -> State:
+    """What is on now. A token that cannot read the admin gate (Coder answers 403 or 404 to a
+    non-admin) still shows the caller's effective state from its own endpoint."""
+    allow_users: bool | None = None
+    forced = False
+    try:
+        admin = client.get_debug_logging()
+        allow_users = bool(admin.get("allow_users"))
+        forced = bool(admin.get("forced_by_deployment"))
+    except sync.ApiError as err:
+        if err.status not in (403, 404):
+            raise
+    user = client.get_user_debug_logging()
+    forced = forced or bool(user.get("forced_by_deployment"))
+    return State(
+        allow_users=allow_users,
+        toggle_allowed=bool(user.get("user_toggle_allowed")),
+        user_enabled=bool(user.get("debug_logging_enabled")),
+        forced=forced,
+    )
+
+
+def enable_hint(state: State) -> list[str]:
+    """What to turn on, for a person to do by hand."""
+    lines = ["Chat debug logging is off, so Coder would record nothing to capture. Turn on:"]
+    step = 1
+    if not state.toggle_allowed:
+        lines.append(
+            f"  {step}. The admin gate, as an admin: "
+            f'Admin settings > AI > Coder Agents > Lifecycle > "{ADMIN_GATE_NAME}"'
+        )
+        lines.append(f'     (PUT {ADMIN_GATE_PATH} {{"allow_users": true}})')
+        step += 1
+    lines.append(f'  {step}. Your own toggle: Agents > Settings > General > "{USER_TOGGLE_NAME}"')
+    lines.append(f'     (PUT {USER_TOGGLE_PATH} {{"debug_logging_enabled": true}})')
+    lines.append(
+        "Then run this again. Or pass --enable, and this script sets them and puts them back "
+        "when it finishes."
+    )
+    return lines
+
+
+class Toggles:
+    """Turns debug logging on for the caller, and remembers how to put every change back."""
+
+    def __init__(self, client: Any, log: Callable[[str], None]) -> None:
+        self.client = client
+        self.log = log
+        self.undo: list[tuple[str, Callable[[], None]]] = []
+
+    def enable(self, state: State) -> None:
+        if state.on:
+            self.log("debug logging is already on; leaving the settings as they are")
+            return
+        if not state.toggle_allowed:
+            self._turn_on_admin_gate()
+            state = read_state(self.client)  # with the gate on, the stored toggle shows
+            if state.on:
+                return
+        try:
+            self.client.set_user_debug_logging(True)
+        except sync.ApiError as err:
+            if err.status == 409:  # the deployment forced logging on since we looked
+                return
+            if err.status == 403:
+                raise sync.SyncError(
+                    f'Coder refused the personal toggle ("{USER_TOGGLE_NAME}"): an administrator '
+                    f'has not enabled "{ADMIN_GATE_NAME}"'
+                ) from err
+            raise
+        self.undo.append(
+            (
+                f'your toggle "{USER_TOGGLE_NAME}" (PUT {USER_TOGGLE_PATH} '
+                '{"debug_logging_enabled": false})',
+                lambda: self.client.set_user_debug_logging(False),
+            )
+        )
+        self.log(f'turned on your toggle "{USER_TOGGLE_NAME}"')
+
+    def _turn_on_admin_gate(self) -> None:
+        try:
+            self.client.set_debug_logging_allow_users(True)
+        except sync.ApiError as err:
+            if err.status in (403, 404):
+                raise sync.SyncError(
+                    f'the admin gate "{ADMIN_GATE_NAME}" is off, and this token cannot turn it on '
+                    "(it needs an owner or another role that can update the deployment "
+                    "configuration): ask an administrator to turn it on, or use an admin's token"
+                ) from err
+            raise
+        self.undo.append(
+            (
+                f'the admin gate "{ADMIN_GATE_NAME}" (PUT {ADMIN_GATE_PATH} '
+                '{"allow_users": false})',
+                lambda: self.client.set_debug_logging_allow_users(False),
+            )
+        )
+        self.log(f'turned on the admin gate "{ADMIN_GATE_NAME}"')
+
+    def restore(self) -> list[str]:
+        """Puts back what enable() changed, newest first, and returns what it could not."""
+        problems = []
+        while self.undo:
+            what, revert = self.undo.pop()
+            try:
+                revert()
+            except Exception as err:  # keep going: one failure must not strand the others
+                problems.append(f"could not put back {what}: {err}")
+            else:
+                self.log(f"put back {what.split(' (PUT')[0]}")
+        return problems
