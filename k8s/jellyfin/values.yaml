@@ -26,6 +26,35 @@ jellyfin:
     - name: JELLYFIN_PublishedServerUrl
       value: "https://jellyfin.vigihome.net"
 
+# /media is a hostPath bind of the rclone FUSE mount at /mnt/vigilantube.
+# When rclone-vigilantube.service restarts, the host gets a fresh FUSE mount
+# but the pod stays bound to the dead one: every read fails with
+# "Transport endpoint is not connected" and library scans fail until the pod
+# is replaced. mountPropagation can't help here (the chart doesn't expose it,
+# and it only propagates submounts *inside* the volume, not a replacement of
+# the volume's own mountpoint), so instead restart the container when /media
+# stops being readable. A new container re-binds whatever is mounted at
+# /mnt/vigilantube at that moment.
+#
+# This replaces the chart's default httpGet /health liveness probe, so it
+# repeats that check via curl. An empty /media (kubelet bound the bare
+# directory because rclone wasn't up yet) also fails, so the container keeps
+# restarting until the mount is live. The generous failureThreshold rides out
+# a routine rclone restart (RestartSec=10) without churning the pod.
+livenessProbe:
+  # Helm deep-merges maps; null drops the chart's default handler so the
+  # probe doesn't end up with both httpGet and exec (which the API rejects).
+  httpGet: null
+  exec:
+    command:
+      - sh
+      - -c
+      - '[ -n "$(ls -A /media 2>/dev/null)" ] && curl -fsS -o /dev/null http://localhost:8096/health'
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 4
+
 persistence:
   config:
     enabled: true
