@@ -101,7 +101,9 @@ EXCLUDED_MODELS = {
     "nvidia/nemotron-3-nano-30b-a3b": "410 gone",
     "parasail/gemma3-27b-it": "the host has no tool-call parser",
     "vertex/claude-opus-4": "429 quota exceeded on Requesty's Vertex project",
+    "vertex/claude-opus-4@us-east5": "500 internal error",
     "vertex/claude-opus-4-1": "500 internal error on every host",
+    "vertex/claude-opus-4-1@us-east5": "500 internal error",
 }
 
 # Snapshot of https://www.requesty.ai/provider_logos/v2/<logo>.png
