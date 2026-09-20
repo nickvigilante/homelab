@@ -119,6 +119,34 @@ Most reasons are Requesty or host outages, so retest now and then with `scripts/
 The "several system messages" entries are Coder's request shape, so retest them after a Coder upgrade (`--extra-shapes` sends that request).
 To remove an entry, delete it from the table, then run `apply` and `verify --model MODEL_ID`.
 
+## Capturing the request Coder sends
+
+When a model fails only through Coder Agents, `verify` and `requesty-probe.py` cannot say why.
+Coder's chat debug logging records the HTTP request Coder sends to the provider, and the provider's reply, for each chat turn.
+`scripts/requesty-debug-chat.py` sends one probe chat through each model and reads that recording back.
+
+```sh
+export CODER_SESSION_TOKEN=...
+scripts/requesty-debug-chat.py --enable novita/qwen/qwen-2.5-72b-instruct novita/deepseek/deepseek_v3
+```
+
+- Debug logging is off by default, so pass `--enable`.
+  It sets the admin gate ("Let users record chat debug logs", which needs an owner or admin token) and your own toggle ("Record debug logs for my chats"), and puts both back when it finishes, on an error, and on Ctrl-C.
+  Add `--keep-enabled` to leave them on.
+  Without `--enable` it changes nothing, and exits 2 with the settings to turn on by hand if logging is off.
+- Each model must be registered and enabled in Coder.
+  One that is not is reported and skipped, so enable it in the model admin first.
+- Models run one at a time, and each probe chat is archived afterwards.
+  Other options are `--file ids.txt` (one model ID per line), `--out DIR`, `--timeout SECONDS` and `--poll SECONDS`.
+- The script prints a digest per model that is safe to paste into a bug report.
+  It has the chat's final status and error, then for each run and step the provider, model, request summary and response.
+  The request summary lists every top-level key with its value, the message roles with content lengths, and the tool names with whether any schema uses `strict` or `additionalProperties`.
+  It shows header names but never values, and only the first 40 characters of each message.
+- The complete data lands in `DIR/<model id, with / as _>.json` (default `./chat-debug/`), readable only by you.
+  It is what Coder returned, plus a decoded copy of each request and response body.
+- The JSON can contain prompt text, tool output and model replies, so treat it like conversation history.
+  The session token is never printed or written.
+
 ## Reading a report
 
 | Category                            | Meaning                                                                                                                     | Fixed by                                 |
