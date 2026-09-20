@@ -1,0 +1,77 @@
+# Daily read-only drift check between the Requesty model catalog and the
+# models and providers registered in Coder Agents.
+#
+# It runs `check --limited`, because the only credential it holds is a
+# 1-year token for the role-less `requesty-sync` service account, limited to
+# the scopes chat_model_config:read and organization:read. Coder v2.37.0 has
+# no scope that reads AI providers or model prices, so this check cannot see
+# prices or a provider's base URL. Run the full `check` by hand for those
+# (see README.md). Fixing any drift is a manual `apply`, so nothing that
+# affects spend changes without a human.
+#
+# Failure signal: the script pings the Uptime Kuma push monitor
+# `requesty-sync` itself (UPTIME_KUMA_PUSH_URL), `up` when in sync and
+# `down` with a one-line summary on drift or error. If the job dies before
+# it can ping, the monitor goes DOWN when its heartbeat interval expires.
+#
+# Manual trigger (e.g. to test):
+#   kubectl -n coder create job --from=cronjob/requesty-sync test-sync-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: requesty-sync
+  namespace: coder
+spec:
+  schedule: "0 6 * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            kubernetes.io/hostname: gandalf
+          containers:
+            - name: sync
+              image: python:3.14-alpine
+              command:
+                - python
+                - /scripts/requesty-coder-sync.py
+                - check
+                - --limited
+              env:
+                # In-cluster service DNS: pods cannot resolve *.vigihome.net
+                # the way LAN clients do (see CLAUDE.md "DNS pattern").
+                - name: CODER_URL
+                  value: http://coder.coder.svc.cluster.local
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+              envFrom:
+                - secretRef:
+                    name: requesty-sync-secrets
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: requesty-sync-script
