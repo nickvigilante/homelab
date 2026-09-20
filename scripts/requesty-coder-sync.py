@@ -88,6 +88,7 @@ MAX_OUTPUT_OVERRIDES = {
 # entries now and then, because most of these are Requesty or host outages.
 MULTI_SYSTEM = "host template rejects the several system messages Coder sends"
 NOVITA_400 = "HTTP 400 from Novita on Coder's request, though plain requests pass"
+NEVER_ENDS = "Agents chat never completes (twice), though direct requests pass"
 EXCLUDED_MODELS = {
     "deepinfra/Qwen/Qwen3.5-2B": MULTI_SYSTEM,
     "deepinfra/Qwen/Qwen3.5-27B": MULTI_SYSTEM,
@@ -107,6 +108,7 @@ EXCLUDED_MODELS = {
     "tensorx/qwen3.8-2.4t-a95b": MULTI_SYSTEM,
     "tensorx/qwen3.8-flash-next": MULTI_SYSTEM,
     "deepinfra/Qwen/Qwen2.5-Coder-32B-Instruct": "16k context is too small for Agents requests",
+    "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": NEVER_ENDS,
     "fireworks/muse-glimmer-30b": "max output equals the context window, so requests overflow",
     "moonshot/kimi-k2.5": "404 model not found or permission denied for this Requesty account",
     "nebius/meta-llama/Llama-3.3-70B-Instruct": "403 forbidden",
@@ -127,6 +129,7 @@ EXCLUDED_MODELS = {
     "vertex/claude-opus-4@us-east5": "500 internal error",
     "vertex/claude-opus-4-1": "500 internal error on every host",
     "vertex/claude-opus-4-1@us-east5": "500 internal error",
+    "zai/GLM-4.6": NEVER_ENDS,
 }
 
 # Snapshot of https://www.requesty.ai/provider_logos/v2/<logo>.png
