@@ -6,8 +6,8 @@
 #     URL the Anthropic type needs
 #   - whether third-party-hosted models work on the native provider types
 #   - whether the Requesty logos render
-#   - whether an Owner service account with a scoped token can read AI configuration
-#     (for the CronJob's check token; Owner is the only built-in role that can)
+#   - whether a role-less service account with a two-scope token can read the model list
+#     and nothing else (for the CronJob's limited check)
 #   - the Coder API behaviours the sync relies on (see api_probes)
 #
 # It creates only objects named smoke-* and deletes them when it finishes, also
@@ -20,7 +20,7 @@
 # Usage, on gandalf (needs curl and jq, plus the coder CLI for the optional
 # token and service-account steps):
 #   scripts/requesty-smoke-test.sh              the whole walkthrough
-#   scripts/requesty-smoke-test.sh --role-only  only the scoped read-only token probe
+#   scripts/requesty-smoke-test.sh --role-only  only the narrow-token probe
 #
 # It prompts for what it needs. Set CODER_URL, CODER_SESSION_TOKEN or
 # REQUESTY_API_KEY in the environment to skip those prompts. Secrets are read
@@ -142,6 +142,8 @@ cleanup() {
   local id name
   CLEANED=1
   [[ -n $ORG && -n $CODER_SESSION_TOKEN ]] || return 0
+  # Nothing was created (for example in --role-only mode), so there is nothing to clean up.
+  ((${#CHAT_IDS[@]} + ${#MODEL_IDS[@]} + ${#PROVIDER_ID[@]} > 0)) || return 0
   say "Cleaning up the smoke-* objects"
   for id in "${CHAT_IDS[@]}"; do
     coder_api -X PATCH "$CODER_URL/api/v2/chats/$id" -d '{"archived": true}' >/dev/null
@@ -459,10 +461,10 @@ logo_check() {
 }
 
 role_probe() {
-  local out check_token p code ok=yes
-  say "9. Read-only access for the CronJob's check token (optional)"
-  note "Built-in roles other than Owner cannot read AI providers or model prices, so the"
-  note "check token has to belong to an Owner and be narrowed with token scopes."
+  local out check_token p code ok=yes roles seen
+  say "9. Narrow token for the CronJob's limited check (optional)"
+  note "Coder v2.37.0 issues no scope that reads AI providers or prices, so the daily check runs"
+  note "in limited mode with a role-less service account and a token limited to two read scopes."
   if ! yesno "Probe this now?"; then
     RESULT[scoped_token]="not probed"
     return 0
@@ -471,26 +473,36 @@ role_probe() {
   if yesno "Create the 'requesty-sync' service account with the coder CLI now (say n if it exists)?"; then
     coder users create --service-account --username requesty-sync || note "coder users create failed; continue if the user already exists"
   fi
-  if ! yesno "Give 'requesty-sync' the OWNER role (it stays Owner; only ever give its tokens narrow scopes)?"; then
-    RESULT[scoped_token]="not probed (Owner role declined)"
-    return 0
+  roles="$(coder users show requesty-sync 2>&1 | grep -E '^Roles:' || true)"
+  note "requesty-sync ${roles:-roles: unknown}"
+  if [[ $roles == *[Oo]wner* ]]; then
+    note "It still has the Owner role. The limited check does not need it; remove it in the dashboard."
   fi
-  coder users edit-roles requesty-sync --roles owner --yes || note "edit-roles failed; set the role in the dashboard and rerun"
   out="$(coder tokens create --user requesty-sync --name "requesty-smoke-check-$RUN_ID" --lifetime 1h \
-    --scope ai_provider:read --scope ai_model_price:read --scope chat_model_config:read --scope organization:read 2>&1)"
+    --scope chat_model_config:read --scope organization:read 2>&1)"
   check_token="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
   if [[ -z $check_token ]]; then
-    note "could not create a scoped token for requesty-sync"
+    note "could not create a narrow token for requesty-sync:"
+    printf '%s\n' "$out" | sed 's/^/     /'
     RESULT[scoped_token]="not probed (token creation failed)"
     return 0
   fi
-  note "Reads (all should be 200):"
-  for p in /api/v2/organizations /api/v2/ai/providers "/api/v2/organizations/$ORG/chats/models" /api/experimental/ai/model-prices; do
+  note "Reads the limited check needs (should be 200):"
+  for p in /api/v2/organizations "/api/v2/organizations/$ORG/chats/models"; do
     code="$(curl -sS -o /dev/null -w '%{http_code}' -K <(printf 'header = "Coder-Session-Token: %s"\n' "$check_token") "$CODER_URL$p")"
     note "  GET $p -> HTTP $code"
     [[ $code == 200 ]] || ok=no
   done
-  note "Writes (all should be 403, meaning the scope really blocks them):"
+  note "Reads it must NOT have (should be 403):"
+  for p in /api/v2/ai/providers /api/experimental/ai/model-prices; do
+    code="$(curl -sS -o /dev/null -w '%{http_code}' -K <(printf 'header = "Coder-Session-Token: %s"\n' "$check_token") "$CODER_URL$p")"
+    note "  GET $p -> HTTP $code"
+    [[ $code == 403 ]] || ok=no
+  done
+  seen="$(curl -sS -K <(printf 'header = "Coder-Session-Token: %s"\n' "$check_token") "$CODER_URL/api/v2/users" | jq -r '.count // "?"' 2>/dev/null)"
+  note "Users the token can see (should be 0; Coder returns an empty list, not an error): $seen"
+  [[ $seen == 0 ]] || ok=no
+  note "Writes (should be 403):"
   for p in /api/v2/ai/providers /api/experimental/ai/model-prices; do
     code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' \
       -K <(printf 'header = "Coder-Session-Token: %s"\n' "$check_token") "$CODER_URL$p")"
@@ -498,7 +510,7 @@ role_probe() {
     [[ $code == 403 ]] || ok=no
   done
   if [[ $ok == yes ]]; then
-    RESULT[scoped_token]="works: reads 200, writes 403 (scopes ai_provider:read ai_model_price:read chat_model_config:read organization:read)"
+    RESULT[scoped_token]="works: reads the model list, is denied AI providers, prices, and writes, and sees no users"
   else
     RESULT[scoped_token]="did NOT behave as expected (see the codes above)"
   fi
@@ -542,7 +554,7 @@ report() {
     echo "- Null prices round trip: ${RESULT[price_nulls]:-?}"
     echo "- Provider PATCH with a single field: ${RESULT[patch_partial]:-?}"
     echo "- API key PATCH sent twice: ${RESULT[key_patch]:-?}"
-    echo "- Owner service account with a scoped read-only token: ${RESULT[scoped_token]:-not probed}"
+    echo "- Narrow token for the limited check: ${RESULT[scoped_token]:-not probed}"
     for type in openai google anthropic; do
       [[ -z ${RESULT[create_$type]:-} ]] || echo "- Creating the $type provider: ${RESULT[create_$type]}"
     done
@@ -563,7 +575,7 @@ main() {
   if [[ ${1:-} == --role-only ]]; then
     role_probe
     say "Result"
-    echo "- Owner service account with a scoped read-only token: ${RESULT[scoped_token]:-not probed}"
+    echo "- Narrow token for the limited check: ${RESULT[scoped_token]:-not probed}"
     return 0
   fi
   pick_models
