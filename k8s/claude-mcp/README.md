@@ -35,7 +35,7 @@ They come from the low static band of the service CIDR, which Kubernetes keeps c
 ## One-time setup
 
 1. In Grafana, create a Viewer service account `claude-mcp` and a token.
-2. Store the token in the vault item `Homelab Grafana` (field `mcp-sa-token`) and in the BWS `homelab` project as `grafana-mcp-sa-token`.
+2. Store the token in the vault item `Homelab Grafana` (field `claude-mcp`) and in the BWS `homelab` project as `grafana-mcp-sa-token`.
 3. Put that secret's UUID in `external-secret.yaml`.
 
 ## Break-glass when Coder is down
