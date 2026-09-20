@@ -41,6 +41,7 @@ RUN_ID="$(date +%s)"
 ORG=""
 CAT=""
 CLEANED=0
+ROLE_ONLY=0
 BODY=""
 HTTP_STATUS=""
 ANTH_BASES=()
@@ -181,11 +182,14 @@ get_credentials() {
     echo "no Coder token" >&2
     exit 2
   }
-  [[ -n $REQUESTY_API_KEY ]] || REQUESTY_API_KEY="$(ask_secret 'Requesty API key')"
-  [[ -n $REQUESTY_API_KEY ]] || {
-    echo "no Requesty API key" >&2
-    exit 2
-  }
+  # The role probe never talks to Requesty, so it does not need the key.
+  if [[ $ROLE_ONLY != 1 ]]; then
+    [[ -n $REQUESTY_API_KEY ]] || REQUESTY_API_KEY="$(ask_secret 'Requesty API key')"
+    [[ -n $REQUESTY_API_KEY ]] || {
+      echo "no Requesty API key" >&2
+      exit 2
+    }
+  fi
   export CODER_URL CODER_SESSION_TOKEN REQUESTY_API_KEY
   coder_json GET /api/v2/buildinfo
   version="$(jq -r '.version // empty' <<<"$BODY" 2>/dev/null)"
@@ -554,6 +558,7 @@ main() {
   need jq
   trap on_exit EXIT
   trap 'exit 130' INT TERM
+  [[ ${1:-} == --role-only ]] && ROLE_ONLY=1
   get_credentials
   if [[ ${1:-} == --role-only ]]; then
     role_probe
