@@ -437,6 +437,8 @@ class FakeDebugCoder(FakeCoder):
         self.chats[created["id"]]["debug_on"] = self.get_user_debug_logging()[
             "debug_logging_enabled"
         ]
+        chat = self.chats[created["id"]]
+        chat["model_row_at_chat"] = dict(self.models[chat["model_config_id"]])
         return created
 
     def _runs(self, chat_id):
@@ -1129,3 +1131,188 @@ def test_a_whole_run_over_http_against_a_stub_coder(debug, sync, stub, tmp_path)
     assert (tmp_path / "openai_gpt-x.json").exists()
     assert "-> HTTP 400" in out.getvalue()
     assert all(q["headers"]["coder-session-token"] == TOKEN for q in stub.requests)
+
+
+# ---- --enable-models ----------------------------------------------------------------
+
+
+def model_row(fake, model_id):
+    return next(m for m in fake.models.values() if m["model"] == model_id)
+
+
+def disable(fake, *model_ids):
+    for model_id in model_ids:
+        model_row(fake, model_id)["enabled"] = False
+
+
+def update_calls(fake):
+    return [call for call in fake.calls if call[0] == "update_model"]
+
+
+def test_without_the_flag_a_disabled_model_stays_skipped_and_untouched(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x")
+    code, output, _ = run_main(debug, fake, tmp_path, "openai/gpt-x", "nvidia/free-y")
+    assert code == 0
+    assert "skipped openai/gpt-x" in output
+    assert "--enable-models" in output  # the skip line says how to get past it
+    assert update_calls(fake) == []
+    assert model_row(fake, "openai/gpt-x")["enabled"] is False
+
+
+def test_the_flag_enables_a_disabled_model_for_its_chat_and_puts_it_back(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x")
+    before = dict(model_row(fake, "openai/gpt-x"))
+    code, output, _ = run_main(debug, fake, tmp_path, "openai/gpt-x", "--enable-models")
+    assert code == 0
+    (chat,) = fake.chats.values()
+    assert chat["model_row_at_chat"]["enabled"] is True
+    assert model_row(fake, "openai/gpt-x") == before  # disabled again, nothing else changed
+    assert captured_file(tmp_path, "openai/gpt-x").exists()
+    assert "enabled model openai/gpt-x" in output
+    assert "put back model openai/gpt-x" in output
+    assert output.index("enabled model openai/gpt-x") < output.index("== openai/gpt-x")
+
+
+def test_only_the_enabled_field_changes(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x")
+    before = dict(model_row(fake, "openai/gpt-x"))
+    run_main(debug, fake, tmp_path, "openai/gpt-x", "--enable-models")
+    (chat,) = fake.chats.values()
+    during = chat["model_row_at_chat"]
+    assert {k for k in before if before[k] != during[k]} == {"enabled"}
+    assert set(during) == set(before)
+
+
+def test_the_model_update_sends_only_the_enabled_field(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x")
+    payloads = []
+    original = fake.update_model
+    fake.update_model = lambda org, mid, payload: (
+        payloads.append(payload),
+        original(org, mid, payload),
+    )
+    run_main(debug, fake, tmp_path, "openai/gpt-x", "--enable-models")
+    assert payloads == [{"enabled": True}, {"enabled": False}]
+
+
+def test_an_already_enabled_model_is_never_touched(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x")
+    code, output, _ = run_main(
+        debug, fake, tmp_path, "nvidia/free-y", "openai/gpt-x", "--enable-models"
+    )
+    assert code == 0
+    touched = {call[1] for call in update_calls(fake)}
+    assert touched == {model_row(fake, "openai/gpt-x")["id"]}
+    assert model_row(fake, "nvidia/free-y")["enabled"] is True
+    assert "enabled model nvidia/free-y" not in output
+
+
+def test_the_flag_still_skips_an_unknown_model(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    code, output, _ = run_main(
+        debug, fake, tmp_path, "acme/nope", "nvidia/free-y", "--enable-models"
+    )
+    assert code == 0
+    assert "skipped acme/nope" in output
+    assert "unknown" in output
+    assert update_calls(fake) == []
+
+
+def test_a_model_is_put_back_when_its_chat_fails(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x")
+    fake.chat_behaviors["openai/gpt-x"] = "error"
+    code, _, _ = run_main(debug, fake, tmp_path, "openai/gpt-x", "--enable-models")
+    assert code == 0
+    assert model_row(fake, "openai/gpt-x")["enabled"] is False
+    assert archived(fake) == sorted(fake.chats)
+
+
+def test_a_model_is_put_back_when_the_capture_raises(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x", "nvidia/free-y")
+    fake.run_error = RuntimeError("boom")
+    code, output, err = run_main(
+        debug, fake, tmp_path, "openai/gpt-x", "nvidia/free-y", "--enable-models"
+    )
+    assert code == 0
+    assert "boom" in output + err
+    assert model_row(fake, "openai/gpt-x")["enabled"] is False
+    assert model_row(fake, "nvidia/free-y")["enabled"] is False
+    assert len(fake.chats) == 2
+
+
+def test_a_model_is_put_back_on_ctrl_c_and_the_settings_too(debug, sync, tmp_path):
+    fake = make_fake(sync, allow_users=False, user_stored=False)
+    disable(fake, "openai/gpt-x", "nvidia/free-y")
+    fake.get_chat_error = KeyboardInterrupt()
+    code, output, err = run_main(
+        debug, fake, tmp_path, "openai/gpt-x", "nvidia/free-y", "--enable", "--enable-models"
+    )
+    assert code == 130
+    assert "nterrupted" in output + err
+    assert model_row(fake, "openai/gpt-x")["enabled"] is False
+    assert model_row(fake, "nvidia/free-y")["enabled"] is False  # never started, never enabled
+    assert (fake.allow_users, fake.user_stored) == (False, False)
+    assert len(fake.chats) == 1
+    assert archived(fake) == sorted(fake.chats)
+
+
+def test_an_enable_failure_is_reported_and_the_next_model_still_runs(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x", "nvidia/free-y")
+    original = fake.update_model
+
+    def flaky(org, model_id, payload):
+        if model_id == model_row(fake, "openai/gpt-x")["id"]:
+            raise api_error(sync, 500, "PATCH")
+        original(org, model_id, payload)
+
+    fake.update_model = flaky
+    code, output, _ = run_main(
+        debug, fake, tmp_path, "openai/gpt-x", "nvidia/free-y", "--enable-models"
+    )
+    assert code == 0
+    assert "capture failed for openai/gpt-x" in output
+    assert [c["model"] for c in fake.chats.values()] == ["nvidia/free-y"]
+    assert model_row(fake, "nvidia/free-y")["enabled"] is False
+
+
+def test_a_failing_restore_warns_and_the_other_models_are_still_restored(debug, sync, tmp_path):
+    fake = make_fake(sync)
+    disable(fake, "openai/gpt-x", "nvidia/free-y")
+    original = fake.update_model
+
+    def flaky(org, model_id, payload):
+        if model_id == model_row(fake, "openai/gpt-x")["id"] and payload == {"enabled": False}:
+            raise api_error(sync, 500, "PATCH")
+        original(org, model_id, payload)
+
+    fake.update_model = flaky
+    code, _, err = run_main(
+        debug, fake, tmp_path, "openai/gpt-x", "nvidia/free-y", "--enable-models"
+    )
+    assert code == 0
+    assert "WARNING" in err
+    assert "openai/gpt-x" in err
+    assert "python3 scripts/requesty-coder-sync.py apply --disable-orphans" in err
+    assert model_row(fake, "openai/gpt-x")["enabled"] is True  # left on, and the warning says so
+    assert model_row(fake, "nvidia/free-y")["enabled"] is False  # still restored
+    assert len(fake.chats) == 2
+
+
+def test_models_and_settings_are_all_put_back_together(debug, sync, tmp_path):
+    fake = make_fake(sync, allow_users=False, user_stored=False)
+    disable(fake, "openai/gpt-x")
+    code, _, _ = run_main(debug, fake, tmp_path, "openai/gpt-x", "--enable", "--enable-models")
+    assert code == 0
+    (chat,) = fake.chats.values()
+    assert chat["debug_on"] is True
+    assert chat["model_row_at_chat"]["enabled"] is True
+    assert model_row(fake, "openai/gpt-x")["enabled"] is False
+    assert (fake.allow_users, fake.user_stored) == (False, False)

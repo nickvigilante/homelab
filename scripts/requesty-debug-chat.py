@@ -24,9 +24,13 @@ Usage:
   export CODER_SESSION_TOKEN=...   (CODER_URL defaults to https://coder.vigihome.net)
   scripts/requesty-debug-chat.py MODEL_ID [MODEL_ID ...] [--file ids.txt] [--out DIR]
                                  [--timeout 200] [--poll 2] [--enable] [--keep-enabled]
+                                 [--enable-models]
 
 MODEL_ID is a model as registered in Coder by the sync (the Requesty ID, for example
-novita/qwen/qwen-2.5-72b-instruct). It must be enabled. Each model gets one archived chat,
+novita/qwen/qwen-2.5-72b-instruct). It must be enabled, unless you pass --enable-models,
+which enables a disabled one for the length of its chat and sets it back to disabled after
+(on an error or Ctrl-C too; it changes only the model's `enabled` field, and never touches a
+model that is already enabled). Each model gets one archived chat,
 one at a time, so the cost is a few cents at most. No Requesty key is needed.
 
 The JSON in DIR (default ./chat-debug) can contain prompt text, tool output, and the
@@ -495,13 +499,30 @@ def enable_hint(state: State) -> list[str]:
     return lines
 
 
-class Toggles:
-    """Turns debug logging on for the caller, and remembers how to put every change back."""
+class Reversible:
+    """Remembers how to put back each change it makes."""
 
     def __init__(self, client: Any, log: Callable[[str], None]) -> None:
         self.client = client
         self.log = log
         self.undo: list[tuple[str, Callable[[], None]]] = []
+
+    def restore(self) -> list[str]:
+        """Puts back what was changed, newest first, and returns what it could not."""
+        problems = []
+        while self.undo:
+            what, revert = self.undo.pop()
+            try:
+                revert()
+            except Exception as err:  # keep going: one failure must not strand the others
+                problems.append(f"could not put back {what}: {err}")
+            else:
+                self.log(f"put back {what.split(' (', 1)[0]}")
+        return problems
+
+
+class Toggles(Reversible):
+    """Turns debug logging on for the caller, and remembers how to put every change back."""
 
     def enable(self, state: State) -> None:
         if state.on:
@@ -552,18 +573,28 @@ class Toggles:
         )
         self.log(f'turned on the admin gate "{ADMIN_GATE_NAME}"')
 
-    def restore(self) -> list[str]:
-        """Puts back what enable() changed, newest first, and returns what it could not."""
-        problems = []
-        while self.undo:
-            what, revert = self.undo.pop()
-            try:
-                revert()
-            except Exception as err:  # keep going: one failure must not strand the others
-                problems.append(f"could not put back {what}: {err}")
-            else:
-                self.log(f"put back {what.split(' (PUT')[0]}")
-        return problems
+
+FIX_MODELS = "python3 scripts/requesty-coder-sync.py apply --disable-orphans"
+
+
+class ModelToggles(Reversible):
+    """Enables a disabled model for the length of its chat. It changes only `enabled`."""
+
+    def __init__(self, client: Any, org_id: str, log: Callable[[str], None]) -> None:
+        super().__init__(client, log)
+        self.org_id = org_id
+
+    def enable(self, model_id: str, row: dict[str, Any]) -> None:
+        config_id = row["id"]
+        self.client.update_model(self.org_id, config_id, {"enabled": True})
+        self.undo.append(
+            (
+                f"model {model_id} to disabled (to fix it by hand: {FIX_MODELS}, or disable it "
+                "in the model admin)",
+                lambda: self.client.update_model(self.org_id, config_id, {"enabled": False}),
+            )
+        )
+        self.log(f"enabled model {model_id} for this capture (it was disabled; it is put back)")
 
 
 # ---- capturing one model ---------------------------------------------------------------
@@ -751,18 +782,30 @@ class Scrubbed:
 
 
 def resolve_models(
-    live: Any, ids: list[str]
+    live: Any, ids: list[str], enable_models: bool = False
 ) -> tuple[list[tuple[str, dict[str, Any], str]], list[str]]:
-    """The enabled managed models to capture, and a report line for each one that cannot be."""
+    """The managed models to capture, and a report line for each one that cannot be.
+    A disabled model is captured only with enable_models (the caller enables it first)."""
     runnable: list[tuple[str, dict[str, Any], str]] = []
     skipped: list[str] = []
+    names = {p["id"]: name for name, p in live.providers.items()}
     for model_id in ids:
         chosen = sync.select_models_to_verify(live, model=model_id)
+        disabled = [
+            m
+            for m in live.models
+            if m.get("model") == model_id and m.get("ai_provider_id") in names
+        ]
         if chosen:
             row, provider = chosen[0]
             runnable.append((model_id, row, provider))
+        elif disabled and enable_models:
+            runnable.append((model_id, disabled[0], names[disabled[0]["ai_provider_id"]]))
         elif any(m.get("model") == model_id for m in live.models):
-            skipped.append(f"{model_id}: disabled in Coder; enable it in the model admin first")
+            skipped.append(
+                f"{model_id}: disabled in Coder; enable it in the model admin first "
+                "(or pass --enable-models to enable it just for the capture)"
+            )
         else:
             skipped.append(
                 f"{model_id}: unknown to Coder (no managed provider has this model); register it "
@@ -807,7 +850,7 @@ def run(
 
     client = client_factory(env.get("CODER_URL", sync.DEFAULT_CODER_URL), token)
     live = sync.load_live(client)
-    runnable, skipped = resolve_models(live, ids)
+    runnable, skipped = resolve_models(live, ids, args.enable_models)
     for line in skipped:
         out.write(f"skipped {line}\n")
     if not runnable:
@@ -823,6 +866,7 @@ def run(
         out.flush()
 
     toggles = Toggles(client, log)
+    models = ModelToggles(client, live.org_id, log)
     captured = 0
     try:
         if args.enable:
@@ -830,17 +874,23 @@ def run(
         for model_id, row, provider in runnable:
             log(f"capturing {model_id} (provider {provider}) ...")
             try:
-                result = capture_model(
-                    client,
-                    live.org_id,
-                    model_id,
-                    row,
-                    provider,
-                    args.timeout,
-                    args.poll,
-                    sleep,
-                    clock,
-                )
+                try:
+                    if not row.get("enabled"):  # only with --enable-models; see resolve_models
+                        models.enable(model_id, row)
+                    result = capture_model(
+                        client,
+                        live.org_id,
+                        model_id,
+                        row,
+                        provider,
+                        args.timeout,
+                        args.poll,
+                        sleep,
+                        clock,
+                    )
+                finally:  # also on Ctrl-C: the model goes back to disabled before anything else
+                    for problem in models.restore():
+                        err.write(f"WARNING: {problem}\n")
                 path = write_capture(out_dir, result, token)
             except Exception as error:  # one model must not stop the rest
                 log(f"capture failed for {model_id}: {type(error).__name__}: {error}")
@@ -887,6 +937,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--keep-enabled", action="store_true", help="with --enable, leave debug logging on"
+    )
+    parser.add_argument(
+        "--enable-models",
+        action="store_true",
+        help="enable a disabled model just for its chat, then disable it again",
     )
     return parser
 
