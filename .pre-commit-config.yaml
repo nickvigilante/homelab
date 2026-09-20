@@ -42,6 +42,12 @@ repos:
         additional_dependencies:
           - mdformat-tables
 
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
   # Other formatters/linters run from the locally installed binaries
   # (language: system), matching what CI installs.
   - repo: local
