@@ -7,7 +7,7 @@ Register the Requesty model catalog in Coder Agents so that developers can pick 
 Concretely:
 
 - One Coder AI provider per model vendor, named "\<Vendor> via Requesty", each pointing at Requesty's OpenAI-compatible router.
-- One dedicated "Free models via Requesty" provider that holds every free model, so the operator can see at a glance when a free option exists.
+- One dedicated "★ All free models via Requesty" provider that holds every free model, so the operator can see at a glance when a free option exists.
 - Every provider shows the vendor's own logo as shipped by Requesty, not just the Requesty logo.
 - Every model carries its context limit, output limit, and custom per-token prices.
 - A read-only check runs daily in the cluster and reports drift to Uptime Kuma.
@@ -86,7 +86,7 @@ Exact counts come from the implementation and its tests.
 | Field          | Value                                                                                                                                                         |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`         | `<lab>-via-requesty`, or `free-via-requesty`                                                                                                                  |
-| `display_name` | "\<Vendor> via Requesty" from a small proper-name table, and "Free models via Requesty"                                                                       |
+| `display_name` | "\<Vendor> via Requesty" from a small proper-name table, and "★ All free models via Requesty" (the star sorts it first in the model picker)                                                                       |
 | `base_url`     | `https://router.requesty.ai/v1`, except `https://router.requesty.ai` for the `anthropic` type, because Coder's Anthropic client appends `/v1/messages` itself |
 | `type`         | `anthropic` for Anthropic, `google` for Google, and `openai` for every other vendor and free                                                                  |
 | `api_keys`     | The Requesty key, set on creation or with `--rotate-key`                                                                                                      |
