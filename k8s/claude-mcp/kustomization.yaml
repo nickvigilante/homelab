@@ -6,5 +6,6 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - helmrelease.yaml
+  - external-secret.yaml
   - ../../sources/kubernetes-mcp-server.yaml
   - ../../sources/grafana-community.yaml
