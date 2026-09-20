@@ -13,9 +13,12 @@ or a timeout):
   minimal  one user message
   agent    a system prompt, a user message, and one tool, no max_tokens
   capped   the agent request with max_tokens set to the registered limit
-With --extra-shapes it adds:
-  multi-system  two system messages before the user message (Coder may send
-                more than one, and some host chat templates reject that)
+With --extra-shapes it adds requests that copy what Coder v2.37.0 sends:
+  multi-system  two system messages before the user message (Coder inserts up
+                to nine and never merges them, and some chat templates reject that)
+  store         "store": true (Coder's default for OpenAI-type providers)
+  store-off     "store": false
+  stream        "stream": true with stream_options.include_usage (Coder streams)
 
 Verdicts:
   WORKS_DIRECTLY   every request succeeded, so the Coder failure is specific
@@ -86,8 +89,12 @@ def call(key, body, timeout):
     start = time.monotonic()
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.load(response)
             status = response.status
+            if body.get("stream"):
+                raw = response.read().decode(errors="replace")
+                ok = '"choices"' in raw and '"error"' not in raw
+                return ok, status, time.monotonic() - start, "" if ok else shorten(raw)
+            payload = json.load(response)
     except urllib.error.HTTPError as error:
         raw = error.read().decode(errors="replace")
         try:
@@ -138,6 +145,9 @@ def requests_for(model_id, max_output, extra=False):
                 user,
             ],
         }
+        shapes["store"] = {**agent, "store": True}
+        shapes["store-off"] = {**agent, "store": False}
+        shapes["stream"] = {**agent, "stream": True, "stream_options": {"include_usage": True}}
     return shapes
 
 
