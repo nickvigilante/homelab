@@ -226,8 +226,12 @@ Run on gandalf on 2026-09-18 with `scripts/requesty-smoke-test.sh`, against the 
 - `nebius/google/gemma-3-27b-it` answers correctly when called directly on Requesty, with and without tools, but fails in a Coder chat on the `google` type with "Conversation roles must alternate user/assistant/user/assistant/..." (HTTP 400).
   The upstream chat template of Gemma 3 rejects the system prompt that Coder Agents always sends, so this is a model and host limitation, not a provider-type problem, and it means Requesty's `supports_tool_calling` flag does not guarantee that a model works in Agents.
   The `google` type stays.
-  Whether the same model also fails on the `openai` type was not recorded (the operator's multi-line paste answered the following prompts), but the error is host-side, so it is expected to.
+  It fails identically on the `openai` type (an HTTP 400 from the host, surfaced by Coder as "OpenAI returned an unexpected error"), which confirms that the provider type is not involved.
 - The Requesty logos rendered on both themes.
+- Real Agents chats can be driven through the API: `POST /api/v2/chats` with a `model_config_id` and `client_type: "api"` ran to completion for seven models without a workspace, and a failing model reports its upstream status code and message in the chat's `last_error`.
+  This is the basis for a `verify` command that tests every registered model through the real Agents path.
+- With the smoke prices of $1 and $5 per million tokens, each chat cost between 2,175 and 6,233 micro-dollars, so a chat is a few thousand tokens, and models with no registered price report a cost of 0.
+- The logo check was skipped on the last run; the logos rendered correctly on the earlier run, and the operator reports they have always displayed correctly.
 - Coder returned the price list as an array, returned null prices as null, kept the key and `enabled` on a single-field provider PATCH, and replaced (did not append) the key set on an `api_keys` PATCH.
 - Coder accepted an output limit above the context limit, and accepted two models with the same display name under different providers.
   The model picker keys options by model ID and groups them by provider name, so same-named twins show as separate entries.
