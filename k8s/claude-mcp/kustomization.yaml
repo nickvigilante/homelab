@@ -1,0 +1,9 @@
+# In-cluster MCP servers for Coder Agents and Claude Code (#184, #186).
+# Both servers are Flux HelmReleases; the namespace, NetworkPolicies, and
+# ExternalSecret are the pieces no chart provides.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - ../../sources/kubernetes-mcp-server.yaml
+  - ../../sources/grafana-community.yaml
