@@ -23,7 +23,9 @@ Verdicts:
   PARTIAL          some requests failed: the message says which
 
 Usage:
-  export REQUESTY_API_KEY=...   (read without echo: read -rs REQUESTY_API_KEY)
+  export BW_SESSION=...   (bw unlock --raw; the key is read from the Bitwarden
+                          item "Requesty", field "Main API key")
+  or export REQUESTY_API_KEY=... to skip Bitwarden
   scripts/requesty-probe.py MODEL_ID [MODEL_ID ...] [--file ids.txt]
                             [--concurrency 4] [--timeout 120] [--out report.json]
 
@@ -187,10 +189,14 @@ def parse_args(argv):
 
 def main(argv=None):
     args = parse_args(argv)
+    sync = load_sync()
     key = os.environ.get("REQUESTY_API_KEY", "")
     if not key:
-        print("error: set REQUESTY_API_KEY", file=sys.stderr)
-        return 2
+        try:
+            key = sync.bitwarden_field(sync.BITWARDEN_ITEM, sync.BITWARDEN_FIELD, os.environ)
+        except sync.SyncError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
     ids = list(args.models)
     if args.file:
         ids += [line.strip() for line in Path(args.file).read_text().splitlines() if line.strip()]
@@ -199,7 +205,6 @@ def main(argv=None):
         print("error: give at least one model ID (or --file)", file=sys.stderr)
         return 2
 
-    sync = load_sync()
     try:
         catalog = sync.fetch_catalog()
     except Exception as error:  # the catalog is public; a failure here is a setup problem

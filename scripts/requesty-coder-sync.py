@@ -11,7 +11,9 @@ Subcommands:
 Environment:
   CODER_URL             Coder base URL (default https://coder.vigihome.net)
   CODER_SESSION_TOKEN   Coder API token
-  REQUESTY_API_KEY      Requesty key, needed by apply to create providers
+  REQUESTY_API_KEY      Requesty key, needed by apply to create providers. If unset and
+                        BW_SESSION is exported, apply reads it from the Bitwarden item
+                        "Requesty", field "Main API key"
   UPTIME_KUMA_PUSH_URL  optional push monitor URL, pinged after check
 
 Exit codes: 0 in sync (or every model verified), 1 drift (or a model failed or
@@ -26,6 +28,7 @@ import http.client
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -727,6 +730,58 @@ def format_report(findings: list[Finding], summary: str) -> str:
 # ---- apply -----------------------------------------------------------------
 
 
+BITWARDEN_ITEM = "Requesty"
+BITWARDEN_FIELD = "Main API key"
+
+
+def needs_key(findings: list[Finding], rotate_key: bool) -> bool:
+    ops = {f.action["op"] for f in findings if f.action}
+    return rotate_key or "create_provider" in ops or "set_key" in ops
+
+
+def bitwarden_field(item: str, field: str, env: Any) -> str:
+    """One custom field of a Bitwarden item, read with the `bw` CLI. Needs an
+    unlocked session in BW_SESSION. Never puts the value in an error message."""
+    session = env.get("BW_SESSION")
+    if not session:
+        raise SyncError(
+            "REQUESTY_API_KEY is not set, and BW_SESSION is not exported, so the key cannot be "
+            f"read from the Bitwarden item '{item}' (run: export BW_SESSION=$(bw unlock --raw))"
+        )
+    bw_env = {**os.environ, "BW_SESSION": session}
+
+    def bw(*args: str) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                ["bw", *args], capture_output=True, text=True, timeout=60, env=bw_env, check=False
+            )
+        except FileNotFoundError as err:
+            raise SyncError("the bw CLI is not installed or not on PATH") from err
+        except subprocess.TimeoutExpired as err:
+            raise SyncError("bw timed out") from err
+
+    for attempt in range(2):
+        done = bw("get", "item", item)
+        if done.returncode != 0:
+            detail = " ".join(done.stderr.split())[:120]
+            raise SyncError(
+                f"Bitwarden could not read the item '{item}' ({detail or 'no detail'}); "
+                "is the vault unlocked for this BW_SESSION?"
+            )
+        try:
+            fields = json.loads(done.stdout).get("fields") or []
+        except (ValueError, AttributeError) as err:
+            raise SyncError(
+                f"Bitwarden returned something that is not an item for '{item}'"
+            ) from err
+        for entry in fields:
+            if isinstance(entry, dict) and entry.get("name") == field and entry.get("value"):
+                return str(entry["value"])
+        if attempt == 0:
+            bw("sync")  # a stale local cache returns items without their new fields
+    raise SyncError(f"the Bitwarden item '{item}' has no non-empty field '{field}'")
+
+
 def apply_changes(
     client: CoderClient,
     live: Live,
@@ -741,8 +796,7 @@ def apply_changes(
     def of(op: str) -> list[dict[str, Any]]:
         return [a for a in actions if a["op"] == op]
 
-    needs_key = rotate_key or bool(of("create_provider")) or bool(of("set_key"))
-    if needs_key and not api_key:
+    if needs_key(findings, rotate_key) and not api_key:
         raise SyncError("REQUESTY_API_KEY is required for the pending changes")
 
     provider_ids = {name: p["id"] for name, p in live.providers.items()}
@@ -1162,11 +1216,14 @@ def run_apply(
     if not args.yes and confirm("Apply? [y/N] ").strip().lower() not in ("y", "yes"):
         out.write("Aborted.\n")
         return EXIT_DRIFT
+    api_key = env.get("REQUESTY_API_KEY")
+    if not api_key and needs_key(todo, args.rotate_key):
+        api_key = bitwarden_field(BITWARDEN_ITEM, BITWARDEN_FIELD, env)
     apply_changes(
         client,
         live,
         todo,
-        env.get("REQUESTY_API_KEY"),
+        api_key,
         args.rotate_key,
         lambda m: out.write(m + "\n"),
     )

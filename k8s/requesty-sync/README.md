@@ -69,18 +69,22 @@ export CODER_SESSION_TOKEN="$(coder tokens create --name "sync-$(date +%s)" --li
 python3 scripts/requesty-coder-sync.py check          # the full check, including prices and base URLs
 ```
 
-To fix drift, add the Requesty key and run `apply`:
+To fix drift, run `apply`.
+When it needs the Requesty key (a new provider, or `--rotate-key`), it reads it from the Bitwarden item `Requesty`, field `Main API key`.
+That needs an unlocked session exported in the same shell, and setting `REQUESTY_API_KEY` yourself skips Bitwarden.
 
 ```bash
-printf 'Requesty API key: '; read -rs REQUESTY_API_KEY; echo; export REQUESTY_API_KEY
+export BW_SESSION="$(bw unlock --raw)"; bw sync
 python3 scripts/requesty-coder-sync.py apply
 ```
+
+`scripts/requesty-probe.py` reads the key the same way.
 
 Flags for `apply`:
 
 - `--yes` skips the confirmation prompt.
 - `--disable-orphans` disables models that Requesty no longer selects, which clears their alert.
-- `--rotate-key` replaces the API key on every managed provider with `REQUESTY_API_KEY`.
+- `--rotate-key` replaces the API key on every managed provider with the Requesty key.
 
 Run the full `check` weekly, or after Requesty changes its prices, because that is the only way to see price drift.
 
