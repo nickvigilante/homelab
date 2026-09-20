@@ -44,6 +44,9 @@ from typing import Any, TextIO
 REQUESTY_MODELS_URL = "https://router.requesty.ai/v1/models"
 REQUESTY_BASE_URL = "https://router.requesty.ai/v1"
 LOGO_BASE_URL = "https://www.requesty.ai/provider_logos/v2/"
+# Requesty has no logo for some labs, so those use LobeHub's public icon set,
+# pinned to a version so an upstream rename cannot break them.
+LOBE_ICONS = "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/"
 FALLBACK_ICON = "https://www.requesty.ai/Requesty_logo.svg"
 DEFAULT_CODER_URL = "https://coder.vigihome.net"
 PROVIDER_SUFFIX = "-via-requesty"
@@ -151,6 +154,13 @@ LAB_LOGOS = {
     "xai": "xai",
     "xiaomi": "xiaomi",
     "zai": "zai",
+    # Full URLs: the label has no Requesty logo. Nous Research only has a
+    # one-color logo, and the dark-theme (white) variant suits Coder's default theme.
+    "bytedance": LOBE_ICONS + "light/bytedance-color.png",
+    "kwaipilot": LOBE_ICONS + "light/kwaipilot-color.png",
+    "nousresearch": LOBE_ICONS + "dark/nousresearch.png",
+    "stepfun": LOBE_ICONS + "light/stepfun-color.png",
+    "tencent": LOBE_ICONS + "light/tencent-color.png",
 }
 
 LAB_NAMES = {
@@ -321,7 +331,9 @@ def micro(per_token: float | None) -> int | None:
 
 def icon_for(lab: str) -> str:
     logo = LAB_LOGOS.get(lab)
-    return f"{LOGO_BASE_URL}{logo}.png" if logo else FALLBACK_ICON
+    if not logo:
+        return FALLBACK_ICON
+    return logo if logo.startswith("https://") else f"{LOGO_BASE_URL}{logo}.png"
 
 
 def lab_provider(lab: str) -> DesiredProvider:
@@ -338,7 +350,9 @@ def lab_provider(lab: str) -> DesiredProvider:
 def free_provider() -> DesiredProvider:
     return DesiredProvider(
         name=FREE_PROVIDER_NAME,
-        display_name="Free models via Requesty",
+        # The leading symbol sorts it first in the Agents model picker, where
+        # plain "All free models" would come after "Alibaba".
+        display_name="★ All free models via Requesty",
         type="openai",
         base_url=BASE_URL_BY_TYPE.get("openai", REQUESTY_BASE_URL),
         icon=FALLBACK_ICON,
