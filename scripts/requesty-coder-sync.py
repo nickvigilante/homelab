@@ -129,6 +129,7 @@ EXCLUDED_MODELS = {
     "vertex/claude-opus-4@us-east5": "500 internal error",
     "vertex/claude-opus-4-1": "500 internal error on every host",
     "vertex/claude-opus-4-1@us-east5": "500 internal error",
+    "novita/zai-org/glm-4.6": NEVER_ENDS,
     "zai/GLM-4.6": NEVER_ENDS,
 }
 
