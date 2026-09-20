@@ -66,8 +66,12 @@ Each server is a Flux `HelmRelease` in the `claude-mcp` namespace, and only the 
 | `mcp-grafana`           | `grafana-mcp` from `https://grafana-community.github.io/helm-charts` (moved there from `grafana/helm-charts`) | new `sources/grafana-community.yaml`                                       |
 
 - **Pinning.**
-  `chart.spec.version` is pinned for both, as the repo's Helm pin discipline requires.
-  The Kubernetes chart declares `appVersion: "latest"`, so its `image.tag` is set explicitly to a released version.
+  `chart.spec.version` is pinned for both, as the repo's Helm pin discipline requires: `0.1.0` for the Kubernetes chart and `0.24.0` for the Grafana chart.
+  The Kubernetes chart's `image.version` defaults to `latest`, so it is set explicitly to `v0.0.67`, and the Grafana chart's tag follows its `appVersion` of `1.5.1`.
+- **Chart defaults to override.**
+  The Kubernetes chart enables an Ingress by default, so its values set `ingress.enabled: false`.
+  The Grafana chart mounts a ServiceAccount token by default at pod level, so its values set `automountServiceAccountToken: false`.
+  The Grafana image's entrypoint defaults to the `sse` transport and the chart appends `extraArgs` after it, so `--transport=streamable-http` is passed explicitly and the later flag wins.
 - **Fixed cluster IP.**
   The Grafana chart exposes `service.clusterIP`.
   The Kubernetes chart's Service template has no such field, so its HelmRelease carries a small `postRenderers` kustomize patch that sets `spec.clusterIP`.
@@ -92,7 +96,8 @@ Each server is a Flux `HelmRelease` in the `claude-mcp` namespace, and only the 
 
 ## Networking and access gate
 
-- Each server has a ClusterIP Service with a **fixed** cluster IP, chosen from the unused part of the service CIDR and confirmed free with `kubectl get svc -A` at implementation.
+- Each server has a ClusterIP Service with a **fixed** cluster IP from the static band at the low end of the service CIDR, which Kubernetes keeps clear of dynamic allocation: `10.43.0.200` for `mcp-grafana` and `10.43.0.201` for `kubernetes-mcp-server`.
+  Both are confirmed unused with `kubectl get svc -A` at implementation.
 - Coder's SSRF guard blocks private destinations for MCP traffic unless allowlisted, so both IPs are added as `/32` entries to `CODER_MCP_ALLOWED_PRIVATE_CIDRS` in `k8s/coder/helmrelease.yaml`.
   This is the same mechanism as the two existing gandalf entries, and it avoids opening the whole service CIDR.
   Changing it restarts the Coder pod, and running workspaces are unaffected.
@@ -105,7 +110,7 @@ Each server is a Flux `HelmRelease` in the `claude-mcp` namespace, and only the 
 
 `mcp-grafana` rejects any request whose `Host` header is not in `--allowed-hosts` with a 403, which is also what blocks browser DNS rebinding.
 The list is set explicitly to the in-cluster names and ClusterIP with port 8000, plus `localhost:8000` and `127.0.0.1:8000` for the break-glass port-forward.
-Health probes use `--healthz-address` on a separate listener, which the validation does not wrap.
+The Grafana chart ships no probes, so its HelmRelease sets TCP probes on the MCP port, which the Host check does not affect.
 The Kubernetes server's `Host` handling is not documented, so it is verified at first contact (see Verification).
 
 ## Secrets
@@ -155,12 +160,11 @@ Coder sits downstream of Authentik, and Coder being down is exactly when Claude'
 ## Implementation surface
 
 - **homelab:**
-  - this spec;
-  - `k8s/claude-mcp/` with `namespace.yaml`, `helmrelease-kubernetes.yaml`, `helmrelease-grafana.yaml`, `netpol-*.yaml`, `external-secret.yaml`, `kustomization.yaml`, and a short `README.md`;
+  - this spec and its implementation plan;
+  - `k8s/claude-mcp/` with `namespace.yaml`, one `helmrelease.yaml` holding both HelmReleases, `netpol-*.yaml`, `external-secret.yaml`, `kustomization.yaml`, and a short `README.md`;
   - the two new `sources/*.yaml` files;
   - `clusters/gandalf/claude-mcp.yaml`, following `coder.yaml`;
   - the two `/32` additions in `k8s/coder/helmrelease.yaml`;
-  - the kubeconform filter in `.github/workflows/lint.yml`, widened so `helmrelease-*.yaml` is validated, as the repo's lint rule asks for any filename outside the current set.
 - **infrastructure:** two `coderd_agents_mcp_server` resources in `coder/mcp_servers.tf`, with `auth_type = "none"`, `default_off`, and `streamable_http`, applied locally through `coder/tofu.sh`.
 - **dotfiles:** the break-glass helper, the laptop's Claude Code entries, and the workspace's Claude Code entries pointing at the in-cluster URLs.
 
@@ -171,6 +175,7 @@ Coder sits downstream of Authentik, and Coder being down is exactly when Claude'
    It must exist before the ExternalSecret syncs.
 2. **Cluster manifests.**
    The homelab PR with `k8s/claude-mcp/`, the two chart sources, the Flux Kustomization, and the CIDR change.
+   Every filename is already covered by the CI kubeconform filter, so the filter is not touched.
 3. **Verify in-cluster** (see Verification).
 4. **Register in Coder.**
    The infrastructure PR, applied locally, then turn each server on in a chat.
@@ -187,11 +192,10 @@ Things the docs do not settle, checked in step 3 before anything is registered i
 - k3s actually enforces NetworkPolicy here.
 - `kubectl port-forward` still reaches the pods under the default-deny policy.
 - Coder Agents' MCP client accepts a plain `http://` URL.
-- The Grafana Service is `kps-grafana` in `monitoring`, the release being `kps`.
+- The Grafana Service is `kps-grafana` on port 80 in `monitoring`, as the `kps` release name implies.
 - The chosen ClusterIPs are unused.
-- The Kubernetes chart is published at `oci://ghcr.io/containers/charts` under the exact version pinned, and its `postRenderers` patch produces the intended fixed `clusterIP`.
-- How the Grafana chart injects an env var from an existing Secret, and that its Service, `extraArgs`, and probes work with `--allowed-hosts` and `--healthz-address`.
-- The rendered manifests (`helm template`) show the intended security contexts on both.
+- The `postRenderers` patch produces the intended fixed `clusterIP` when Flux reconciles it.
+- Kubelet's TCP and HTTP probes still pass under the default-deny NetworkPolicy, and if they do not, an ingress rule for the node is added.
 
 ## Repo checklist notes
 
