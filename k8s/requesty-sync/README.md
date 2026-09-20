@@ -136,6 +136,9 @@ scripts/requesty-debug-chat.py --enable novita/qwen/qwen-2.5-72b-instruct novita
   Without `--enable` it changes nothing, and exits 2 with the settings to turn on by hand if logging is off.
 - Each model must be registered and enabled in Coder.
   One that is not is reported and skipped, so enable it in the model admin first.
+  Or pass `--enable-models`, which enables a disabled model just for its chat and sets it back to disabled afterwards, on an error and on Ctrl-C too.
+  It changes only the model's `enabled` field, and never touches a model that is already enabled.
+  If putting one back fails it prints a warning, and `python3 scripts/requesty-coder-sync.py apply --disable-orphans` disables it again.
 - Models run one at a time, and each probe chat is archived afterwards.
   Other options are `--file ids.txt` (one model ID per line), `--out DIR`, `--timeout SECONDS` and `--poll SECONDS`.
 - The script prints a digest per model that is safe to paste into a bug report.
