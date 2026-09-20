@@ -55,7 +55,7 @@ def test_snapshot_collapses_a_model_spanning_labs(snap):
 def test_snapshot_gives_free_models_their_own_provider(snap):
     free = snap.providers["free-via-requesty"]
     assert free.type == "openai"
-    assert free.display_name == "Free models via Requesty"
+    assert free.display_name == "★ All free models via Requesty"
     assert free.icon == FALLBACK
     for model_id in ("google/gemma-4-31b-it", "mistral/leanstral-1-5"):
         assert snap.models[model_id].provider == "free-via-requesty"
@@ -222,6 +222,17 @@ def test_a_retiring_free_model_is_skipped_too(sync):
 # ---- providers, prices, icons ----------------------------------------------
 
 
+LOBE = "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.0/light/"
+
+
+def test_the_free_provider_starts_with_a_symbol_so_it_sorts_first(sync):
+    # The Agents model picker orders providers with localeCompare, which puts
+    # symbols before letters. Plain "All free models" would sort after "Alibaba".
+    free = sync.free_provider().display_name
+    assert not free[0].isalnum()
+    assert free.endswith(" via Requesty")
+
+
 @pytest.mark.parametrize(
     ("lab", "expected"),
     [
@@ -229,6 +240,10 @@ def test_a_retiring_free_model_is_skipped_too(sync):
         ("moonshot", LOGOS + "moonshot.png"),
         ("minimax", LOGOS + "minimaxi.png"),
         ("gryphe", FALLBACK),
+        ("bytedance", LOBE + "bytedance-color.png"),
+        ("stepfun", LOBE + "stepfun-color.png"),
+        ("tencent", LOBE + "tencent-color.png"),
+        ("nousresearch", LOBE.replace("light", "dark") + "nousresearch.png"),
     ],
 )
 def test_icon_for(sync, lab, expected):
