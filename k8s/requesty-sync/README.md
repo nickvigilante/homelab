@@ -138,10 +138,16 @@ Disabling a model in the UI is not drift, and neither is renaming it, so you can
    (`coder users create --service-account --username requesty-sync`; a role-less service account takes no license seat.)
 2. In Uptime Kuma, add a monitor of type Push named `requesty-sync` with a heartbeat interval of `90000` seconds (25 hours).
    Keep its push URL for the next step.
+   Paste the URL as the UI shows it: the script keeps only the token and rewrites the host to the in-cluster address (`http://uptime-kuma.monitoring.svc.cluster.local:3001`), because pods cannot resolve `*.vigihome.net`.
 3. Run `scripts/requesty-sync-provision.sh` on gandalf, with Bitwarden unlocked.
    It creates the 1-year token, stores both secrets in the Bitwarden item `Homelab Requesty Sync` and in BWS, and writes `external-secret.yaml` with the two BWS IDs.
 4. Commit `external-secret.yaml` with the rest of this directory, merge, and let Flux apply it (`flux reconcile kustomization requesty-sync --with-source`).
 5. Run the CronJob once by hand and check that the monitor turns UP.
+
+## Changing only the push URL
+
+Run `scripts/requesty-sync-provision.sh --push-url-only` on gandalf.
+It updates the push URL in Bitwarden and BWS without minting another Coder token, then `flux reconcile externalsecret -n coder requesty-sync-secrets` picks it up.
 
 ## Rotating the token
 

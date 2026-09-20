@@ -40,6 +40,7 @@ The key is read from the environment and never printed.
 """
 
 import argparse
+import http.client
 import importlib.util
 import json
 import os
@@ -93,7 +94,8 @@ def call(key, body, timeout):
             if body.get("stream"):
                 raw = response.read().decode(errors="replace")
                 ok = '"choices"' in raw and '"error"' not in raw
-                return ok, status, time.monotonic() - start, "" if ok else shorten(raw)
+                message = "" if ok else shorten(raw).replace(key, "<key>")
+                return ok, status, time.monotonic() - start, message
             payload = json.load(response)
     except urllib.error.HTTPError as error:
         raw = error.read().decode(errors="replace")
@@ -102,9 +104,10 @@ def call(key, body, timeout):
             detail = (detail.get("error") or {}).get("message") or detail.get("message") or raw
         except ValueError:
             detail = raw
-        return False, error.code, time.monotonic() - start, shorten(detail)
-    except (TimeoutError, urllib.error.URLError, OSError) as error:
-        return False, None, time.monotonic() - start, f"no response: {shorten(error)}"
+        return False, error.code, time.monotonic() - start, shorten(detail).replace(key, "<key>")
+    except (TimeoutError, urllib.error.URLError, OSError, http.client.HTTPException) as error:
+        message = shorten(error).replace(key, "<key>")
+        return False, None, time.monotonic() - start, f"no response: {message}"
     except ValueError:
         return False, status, time.monotonic() - start, "the reply was not JSON"
     choice = (payload.get("choices") or [{}])[0].get("message") or {}
@@ -191,6 +194,7 @@ def alternates(sync, catalog, model_id, catalog_by_id):
         e
         for e in catalog
         if e["id"] != model_id
+        and e["id"] not in sync.EXCLUDED_MODELS
         and sync.is_eligible(e)
         and not sync.is_retiring(e)
         and sync.canonical_of(e).casefold() == wanted

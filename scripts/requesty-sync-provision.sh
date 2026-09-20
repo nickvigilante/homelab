@@ -12,6 +12,11 @@
 #      a rerun never makes duplicates and the ExternalSecret UUIDs stay valid).
 #   4. Writes k8s/requesty-sync/external-secret.yaml with the two BWS secret IDs.
 #
+# The push URL is rewritten to the in-cluster Uptime Kuma address, because pods
+# cannot resolve the external *.vigihome.net hostname the UI shows; only the
+# token in the URL you paste is kept. To fix just the push URL later (without
+# minting another Coder token), run with --push-url-only.
+#
 # Run it on gandalf, from a shell where the coder CLI is signed in as an admin.
 # It needs bw, bws, jq, and coder. Bitwarden: export BW_SESSION first (from
 # `bw unlock --raw`), or it asks for the session key. It also prompts for the
@@ -29,6 +34,8 @@ BWS_TOKEN_NAME="requesty-sync-coder-token"
 BWS_PUSH_NAME="requesty-sync-uptime-push-url"
 SERVICE_ACCOUNT="requesty-sync"
 TOKEN_LIFETIME="8760h"
+KUMA_INTERNAL="http://uptime-kuma.monitoring.svc.cluster.local:3001"
+PUSH_ONLY=0
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXTERNAL_SECRET_FILE="${EXTERNAL_SECRET_FILE:-$ROOT/k8s/requesty-sync/external-secret.yaml}"
 
@@ -60,7 +67,8 @@ field_value() { jq -r --arg f "$2" '.fields[]? | select(.name == $f) | .value //
 check_prerequisites() {
   say "1. Checking prerequisites"
   local t roles
-  for t in bw bws jq coder; do need "$t"; done
+  for t in bw bws jq; do need "$t"; done
+  [[ $PUSH_ONLY == 1 ]] || need coder
   if [[ -z ${BW_SESSION:-} ]]; then
     BW_SESSION="$(ask_secret 'Bitwarden session key (from: bw unlock --raw)')"
     export BW_SESSION
@@ -68,6 +76,7 @@ check_prerequisites() {
   bw status 2>/dev/null | jq -e '.status == "unlocked"' >/dev/null || die "the Bitwarden vault is not unlocked for this session"
   bw sync >/dev/null || die "bw sync failed"
   note "Bitwarden is unlocked and synced"
+  [[ $PUSH_ONLY == 1 ]] && return 0
   roles="$(coder users show "$SERVICE_ACCOUNT" 2>&1 | grep -E '^Roles:' || true)"
   [[ -n $roles ]] || die "coder cannot show the user '$SERVICE_ACCOUNT' (is the CLI signed in as an admin, and does the account exist?)"
   note "$SERVICE_ACCOUNT $roles"
@@ -78,7 +87,7 @@ check_prerequisites() {
 
 create_token() {
   local out
-  say "2. Creating the $TOKEN_LIFETIME token for $SERVICE_ACCOUNT"
+  say "3. Creating the $TOKEN_LIFETIME token for $SERVICE_ACCOUNT"
   out="$(coder tokens create --user "$SERVICE_ACCOUNT" --name "requesty-sync-check-$(date +%Y%m%d-%H%M%S)" \
     --lifetime "$TOKEN_LIFETIME" --scope chat_model_config:read --scope organization:read 2>&1)"
   TOKEN="$(grep -oE '[A-Za-z0-9]{10}-[A-Za-z0-9]{22}' <<<"$out" | head -1)"
@@ -90,33 +99,51 @@ create_token() {
   note "created (value not shown); scopes: chat_model_config:read, organization:read"
 }
 
+# normalize_push_url URL: prints the in-cluster push URL for the token in URL.
+normalize_push_url() {
+  local token
+  token="$(sed -nE 's#^https?://[^/]+/api/push/([A-Za-z0-9]+).*$#\1#p' <<<"$1")"
+  [[ -n $token ]] || return 1
+  printf '%s/api/push/%s' "$KUMA_INTERNAL" "$token"
+}
+
 ask_push_url() {
   local stored="$1" url
-  say "3. Uptime Kuma push URL"
+  say "2. Uptime Kuma push URL"
   if [[ -n $stored ]] && yesno "Keep the push URL already stored in Bitwarden?"; then
-    PUSH_URL="$stored"
-    return 0
+    url="$stored"
+  else
+    url="$(ask_secret 'Push URL (from the requesty-sync push monitor)')"
   fi
-  url="$(ask_secret 'Push URL (from the requesty-sync push monitor)')"
-  # Keep only the URL up to the token: drop any ?status=up&msg=OK&ping= query.
-  PUSH_URL="${url%%\?*}"
-  [[ $PUSH_URL == http*://*/api/push/* ]] || die "that does not look like an Uptime Kuma push URL (expected .../api/push/<token>)"
+  PUSH_URL="$(normalize_push_url "$url")" || die "that does not look like an Uptime Kuma push URL (expected .../api/push/<token>)"
+  note "stored as the in-cluster address; only the token from the URL you gave is kept"
+}
+
+# vault_item: the item named exactly $VAULT_ITEM as JSON, or nothing. `bw get item`
+# matches by substring and refuses when several items match, so list and filter.
+vault_item() {
+  local list matches
+  list="$(bw list items --search "$VAULT_ITEM" 2>/dev/null)" || die "could not search Bitwarden"
+  matches="$(jq -c --arg n "$VAULT_ITEM" '[.[] | select(.name == $n)]' <<<"$list")" || die "Bitwarden returned something that is not a list of items"
+  [[ "$(jq length <<<"$matches")" -le 1 ]] || die "more than one Bitwarden item is named exactly '$VAULT_ITEM'; remove the extras"
+  jq -c '.[0] // empty' <<<"$matches"
 }
 
 store_in_bitwarden() {
-  local existing item id
-  say "4. Storing both in Bitwarden ($VAULT_ITEM)"
-  existing="$(bw get item "$VAULT_ITEM" 2>/dev/null || true)"
-  if jq -e '.id' <<<"$existing" >/dev/null 2>&1; then
+  local existing="$1" item id
+  say "4. Storing in Bitwarden ($VAULT_ITEM)"
+  if [[ -n $existing ]]; then
     id="$(jq -r '.id' <<<"$existing")"
-    item="$(T="$TOKEN" U="$PUSH_URL" jq '
+    item="$(T="${TOKEN:-}" U="$PUSH_URL" jq '
       def setfield($n; $v): (.fields // []) as $f
         | if any($f[]; .name == $n) then (.fields = [$f[] | if .name == $n then .value = $v else . end])
           else (.fields = $f + [{name: $n, value: $v, type: 1}]) end;
-      setfield("coder-token"; $ENV.T) | setfield("uptime-kuma-push-url"; $ENV.U)' <<<"$existing")"
+      (if ($ENV.T // "") != "" then setfield("coder-token"; $ENV.T) else . end)
+      | setfield("uptime-kuma-push-url"; $ENV.U)' <<<"$existing")"
     bw encode <<<"$item" | bw edit item "$id" >/dev/null || die "could not update the Bitwarden item"
     note "updated the existing item"
   else
+    [[ $PUSH_ONLY == 1 ]] && die "there is no '$VAULT_ITEM' item to update; run without --push-url-only first"
     item="$(bw get template item | T="$TOKEN" U="$PUSH_URL" N="$VAULT_ITEM" jq '
       .type = 2 | .secureNote = {type: 0} | .name = $ENV.N
       | .notes = "Secrets for the requesty-sync CronJob (k8s/requesty-sync). The Coder token lasts one year: rotate it with scripts/requesty-sync-provision.sh."
@@ -149,7 +176,9 @@ push_to_bws() {
   [[ -n $boot ]] || die "no access token in the Bitwarden item '$BOOTSTRAP_ITEM' (.notes)"
   export BWS_ACCESS_TOKEN="$boot"
   BWS_LIST="$(bws secret list "$PROJECT_ID" 2>/dev/null)" || die "could not list BWS secrets"
-  TOKEN_ID="$(upsert_bws "$BWS_TOKEN_NAME" "$TOKEN")" || exit 1
+  if [[ -n ${TOKEN:-} ]]; then
+    TOKEN_ID="$(upsert_bws "$BWS_TOKEN_NAME" "$TOKEN")" || exit 1
+  fi
   PUSH_ID="$(upsert_bws "$BWS_PUSH_NAME" "$PUSH_URL")" || exit 1
   unset BWS_ACCESS_TOKEN
 }
@@ -196,17 +225,34 @@ EOF
 }
 
 main() {
-  local stored=""
+  local existing stored=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --push-url-only) PUSH_ONLY=1 ;;
+      *) die "unknown option: $1 (only --push-url-only is supported)" ;;
+    esac
+    shift
+  done
   check_prerequisites
-  stored="$(field_value "$(bw get item "$VAULT_ITEM" 2>/dev/null || true)" uptime-kuma-push-url)"
-  create_token
+  existing="$(vault_item)"
+  stored="$(field_value "$existing" uptime-kuma-push-url)"
+  # Validate the URL before minting a token, so a typo leaves no unused token behind.
   ask_push_url "$stored"
-  store_in_bitwarden
+  if [[ $PUSH_ONLY != 1 ]]; then
+    create_token
+  fi
+  store_in_bitwarden "$existing"
   push_to_bws
-  write_external_secret
+  if [[ $PUSH_ONLY != 1 ]]; then
+    write_external_secret
+  fi
   say "Done"
-  note "Token expires in about a year; a Todoist reminder covers the rotation."
-  note "Next: review and commit k8s/requesty-sync/external-secret.yaml, then continue with the manifests."
+  if [[ $PUSH_ONLY == 1 ]]; then
+    note "Updated only the push URL. Run: flux reconcile externalsecret -n coder requesty-sync-secrets"
+  else
+    note "Token expires in about a year; a Todoist reminder covers the rotation."
+    note "Next: review and commit k8s/requesty-sync/external-secret.yaml, then continue with the manifests."
+  fi
   unset TOKEN PUSH_URL BW_SESSION
 }
 
