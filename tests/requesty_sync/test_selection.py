@@ -121,6 +121,32 @@ def test_cross_lab_tie_goes_to_the_alphabetically_first_lab(sync):
     assert desired.models["alpha/x"].provider == "alpha-via-requesty"
 
 
+def test_canonical_names_that_differ_only_in_case_are_one_model(sync):
+    # Requesty spells one model "qwen3.8-2.4t-a95b" on one host and
+    # "qwen3.8-2.4T-A95B" on another, and files them under different labs.
+    desired = sync.build_desired(
+        [
+            make_entry("tensorx/q", lab="alibaba", canonical="q-a95b"),
+            make_entry("tensorx/q2", lab="alibaba", canonical="q-a95b"),
+            make_entry("deepinfra/q", lab="deepinfra", canonical="Q-A95B"),
+        ]
+    )
+    assert list(desired.models) == ["tensorx/q"]
+    assert list(desired.providers) == ["alibaba-via-requesty"]
+    assert "collapsed q-a95b: kept lab alibaba, dropped lab deepinfra" in desired.info
+
+
+def test_a_retiring_model_is_not_reported_when_another_entry_differs_only_in_case(sync):
+    desired = sync.build_desired(
+        [
+            make_entry("acme/foo", canonical="Foo", retires=OCT_16),
+            make_entry("other/foo", canonical="foo"),
+        ]
+    )
+    assert list(desired.models) == ["other/foo"]
+    assert not any("retires" in line for line in desired.info)
+
+
 def test_qwen_is_an_alias_of_alibaba(sync):
     desired = sync.build_desired([make_entry("alibaba/qwen3", lab="qwen")])
     assert desired.models["alibaba/qwen3"].provider == "alibaba-via-requesty"

@@ -220,7 +220,9 @@ def select(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[st
     stays with the lab holding the most entries (ties go alphabetically)."""
     by_canonical: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for entry in entries:
-        labs = by_canonical.setdefault(canonical_of(entry), {})
+        # Requesty spells one model's name with different case on different
+        # hosts (qwen3.8-2.4t-a95b vs qwen3.8-2.4T-A95B), so group case-blind.
+        labs = by_canonical.setdefault(canonical_of(entry).casefold(), {})
         labs.setdefault(lab_of(entry), []).append(entry)
     chosen: list[dict[str, Any]] = []
     notes: list[str] = []
@@ -317,11 +319,11 @@ def build_desired(entries: list[dict[str, Any]]) -> Desired:
                 max_output_tokens=int(entry.get("max_output_tokens") or 0) or None,
                 prices=prices,
             )
-    registered = {m.display_name for m in desired.models.values()}
+    registered = {m.display_name.casefold() for m in desired.models.values()}
     retiring: dict[str, float] = {}
     for entry in candidates:
         name = canonical_of(entry)
-        if is_retiring(entry) and name not in registered:
+        if is_retiring(entry) and name.casefold() not in registered:
             retiring[name] = min(retiring.get(name, entry["retires"]), entry["retires"])
     desired.info.extend(
         f"skipped (retires {retire_date(timestamp)}): {name}"
