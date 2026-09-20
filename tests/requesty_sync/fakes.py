@@ -298,7 +298,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    do_GET = do_POST = do_PATCH = _handle
+    do_GET = do_POST = do_PATCH = do_PUT = _handle
 
     def log_message(self, *args):
         pass
