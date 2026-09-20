@@ -77,6 +77,11 @@ LAB_OVERRIDES = {"deepinfra/qwen3.8": "alibaba"}
 # allows). The values are the limits the hosts themselves named when
 # `verify` sent a chat through Coder, so add an entry only from such an error.
 MAX_OUTPUT_OVERRIDES = {
+    # Coder sends max_tokens 32000 for a model with no max output configured, and
+    # Novita returns 400 above 8192 for these (found with the probe's --max-tokens).
+    "novita/deepseek/deepseek-r1-turbo": 8192,
+    "novita/deepseek/deepseek_v3": 8192,
+    "novita/qwen/qwen-2.5-72b-instruct": 8192,
     "alibaba/qwen-max": 8192,
     "alibaba/qwen-turbo": 16384,
     "alibaba/qwen3-30b-a3b-instruct-2507": 32768,
@@ -90,8 +95,8 @@ MAX_OUTPUT_OVERRIDES = {
 # Add an entry only with the observed error as the reason, and re-test the
 # entries now and then, because most of these are Requesty or host outages.
 MULTI_SYSTEM = "host template rejects the several system messages Coder sends"
-NOVITA_400 = "HTTP 400 from Novita on Coder's request, though plain requests pass"
-NEVER_ENDS = "Agents chat never completes (twice), though direct requests pass"
+LOOPS = "the model loops on malformed tool calls in Agents (56+ steps), so it cannot finish a chat"
+REASONING_ONLY = "the model answers only in reasoning_content, so Agents shows an empty reply"
 EXCLUDED_MODELS = {
     "deepinfra/Qwen/Qwen3.5-2B": MULTI_SYSTEM,
     "deepinfra/Qwen/Qwen3.5-27B": MULTI_SYSTEM,
@@ -102,16 +107,13 @@ EXCLUDED_MODELS = {
     "deepinfra/Qwen/Qwen3.5-397B-A17B:flex": MULTI_SYSTEM,
     "nebius/google/gemma-3-27b-it": MULTI_SYSTEM,
     "nebius/qwen/qwen3.5-397b-a17b": MULTI_SYSTEM,
-    "novita/deepseek/deepseek-r1-turbo": NOVITA_400,
-    "novita/deepseek/deepseek_v3": NOVITA_400,
-    "novita/qwen/qwen-2.5-72b-instruct": NOVITA_400,
     "runware/qwen3.5-4b": MULTI_SYSTEM,
     "runware/qwen3.5-9b": MULTI_SYSTEM,
     "tensorx/qwen3.8": MULTI_SYSTEM,
     "tensorx/qwen3.8-2.4t-a95b": MULTI_SYSTEM,
     "tensorx/qwen3.8-flash-next": MULTI_SYSTEM,
     "deepinfra/Qwen/Qwen2.5-Coder-32B-Instruct": "16k context is too small for Agents requests",
-    "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": NEVER_ENDS,
+    "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": LOOPS,
     "fireworks/muse-glimmer-30b": "max output equals the context window, so requests overflow",
     "moonshot/kimi-k2.5": "404 model not found or permission denied for this Requesty account",
     "nebius/meta-llama/Llama-3.3-70B-Instruct": "403 forbidden",
@@ -132,8 +134,8 @@ EXCLUDED_MODELS = {
     "vertex/claude-opus-4@us-east5": "500 internal error",
     "vertex/claude-opus-4-1": "500 internal error on every host",
     "vertex/claude-opus-4-1@us-east5": "500 internal error",
-    "novita/zai-org/glm-4.6": NEVER_ENDS,
-    "zai/GLM-4.6": NEVER_ENDS,
+    "novita/zai-org/glm-4.6": REASONING_ONLY,
+    "zai/GLM-4.6": REASONING_ONLY,
 }
 
 # Snapshot of https://www.requesty.ai/provider_logos/v2/<logo>.png

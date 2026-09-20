@@ -313,8 +313,10 @@ def test_known_output_limits_override_the_catalog(sync):
             make_entry("alibaba/qwen-max", lab="alibaba", maxout=0),
             make_entry("vertex/kimi-k2", lab="moonshot", maxout=262_144, ctx=262_144),
             make_entry("acme/other", maxout=8_000),
+            make_entry("novita/deepseek/deepseek_v3", lab="deepseek", maxout=0, ctx=64_000),
         ]
     )
+    assert desired.models["novita/deepseek/deepseek_v3"].max_output_tokens == 8_192
     assert desired.models["alibaba/qwen-max"].max_output_tokens == 8_192
     assert desired.models["vertex/kimi-k2"].max_output_tokens == 102_400
     assert desired.models["acme/other"].max_output_tokens == 8_000
@@ -355,3 +357,15 @@ def test_the_anthropic_type_uses_the_root_url_and_the_others_use_v1(sync):
     assert sync.lab_provider("openai").base_url == "https://router.requesty.ai/v1"
     assert sync.lab_provider("google").base_url == "https://router.requesty.ai/v1"
     assert sync.free_provider().base_url == "https://router.requesty.ai/v1"
+
+
+def test_the_three_novita_models_are_registered_with_a_pinned_limit(sync):
+    # Coder sends max_tokens 32000 when none is configured, and Novita returns 400
+    # above 8192 for these (found with the probe's --max-tokens sweep).
+    for model in (
+        "novita/qwen/qwen-2.5-72b-instruct",
+        "novita/deepseek/deepseek-r1-turbo",
+        "novita/deepseek/deepseek_v3",
+    ):
+        assert model not in sync.EXCLUDED_MODELS
+        assert sync.MAX_OUTPUT_OVERRIDES[model] == 8_192
