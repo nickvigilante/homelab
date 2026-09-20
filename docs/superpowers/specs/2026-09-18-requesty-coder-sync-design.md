@@ -62,16 +62,16 @@ The tool turns the catalog into a desired state in this order.
 1. **Eligible entries** are those with `api == chat`, `supports_tool_calling == true`, and no `retires` date.
    Any retirement date excludes an entry, however distant, because the operator does not want models that are already scheduled to disappear.
    A canonical model still registers through any host that is not retiring.
-1. **Free pool.** Every eligible entry with `input_price == 0` and `output_price == 0` goes to the free pool, whether or not a paid twin exists elsewhere.
+2. **Free pool.** Every eligible entry with `input_price == 0` and `output_price == 0` goes to the free pool, whether or not a paid twin exists elsewhere.
    Within the pool, duplicates of the same `(lab, canonical)` collapse to one entry using the host preference below.
-1. **Paid pool.** The remaining eligible entries are grouped by `(lab, canonical)` after applying the lab alias table (`moonshotai` to `moonshot`, `qwen` to `alibaba`).
+3. **Paid pool.** The remaining eligible entries are grouped by `(lab, canonical)` after applying the lab alias table (`moonshotai` to `moonshot`, `qwen` to `alibaba`).
    If a canonical name still appears under several labs, only the lab with the most catalog entries for it keeps it, with ties broken alphabetically.
    This handles `glm-5.2` (keep `zai`, drop `deepinfra`) and `kimi-k2.6`.
-1. **Host preference** decides which entry represents a group.
+4. **Host preference** decides which entry represents a group.
    A _plain_ entry has neither an `@region` suffix nor a `:variant` service-tier suffix (`:flex`, `:priority`), because variants share the canonical name of the plain model but are priced differently.
    The order is: the first-party plain entry (the ID prefix equals the lab, for example `anthropic/claude-sonnet-4-5`), then the cheapest plain entry, then the cheapest entry overall, with the lexicographically smallest ID breaking ties.
    A small host alias table maps a host prefix to its lab where the two differ, today `minimaxi` to `minimax`.
-1. **Skipped, reported as INFO.** Free entries without tool calling are not registered, because Agents cannot use them.
+5. **Skipped, reported as INFO.** Free entries without tool calling are not registered, because Agents cannot use them.
    Today these are `poolside/laguna-m.1`, `poolside/laguna-xs.2`, and `nvidia/nemotron-3.5-content-safety`.
    Models skipped for a retirement date are reported once per canonical model with the earliest date, but only when no other host keeps that model registered.
    A model that gains a `retires` date after it was registered stops being selected, so it shows up as an orphan and is disabled by `--disable-orphans`.
@@ -83,15 +83,15 @@ Exact counts come from the implementation and its tests.
 
 ### Providers
 
-| Field          | Value                                                                                          |
-| -------------- | ---------------------------------------------------------------------------------------------- |
-| `name`         | `<lab>-via-requesty`, or `free-via-requesty`                                                   |
-| `display_name` | "\<Vendor> via Requesty" from a small proper-name table, and "Free models via Requesty"        |
+| Field          | Value                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`         | `<lab>-via-requesty`, or `free-via-requesty`                                                                                                                  |
+| `display_name` | "\<Vendor> via Requesty" from a small proper-name table, and "Free models via Requesty"                                                                       |
 | `base_url`     | `https://router.requesty.ai/v1`, except `https://router.requesty.ai` for the `anthropic` type, because Coder's Anthropic client appends `/v1/messages` itself |
-| `type`         | `anthropic` for Anthropic, `google` for Google, and `openai` for every other vendor and free   |
-| `api_keys`     | The Requesty key, set on creation or with `--rotate-key`                                       |
-| `enabled`      | `true`                                                                                         |
-| `icon`         | See below                                                                                      |
+| `type`         | `anthropic` for Anthropic, `google` for Google, and `openai` for every other vendor and free                                                                  |
+| `api_keys`     | The Requesty key, set on creation or with `--rotate-key`                                                                                                      |
+| `enabled`      | `true`                                                                                                                                                        |
+| `icon`         | See below                                                                                                                                                     |
 
 **Icons.**
 Each vendor provider uses the vendor's own logo shipped by Requesty, `https://www.requesty.ai/provider_logos/v2/<logo>.png`.
@@ -107,13 +107,13 @@ The mapping is a static table in the script, snapshotted from Requesty's logo li
 
 One Agents model per selected entry, in the default organization.
 
-| Field                            | Source                                                 |
-| -------------------------------- | ------------------------------------------------------ |
+| Field                            | Source                                                              |
+| -------------------------------- | ------------------------------------------------------------------- |
 | `model`                          | The Requesty ID verbatim, for example `anthropic/claude-sonnet-4-5` |
-| `display_name`                   | The canonical model name                               |
-| `context_limit`                  | `context_window`                                       |
-| `model_config.max_output_tokens` | `max_output_tokens`                                    |
-| `enabled`                        | `true`                                                 |
+| `display_name`                   | The canonical model name                                            |
+| `context_limit`                  | `context_window`                                                    |
+| `model_config.max_output_tokens` | `max_output_tokens`                                                 |
+| `enabled`                        | `true`                                                              |
 
 Everything else stays at Coder's defaults, and `is_default` is never set.
 
@@ -135,17 +135,18 @@ One stdlib-only Python script, `scripts/requesty-coder-sync.py`, with three subc
 - `verify` runs one real Coder Agents chat per registered model and reports which models fail (see Verify).
 - `--yes` skips the prompt, `--json` gives machine-readable output, and `--disable-orphans` sets `enabled=false` on orphaned models.
 - Configuration is by environment: `CODER_URL`, `CODER_SESSION_TOKEN`, and `REQUESTY_API_KEY` for `apply` only.
+  When `REQUESTY_API_KEY` is unset and `BW_SESSION` is exported, `apply` reads the key from the Bitwarden item `Requesty`, field `Main API key`, and only when a change needs it.
 
 ### Mismatch categories
 
-| Category                                | Meaning                                                                                              |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `MISSING_PROVIDER`, `MISSING_MODEL`     | In the desired state and absent in Coder                                                             |
-| `PROVIDER_DRIFT`                        | Wrong `base_url`, `icon`, or `display_name`, disabled, or no API key set (key values are masked)     |
-| `MODEL_DRIFT`                           | `context_limit`, `max_output_tokens`, or owning provider differs, including moves into or out of the free provider |
-| `PRICE_DRIFT`                           | Custom price absent or different                                                                     |
-| `ORPHAN_MODEL`                          | Enabled in Coder but no longer selected (retired, or the host preference changed); orphans that are already disabled are not reported, so the alert clears once `--disable-orphans` has run |
-| `INFO`                                  | Not drift, worth knowing: models skipped on purpose (free models without tool calling, models with a Requesty retirement date), non-plain fallbacks, and models that are selected but disabled in Coder (for example after `--disable-orphans`, when the model later returns), which the operator may have disabled by hand and so is never re-enabled automatically |
+| Category                            | Meaning                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MISSING_PROVIDER`, `MISSING_MODEL` | In the desired state and absent in Coder                                                                                                                                                                                                                                                                                                                             |
+| `PROVIDER_DRIFT`                    | Wrong `base_url`, `icon`, or `display_name`, disabled, or no API key set (key values are masked)                                                                                                                                                                                                                                                                     |
+| `MODEL_DRIFT`                       | `context_limit`, `max_output_tokens`, or owning provider differs, including moves into or out of the free provider                                                                                                                                                                                                                                                   |
+| `PRICE_DRIFT`                       | Custom price absent or different                                                                                                                                                                                                                                                                                                                                     |
+| `ORPHAN_MODEL`                      | Enabled in Coder but no longer selected (retired, or the host preference changed); orphans that are already disabled are not reported, so the alert clears once `--disable-orphans` has run                                                                                                                                                                          |
+| `INFO`                              | Not drift, worth knowing: models skipped on purpose (free models without tool calling, models with a Requesty retirement date), non-plain fallbacks, and models that are selected but disabled in Coder (for example after `--disable-orphans`, when the model later returns), which the operator may have disabled by hand and so is never re-enabled automatically |
 
 A host change for a model appears as a `MISSING_MODEL` and an `ORPHAN_MODEL` reported together.
 Drift on the free provider gets its own summary line, so a newly free model is easy to spot.
@@ -159,9 +160,9 @@ Drift on the free provider gets its own summary line, so a newly free model is e
 ### Apply rules
 
 1. Providers first, then models, then one batch price upsert.
-1. It never deletes anything, and orphans are only flagged unless `--disable-orphans` is given.
-1. The API key is set only on provider creation or with `--rotate-key`, and it is never compared or logged.
-1. It is idempotent, so a second run shows an empty diff.
+2. It never deletes anything, and orphans are only flagged unless `--disable-orphans` is given.
+3. The API key is set only on provider creation or with `--rotate-key`, and it is never compared or logged.
+4. It is idempotent, so a second run shows an empty diff.
 
 ### Deployment
 
@@ -189,10 +190,10 @@ A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux
    This settles the base URL and suffix for each type, whether slash-containing model IDs are accepted, whether the Requesty PNG icons load and look right on both themes, and which Coder role can read providers, models, and prices.
    If the `anthropic` type fails against Requesty, the fallback is the `openai` type for Anthropic as well.
    The script isolates the two outcomes in `NATIVE_TYPES` (which labs use a native type) and `BASE_URL_BY_TYPE` (a per-type base URL override, needed if a type appends its own `/v1`), so either fallback is a one-line change.
-1. Build the tool test-first in a worktree.
-1. Run `check` against the live Coder (expecting everything missing), run `apply` by hand on gandalf, then run `check` again and expect exit 0.
-1. Deploy the CronJob, ExternalSecret, and Uptime Kuma monitor, trigger a manual job, and verify the heartbeat.
-1. Write `k8s/requesty-sync/README.md`.
+2. Build the tool test-first in a worktree.
+3. Run `check` against the live Coder (expecting everything missing), run `apply` by hand on gandalf, then run `check` again and expect exit 0.
+4. Deploy the CronJob, ExternalSecret, and Uptime Kuma monitor, trigger a manual job, and verify the heartbeat.
+5. Write `k8s/requesty-sync/README.md`.
    No persistent directories are added, so the backup CronJob is untouched.
 
 ### Risks
@@ -208,12 +209,12 @@ A new directory `k8s/requesty-sync/` in the `coder` namespace, with its own Flux
 ## Decisions taken by default, open to veto
 
 1. Free models without tool calling are skipped and reported, not registered.
-1. A free model is kept in the free provider even when a paid twin stays in its vendor's provider, so the operator can see both.
-1. Vendors with no Requesty logo fall back to the Requesty logo.
-1. Requesty's PNG logos are used for all vendors, including Anthropic, OpenAI, and Google, in place of Coder's built-in icons.
-1. Cross-lab duplicates collapse to the lab with the most entries.
-1. The check runs daily rather than weekly.
-1. Any `retires` date excludes an entry, even one months away.
+2. A free model is kept in the free provider even when a paid twin stays in its vendor's provider, so the operator can see both.
+3. Vendors with no Requesty logo fall back to the Requesty logo.
+4. Requesty's PNG logos are used for all vendors, including Anthropic, OpenAI, and Google, in place of Coder's built-in icons.
+5. Cross-lab duplicates collapse to the lab with the most entries.
+6. The check runs daily rather than weekly.
+7. Any `retires` date excludes an entry, even one months away.
    Today that removes nine canonical models entirely (for example `gpt-5-pro`, `o3-pro`, `deepseek-chat`, and `deepseek-reasoner`), while popular models such as `gpt-5-mini` and Gemini 2.5 Pro stay registered through hosts that are not retiring.
    If that proves too strict, a horizon (for example, skip only entries retiring within 60 days) is a small change to one function.
 
@@ -274,3 +275,27 @@ It needs the operator's own unscoped token, because `chat:create` is not an exte
 - `--disable-failures` sets `enabled=false` on the models that failed (not the inconclusive ones), after showing them and asking for confirmation unless `--yes` is given.
   `apply` never re-enables a disabled model, and `check` reports it as "selected but disabled in Coder".
 - Exit codes: 0 when every model passed, 1 when any failed or was inconclusive, and 2 for an error.
+
+## Models that fail in practice
+
+The catalog lists models that fail when a chat is really sent.
+`verify` found about one in five, and `scripts/requesty-probe.py` (which calls Requesty without Coder) separated the causes.
+
+- `EXCLUDED_MODELS` names each unusable model with the observed error as its reason.
+  An excluded model is not registered, its canonical model falls back to the next-best host, and `apply --disable-orphans` disables the copy already in Coder.
+  `check` reports each one as an `excluded (...)` INFO line.
+- `MAX_OUTPUT_OVERRIDES` pins output limits the hosts named in their own errors, where the catalog value was missing or too large.
+- `LAB_OVERRIDES` files an entry that Requesty labels with a host under its real lab.
+- Models with `supports_image_generation` are skipped by rule.
+- Canonical names are compared case-blind, because Requesty spells one model differently across hosts.
+
+The causes seen, in order of how often they occurred:
+
+- The router returns 404, 403, 410 or 500 for a listed model, so the catalog is ahead of the hosts.
+- The host's chat template rejects the several consecutive system messages that Coder v2.37.0 sends (Qwen 3.5 and 3.8, Gemma 3).
+  This is Coder's request shape, tracked upstream in coder/coder#27176, so those entries are retested after a Coder upgrade.
+- An Agents chat never completes although every direct request passes, seen twice each for two models.
+- Requests that carry tools or a large `max_tokens` are rejected by the host.
+
+Not yet confirmed: whether Coder's default `store: true` is what three Novita models reject.
+The probe's `--extra-shapes` sends that request.
