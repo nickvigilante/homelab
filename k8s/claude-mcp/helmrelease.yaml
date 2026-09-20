@@ -1,0 +1,61 @@
+# Read-only Kubernetes MCP for Coder Agents and Claude Code (#186).
+# Reached only from the coder namespace (netpol-allow-coder.yaml). It runs as
+# its own ServiceAccount, bound to the built-in `view` ClusterRole, which
+# omits Secrets.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubernetes-mcp
+  namespace: claude-mcp
+spec:
+  releaseName: kubernetes-mcp
+  targetNamespace: claude-mcp
+  interval: 30m
+  chart:
+    spec:
+      chart: kubernetes-mcp-server
+      version: "0.1.0"
+      sourceRef:
+        kind: HelmRepository
+        name: kubernetes-mcp-server
+        namespace: flux-system
+  # The chart's Service template has no clusterIP field. Coder's SSRF guard
+  # allowlists exact /32 addresses, so pin the address with a patch.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Service
+              name: kubernetes-mcp
+            patch: |
+              - op: add
+                path: /spec/clusterIP
+                value: 10.43.0.201
+  values:
+    fullnameOverride: kubernetes-mcp
+    # The chart enables an Ingress by default. This server is cluster-internal.
+    ingress:
+      enabled: false
+    # The chart's image.version defaults to `latest`.
+    image:
+      version: v0.0.67
+    nodeSelector:
+      kubernetes.io/hostname: gandalf
+    serviceAccount:
+      name: claude-mcp
+    rbac:
+      extraClusterRoleBindings:
+        - name: view
+          roleRef:
+            name: view
+            external: true
+    config:
+      port: "{{ .Values.service.port }}"
+      read_only: true
+      stateless: true
+      toolsets:
+        - core
+      denied_resources:
+        - group: ""
+          version: v1
+          kind: Secret
