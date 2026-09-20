@@ -2,7 +2,8 @@
 """Sync the Requesty model catalog into Coder Agents.
 
 Subcommands:
-  check  report drift between Requesty and Coder (read-only)
+  check  report drift between Requesty and Coder (read-only);
+         --limited reads only what a narrow member-level token can
   apply  make Coder match Requesty (creates and updates, never deletes)
 
 Environment:
@@ -37,6 +38,7 @@ LOGO_BASE_URL = "https://www.requesty.ai/provider_logos/v2/"
 FALLBACK_ICON = "https://www.requesty.ai/Requesty_logo.svg"
 DEFAULT_CODER_URL = "https://coder.vigihome.net"
 PROVIDER_SUFFIX = "-via-requesty"
+LIMITED_SUFFIX = " via Requesty"
 FREE_PROVIDER_NAME = "free" + PROVIDER_SUFFIX
 MIN_ELIGIBLE_MODELS = 100
 USER_AGENT = "requesty-coder-sync/1.0"
@@ -395,12 +397,22 @@ class CoderClient:
     def update_provider(self, provider_id: str, payload: dict[str, Any]) -> None:
         self.request("PATCH", f"/api/v2/ai/providers/{provider_id}", payload)
 
-    def list_models(self, org_id: str) -> list[dict[str, Any]]:
+    def list_models_response(self, org_id: str) -> dict[str, Any]:
+        """The whole models response: models, plus a descriptor for each provider."""
         path = f"/api/v2/organizations/{org_id}/chats/models"
-        models = self.request("GET", path)["models"]
-        if not isinstance(models, list):
-            raise ApiError("GET", path, 0, f"expected a JSON list, got {type(models).__name__}")
-        return models
+        result = self.request("GET", path)
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("models"), list)
+            or not isinstance(result.get("providers"), list)
+        ):
+            raise ApiError(
+                "GET", path, 0, "expected a JSON object with 'models' and 'providers' lists"
+            )
+        return result
+
+    def list_models(self, org_id: str) -> list[dict[str, Any]]:
+        return self.list_models_response(org_id)["models"]
 
     def create_model(self, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", f"/api/v2/organizations/{org_id}/chats/models", payload)
@@ -421,6 +433,7 @@ class Live:
     providers: dict[str, dict[str, Any]]  # managed providers by name
     models: list[dict[str, Any]]  # models under managed providers
     prices: dict[tuple[str, str], dict[str, Any]]  # custom prices by (type, model)
+    limited: bool = False  # read with a narrow token: no prices, no base URLs
 
 
 def is_managed_name(name: str) -> bool:
@@ -439,6 +452,38 @@ def load_live(client: CoderClient) -> Live:
     return Live(org_id=org_id, providers=providers, models=models, prices=prices)
 
 
+def load_live_limited(client: CoderClient, desired: Desired) -> Live:
+    """Reads only what a narrow token can: the models response, whose provider
+    descriptors have no name or base URL. A descriptor is managed when its display
+    name ends with " via Requesty", and it is named after the desired provider that
+    has the same display name (else from its display name)."""
+    by_display = {p.display_name: name for name, p in desired.providers.items()}
+    try:
+        org_id = client.default_org_id()
+        response = client.list_models_response(org_id)
+        providers: dict[str, dict[str, Any]] = {}
+        for descriptor in response["providers"]:
+            display_name = descriptor["display_name"]
+            if not display_name.endswith(LIMITED_SUFFIX):
+                continue
+            name = by_display.get(display_name) or (
+                slugify(display_name.removesuffix(LIMITED_SUFFIX)) + PROVIDER_SUFFIX
+            )
+            providers[name] = {
+                "id": descriptor["id"],
+                "type": descriptor["type"],
+                "display_name": display_name,
+                "icon": descriptor["icon"],
+                "enabled": descriptor["enabled"],
+                "api_keys": [{}] if descriptor["has_api_key"] else [],
+            }
+        managed_ids = {p["id"] for p in providers.values()}
+        models = [m for m in response["models"] if m["ai_provider_id"] in managed_ids]
+    except (KeyError, TypeError, AttributeError) as err:
+        raise SyncError(f"unexpected response shape from Coder: {err!r}") from err
+    return Live(org_id=org_id, providers=providers, models=models, prices={}, limited=True)
+
+
 # ---- drift detection -------------------------------------------------------
 
 MISSING_PROVIDER = "MISSING_PROVIDER"
@@ -448,6 +493,7 @@ MODEL_DRIFT = "MODEL_DRIFT"
 PRICE_DRIFT = "PRICE_DRIFT"
 ORPHAN_MODEL = "ORPHAN_MODEL"
 INFO = "INFO"
+LIMITED_NOTE = "prices and provider base URLs are not checked in limited mode"
 DRIFT_CATEGORIES = (
     MISSING_PROVIDER,
     MISSING_MODEL,
@@ -467,9 +513,11 @@ class Finding:
     action: dict[str, Any] | None = None
 
 
-def provider_changes(want: DesiredProvider, have: dict[str, Any]) -> dict[str, Any]:
+def provider_changes(
+    want: DesiredProvider, have: dict[str, Any], limited: bool = False
+) -> dict[str, Any]:
     changes: dict[str, Any] = {}
-    for field in ("base_url", "icon", "display_name"):
+    for field in ("icon", "display_name") if limited else ("base_url", "icon", "display_name"):
         if have.get(field) != getattr(want, field):
             changes[field] = getattr(want, field)
     if have.get("enabled") is not True:
@@ -527,7 +575,7 @@ def compute_diff(desired: Desired, live: Live) -> list[Finding]:
             action = {"op": "create_provider", "provider": want}
             findings.append(Finding(MISSING_PROVIDER, name, detail, name, action))
             continue
-        changes = provider_changes(want, have)
+        changes = provider_changes(want, have, live.limited)
         if changes:
             detail = ", ".join(f"{k}: {have.get(k)!r} -> {v!r}" for k, v in changes.items())
             action = {"op": "update_provider", "id": have["id"], "name": name, "payload": changes}
@@ -566,24 +614,27 @@ def compute_diff(desired: Desired, live: Live) -> list[Finding]:
             detail = f"no longer selected (under {owner})"
             findings.append(Finding(ORPHAN_MODEL, have["model"], detail, owner, action))
 
-    for model_id in sorted(desired.models):
-        want = desired.models[model_id]
-        have = live.prices.get((want.provider_type, model_id))
-        current = (
-            None
-            if have is None
-            else (
-                have.get("input_price"),
-                have.get("output_price"),
-                have.get("cache_read_price"),
-                have.get("cache_write_price"),
+    if not live.limited:  # a narrow token cannot read prices
+        for model_id in sorted(desired.models):
+            want = desired.models[model_id]
+            have = live.prices.get((want.provider_type, model_id))
+            current = (
+                None
+                if have is None
+                else (
+                    have.get("input_price"),
+                    have.get("output_price"),
+                    have.get("cache_read_price"),
+                    have.get("cache_write_price"),
+                )
             )
-        )
-        if current != want.prices:
-            detail = "absent" if current is None else f"{current} -> {want.prices}"
-            action = {"op": "upsert_price", "price": price_payload(want)}
-            findings.append(Finding(PRICE_DRIFT, model_id, detail, want.provider, action))
+            if current != want.prices:
+                detail = "absent" if current is None else f"{current} -> {want.prices}"
+                action = {"op": "upsert_price", "price": price_payload(want)}
+                findings.append(Finding(PRICE_DRIFT, model_id, detail, want.provider, action))
 
+    if live.limited:
+        findings.append(Finding(INFO, LIMITED_NOTE))
     findings.extend(Finding(INFO, line) for line in desired.info)
     return findings
 
@@ -729,6 +780,11 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser("check", parents=[common], help="report drift (read-only)")
     check.add_argument("--json", action="store_true", help="machine-readable output")
+    check.add_argument(
+        "--limited",
+        action="store_true",
+        help="read only what a narrow token can (no prices or provider base URLs)",
+    )
     apply = commands.add_parser("apply", parents=[common], help="make Coder match Requesty")
     apply.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     apply.add_argument(
@@ -842,7 +898,8 @@ def run(
         raise SyncError("CODER_SESSION_TOKEN is not set")
     desired = build_desired(load_catalog(args))
     client = client_factory(env.get("CODER_URL", DEFAULT_CODER_URL), token)
-    live = load_live(client)
+    limited = args.command == "check" and args.limited
+    live = load_live_limited(client, desired) if limited else load_live(client)
     findings = compute_diff(desired, live)
     summary = summarize(findings)
     if args.command == "check":

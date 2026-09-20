@@ -61,6 +61,7 @@ class FakeCoder:
         self.models = {}
         self.prices = {}
         self.calls = []
+        self.reads = []  # names of the read methods called, to prove which endpoints a mode used
         self._n = 0
 
     def _id(self, prefix):
@@ -71,6 +72,7 @@ class FakeCoder:
         return "org-1"
 
     def list_providers(self):
+        self.reads.append("list_providers")
         return [dict(p) for p in self.providers.values()]
 
     def create_provider(self, payload):
@@ -95,7 +97,32 @@ class FakeCoder:
         self.calls.append(("update_provider", provider_id))
 
     def list_models(self, org_id):
+        self.reads.append("list_models")
         return [dict(m) for m in self.models.values()]
+
+    def list_models_response(self, org_id):
+        """What a narrow token sees: models plus provider descriptors, with no name or base_url."""
+        self.reads.append("list_models_response")
+        descriptors = [
+            {
+                "id": p["id"],
+                "type": p["type"],
+                "display_name": p["display_name"],
+                "icon": p["icon"],
+                "enabled": p["enabled"],
+                "has_api_key": bool(p["api_keys"]),
+                "has_effective_api_key": bool(p["api_keys"]),
+                "has_user_api_key": False,
+                "allow_user_api_key": False,
+                "available": True,
+            }
+            for p in self.providers.values()
+        ]
+        return {
+            "models": [dict(m) for m in self.models.values()],
+            "providers": descriptors,
+            "unsupported_providers": [],
+        }
 
     def create_model(self, org_id, payload):
         model_id = self._id("model")
@@ -109,6 +136,7 @@ class FakeCoder:
         self.calls.append(("update_model", model_id))
 
     def list_custom_prices(self):
+        self.reads.append("list_custom_prices")
         return [dict(p) for p in self.prices.values()]
 
     def upsert_prices(self, prices):
