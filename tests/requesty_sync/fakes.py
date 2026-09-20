@@ -53,6 +53,24 @@ def small_catalog():
     ]
 
 
+_HOST_REJECTION = {
+    "message": "Google returned an unexpected error.",
+    "detail": "Conversation roles must alternate user/assistant/user/assistant/...",
+    "kind": "generic",
+    "provider": "google",
+    "retryable": False,
+    "status_code": 400,
+}
+_RATE_LIMITED = {
+    "message": "Google rate limit reached.",
+    "detail": "Too many requests.",
+    "kind": "rate_limit",
+    "provider": "google",
+    "retryable": True,
+    "status_code": 429,
+}
+
+
 class FakeCoder:
     """Same interface as CoderClient, kept in memory. It has no delete methods."""
 
@@ -62,11 +80,16 @@ class FakeCoder:
         self.prices = {}
         self.calls = []
         self.reads = []  # names of the read methods called, to prove which endpoints a mode used
+        self.chats = {}  # chat id -> chat state, for verify
+        self.chat_behaviors = {}  # model string -> ok, error, retryable_error, tool or never
+        self.chat_cost = 1500  # micro-dollars reported for every chat
         self._n = 0
+        self._lock = threading.RLock()  # verify calls the chat methods from several threads
 
     def _id(self, prefix):
-        self._n += 1
-        return f"{prefix}-{self._n}"
+        with self._lock:
+            self._n += 1
+            return f"{prefix}-{self._n}"
 
     def default_org_id(self):
         return "org-1"
@@ -143,6 +166,60 @@ class FakeCoder:
         for price in prices:
             self.prices[(price["provider"], price["model"])] = {**price, "source": "custom"}
         self.calls.append(("upsert_prices", len(prices)))
+
+    def create_chat(self, payload):
+        with self._lock:
+            chat_id = self._id("chat")
+            self.chats[chat_id] = {
+                "id": chat_id,
+                "model_config_id": payload["model_config_id"],
+                "model": self.models[payload["model_config_id"]]["model"],
+                "payload": payload,
+                "polls": 0,
+                "archived": False,
+            }
+        return {"id": chat_id, "status": "running"}
+
+    def _behavior(self, chat_id):
+        with self._lock:
+            chat = self.chats[chat_id]
+            return chat, self.chat_behaviors.get(chat["model"], "ok")
+
+    def get_chat(self, chat_id):
+        """`running` on the first poll, then the final state chosen by chat_behaviors."""
+        with self._lock:
+            chat, behavior = self._behavior(chat_id)
+            chat["polls"] += 1
+            first = chat["polls"] == 1
+        if first or behavior == "never":
+            return {"id": chat_id, "status": "running"}
+        if behavior == "error":
+            return {"id": chat_id, "status": "error", "last_error": dict(_HOST_REJECTION)}
+        if behavior == "retryable_error":
+            return {"id": chat_id, "status": "error", "last_error": dict(_RATE_LIMITED)}
+        if behavior == "tool":
+            return {"id": chat_id, "status": "requires_action"}
+        return {"id": chat_id, "status": "waiting"}
+
+    def get_chat_messages(self, chat_id):
+        _, behavior = self._behavior(chat_id)
+        messages = [{"role": "user", "content": [{"type": "text", "text": "..."}]}]
+        if behavior == "ok":
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": "ok"}]})
+        return {"messages": messages, "queued_messages": [], "has_more": False}
+
+    def get_chat_cost(self, chat_id):
+        return {
+            "chat_id": chat_id,
+            "total_cost_micros": self.chat_cost,
+            "request_count": 1,
+            "unpriced_request_count": 0,
+        }
+
+    def archive_chat(self, chat_id):
+        with self._lock:
+            self.chats[chat_id]["archived"] = True
+            self.calls.append(("archive_chat", chat_id))
 
 
 def seed_in_sync(fake, desired):

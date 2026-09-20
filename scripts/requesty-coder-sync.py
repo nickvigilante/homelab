@@ -5,6 +5,8 @@ Subcommands:
   check  report drift between Requesty and Coder (read-only);
          --limited reads only what a narrow member-level token can
   apply  make Coder match Requesty (creates and updates, never deletes)
+  verify test each registered model through a real Coder Agents chat, which
+         costs money, so run it by hand with an unscoped token
 
 Environment:
   CODER_URL             Coder base URL (default https://coder.vigihome.net)
@@ -12,22 +14,26 @@ Environment:
   REQUESTY_API_KEY      Requesty key, needed by apply to create providers
   UPTIME_KUMA_PUSH_URL  optional push monitor URL, pinged after check
 
-Exit codes: 0 in sync, 1 drift, 2 error.
+Exit codes: 0 in sync (or every model verified), 1 drift (or a model failed or
+was inconclusive), 2 error.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import http.client
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TextIO
@@ -42,6 +48,8 @@ LIMITED_SUFFIX = " via Requesty"
 FREE_PROVIDER_NAME = "free" + PROVIDER_SUFFIX
 MIN_ELIGIBLE_MODELS = 100
 USER_AGENT = "requesty-coder-sync/1.0"
+PROBE_LABELS = {"probe": "requesty-sync-verify"}
+PROBE_PROMPT = "Reply with the single word ok."
 
 EXIT_OK, EXIT_DRIFT, EXIT_ERROR = 0, 1, 2
 
@@ -382,6 +390,12 @@ class CoderClient:
             raise ApiError("GET", path, 0, f"expected a JSON list, got {type(result).__name__}")
         return result
 
+    def _request_object(self, method: str, path: str, body: Any = None) -> dict[str, Any]:
+        result = self.request(method, path, body)
+        if not isinstance(result, dict):
+            raise ApiError(method, path, 0, f"expected a JSON object, got {type(result).__name__}")
+        return result
+
     def default_org_id(self) -> str:
         for org in self._get_list("/api/v2/organizations"):
             if org.get("is_default"):
@@ -425,6 +439,21 @@ class CoderClient:
 
     def upsert_prices(self, prices: list[dict[str, Any]]) -> None:
         self.request("POST", "/api/experimental/ai/model-prices", {"prices": prices})
+
+    def create_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request_object("POST", "/api/v2/chats", payload)
+
+    def get_chat(self, chat_id: str) -> dict[str, Any]:
+        return self._request_object("GET", f"/api/v2/chats/{chat_id}")
+
+    def get_chat_messages(self, chat_id: str) -> dict[str, Any]:
+        return self._request_object("GET", f"/api/v2/chats/{chat_id}/messages")
+
+    def get_chat_cost(self, chat_id: str) -> dict[str, Any]:
+        return self._request_object("GET", f"/api/v2/chats/{chat_id}/cost")
+
+    def archive_chat(self, chat_id: str) -> None:
+        self.request("PATCH", f"/api/v2/chats/{chat_id}", {"archived": True})
 
 
 @dataclass
@@ -766,7 +795,201 @@ def apply_changes(
         log(f"upserted {len(prices)} price(s)")
 
 
+# ---- verify ----------------------------------------------------------------
+
+OK, FAILED, INCONCLUSIVE = "ok", "failed", "inconclusive"
+
+
+@dataclass
+class VerifyResult:
+    model: str
+    provider: str
+    config_id: str
+    outcome: str  # OK, FAILED, or INCONCLUSIVE
+    detail: str = ""
+    cost_micros: int = 0
+
+
+def describe_chat_error(last_error: Any) -> str:
+    error = last_error if isinstance(last_error, dict) else {}
+    text = str(error.get("message") or "unknown error")
+    if error.get("detail"):
+        text += f" - {error['detail']}"
+    return (
+        f"{text} (upstream HTTP {error.get('status_code') or '?'}, {error.get('provider') or '?'})"
+    )
+
+
+def has_assistant_reply(client: Any, chat_id: str) -> bool:
+    messages = client.get_chat_messages(chat_id).get("messages")
+    return isinstance(messages, list) and any(
+        isinstance(m, dict) and m.get("role") == "assistant" for m in messages
+    )
+
+
+def chat_cost_micros(client: Any, chat_id: str) -> int:
+    try:
+        return int(client.get_chat_cost(chat_id).get("total_cost_micros") or 0)
+    except (ApiError, TypeError, ValueError):
+        return 0
+
+
+def verify_model(
+    client: Any,
+    org_id: str,
+    model_row: dict[str, Any],
+    provider_name: str,
+    timeout: float,
+    poll: float,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> VerifyResult:
+    """Sends one probe chat through the model and reports whether it answered.
+    The chat is archived on every path, and an archive failure changes nothing."""
+
+    def result(outcome: str, detail: str = "", cost_micros: int = 0) -> VerifyResult:
+        return VerifyResult(
+            model_row["model"], provider_name, model_row["id"], outcome, detail, cost_micros
+        )
+
+    try:
+        chat = client.create_chat(
+            {
+                "organization_id": org_id,
+                "model_config_id": model_row["id"],
+                "client_type": "api",
+                "labels": dict(PROBE_LABELS),
+                "content": [{"type": "text", "text": PROBE_PROMPT}],
+            }
+        )
+    except ApiError as err:
+        return result(INCONCLUSIVE, str(err))
+    chat_id = chat.get("id") if isinstance(chat, dict) else None
+    if not chat_id:
+        return result(INCONCLUSIVE, "Coder created no chat (the response has no id)")
+    try:
+        deadline = clock() + timeout
+        while True:
+            chat = client.get_chat(chat_id)
+            status = chat.get("status")
+            if status == "error":
+                last_error = chat.get("last_error")
+                detail = describe_chat_error(last_error)
+                retryable = isinstance(last_error, dict) and bool(last_error.get("retryable"))
+                return result(INCONCLUSIVE if retryable else FAILED, detail)
+            if status == "requires_action" or (
+                status == "waiting" and has_assistant_reply(client, chat_id)
+            ):
+                return result(OK, cost_micros=chat_cost_micros(client, chat_id))
+            if clock() >= deadline:
+                return result(INCONCLUSIVE, f"no reply within {timeout:g}s (last status: {status})")
+            sleep(poll)
+    except ApiError as err:
+        return result(INCONCLUSIVE, str(err))
+    finally:
+        with contextlib.suppress(Exception):  # best effort: never changes the outcome
+            client.archive_chat(chat_id)
+
+
+def select_models_to_verify(
+    live: Live, provider: str | None = None, model: str | None = None, limit: int | None = None
+) -> list[tuple[dict[str, Any], str]]:
+    """Enabled managed models with their provider names, by (provider, model)."""
+    names = {p["id"]: name for name, p in live.providers.items()}
+    chosen = [
+        (m, names[m["ai_provider_id"]])
+        for m in live.models
+        if m.get("enabled")
+        and m["ai_provider_id"] in names
+        and (provider is None or names[m["ai_provider_id"]] == provider)
+        and (model is None or m["model"] == model)
+    ]
+    chosen.sort(key=lambda pair: (pair[1], pair[0]["model"]))
+    return chosen if limit is None else chosen[:limit]
+
+
+def format_verify_line(result: VerifyResult) -> str:
+    label = {OK: "OK", FAILED: "FAIL", INCONCLUSIVE: "INCONCLUSIVE"}[result.outcome]
+    detail = (
+        f"cost ${result.cost_micros / 1_000_000:.4f}" if result.outcome == OK else result.detail
+    )
+    return f"{label} {result.model} ({result.provider}): {' '.join(detail.split())}"
+
+
+def run_verify(
+    args: argparse.Namespace,
+    env: Any,
+    client_factory: Callable[[str, str], Any],
+    confirm: Callable[[str], str],
+    out: TextIO,
+) -> int:
+    token = env.get("CODER_SESSION_TOKEN")
+    if not token:
+        raise SyncError("CODER_SESSION_TOKEN is not set")
+    client = client_factory(env.get("CODER_URL", DEFAULT_CODER_URL), token)
+    live = load_live(client)
+    selected = select_models_to_verify(live, args.provider, args.model, args.limit)
+    if not selected:
+        out.write("No models to verify.\n")
+        return EXIT_OK
+    results: list[VerifyResult] = []
+    with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+        futures = [
+            pool.submit(verify_model, client, live.org_id, row, name, args.timeout, args.poll)
+            for row, name in selected
+        ]
+        try:
+            for future in as_completed(futures):
+                results.append(future.result())
+                out.write(format_verify_line(results[-1]) + "\n")
+                out.flush()
+        except BaseException:
+            for future in futures:  # stop starting chats; running ones still archive theirs
+                future.cancel()
+            raise
+    counts = Counter(r.outcome for r in results)
+    total = sum(r.cost_micros for r in results) / 1_000_000
+    out.write(
+        f"verified {len(results)} models: {counts[OK]} ok, {counts[FAILED]} failed, "
+        f"{counts[INCONCLUSIVE]} inconclusive; total cost ${total:.4f}\n"
+    )
+    failed = sorted(
+        (r for r in results if r.outcome == FAILED), key=lambda r: (r.provider, r.model)
+    )
+    if args.disable_failures and failed:
+        out.write("Failed models:\n")
+        out.writelines(f"  {r.model} ({r.provider})\n" for r in failed)
+        prompt = f"Disable {len(failed)} failed model(s)? [y/N] "
+        if not args.yes and confirm(prompt).strip().lower() not in ("y", "yes"):
+            out.write("Aborted.\n")
+        else:
+            for r in failed:
+                client.update_model(live.org_id, r.config_id, {"enabled": False})
+            out.write(f"Disabled {len(failed)} model(s).\n")
+    return EXIT_OK if counts[OK] == len(results) else EXIT_DRIFT
+
+
 # ---- command line ----------------------------------------------------------
+
+
+def positive_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of at least 1")
+    return value
+
+
+def non_negative_float(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        value = -1.0
+    if not value >= 0:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number of seconds of 0 or more")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -797,6 +1020,33 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="replace the API key on every managed provider with REQUESTY_API_KEY",
     )
+    verify = commands.add_parser(
+        "verify", help="test each registered model through a real Agents chat (costs money)"
+    )
+    verify.add_argument("--provider", help="only models of this provider name")
+    verify.add_argument("--model", help="only this exact model ID")
+    verify.add_argument("--limit", type=positive_int, help="verify at most this many models")
+    verify.add_argument(
+        "--concurrency", type=positive_int, default=4, help="chats to run at once (default 4)"
+    )
+    verify.add_argument(
+        "--timeout",
+        type=non_negative_float,
+        default=180.0,
+        help="seconds to wait for each reply (default 180)",
+    )
+    verify.add_argument(
+        "--poll",
+        type=non_negative_float,
+        default=2.0,
+        help="seconds between status checks (default 2)",
+    )
+    verify.add_argument(
+        "--disable-failures",
+        action="store_true",
+        help="disable the models that failed (never the inconclusive ones)",
+    )
+    verify.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     return parser
 
 
@@ -893,6 +1143,9 @@ def run(
     confirm: Callable[[str], str],
     out: TextIO,
 ) -> tuple[int, str]:
+    if args.command == "verify":  # needs no catalog and no Requesty key
+        code = run_verify(args, env, client_factory, confirm, out)
+        return code, "all models verified" if code == EXIT_OK else "verify found problems"
     token = env.get("CODER_SESSION_TOKEN")
     if not token:
         raise SyncError("CODER_SESSION_TOKEN is not set")
