@@ -16,17 +16,50 @@ jobs:
   pre-commit:
     name: pre-commit (format + lint + secrets)
     runs-on: ubuntu-latest
+    env:
+      # Single source of truth for the Go-built tools: feeds both the cache
+      # key and `go install`, so a bump here rebuilds instead of restoring
+      # a stale binary.
+      YAMLFMT_VERSION: v0.21.0
+      SHFMT_VERSION: v3.13.1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-      - name: Install the tools the repo:local hooks call
+      # yamlfmt and shfmt are compiled from source by `go install`, which
+      # dominates the setup time -- cache the built binaries instead.
+      - name: Cache yamlfmt and shfmt
+        id: go-tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: go-tools-${{ runner.os }}-yamlfmt-${{ env.YAMLFMT_VERSION }}-shfmt-${{ env.SHFMT_VERSION }}
+      - name: Build yamlfmt and shfmt (cache miss only)
+        if: steps.go-tools.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          sudo apt-get update && sudo apt-get install -y shellcheck
-          go install github.com/google/yamlfmt/cmd/yamlfmt@v0.21.0
-          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          go install "github.com/google/yamlfmt/cmd/yamlfmt@${YAMLFMT_VERSION}"
+          go install "mvdan.cc/sh/v3/cmd/shfmt@${SHFMT_VERSION}"
+      - name: Install the other tools the repo:local hooks call
+        run: |
+          set -euo pipefail
+          # ubuntu-latest normally ships shellcheck; only pay for apt if not.
+          command -v shellcheck >/dev/null \
+            || { sudo apt-get update && sudo apt-get install -y shellcheck; }
           pip install yamllint==1.35.1 pre-commit
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # pre-commit builds a venv per hook repo (mdformat + its plugin, the
+      # hygiene hooks) and compiles betterleaks. Keyed on the config, so any
+      # hook `rev` or additional_dependencies change rebuilds them. The
+      # interpreter hash guards against restoring venvs built by an older
+      # runner Python.
+      - name: Fingerprint the Python interpreter
+        id: py
+        run: echo "hash=$(python -VV | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ steps.py.outputs.hash }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - name: pre-commit run --all-files
         run: pre-commit run --all-files --show-diff-on-failure
 
@@ -73,3 +106,14 @@ jobs:
                 -strict \
                 -schema-location default \
                 -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+
+  python-tests:
+    name: pytest (requesty-coder-sync)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install pytest
+      - run: pytest -q

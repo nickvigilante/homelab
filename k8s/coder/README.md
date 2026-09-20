@@ -301,7 +301,8 @@ Coder keeps them in its database, outside these manifests, and the provider's wr
 
 This directory owns one related setting: `CODER_MCP_ALLOWED_PRIVATE_CIDRS` in `helmrelease.yaml`.
 Coder's SSRF guard blocks private and CGNAT destinations for MCP traffic by default, and every `*.vigihome.net` name resolves to one of gandalf's two addresses.
-The setting allows exactly those two `/32`s, so it covers every service behind Traefik without opening the pod or service CIDRs.
+The setting allows those two `/32`s, which covers every service behind Traefik, plus the fixed ClusterIPs `10.43.0.200` (Grafana MCP) and `10.43.0.201` (Kubernetes MCP) of the in-cluster MCP servers in `k8s/claude-mcp/`.
+Only exact `/32`s are listed, so the pod and service CIDRs as a whole stay blocked.
 If Pi-hole's wildcard ever points at different addresses, update it to match, or MCP servers on `*.vigihome.net` will fail to connect.
 
 Registered servers reach Outline and Home Assistant through their public `*.vigihome.net` hostnames, not cluster-internal service DNS.

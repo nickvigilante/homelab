@@ -1,0 +1,143 @@
+# Read-only Kubernetes MCP for Coder Agents and Claude Code (#186).
+# Reached only from the coder namespace (netpol-allow-coder.yaml). It runs as
+# its own ServiceAccount, bound to the built-in `view` ClusterRole, which
+# omits Secrets.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubernetes-mcp
+  namespace: claude-mcp
+spec:
+  releaseName: kubernetes-mcp
+  targetNamespace: claude-mcp
+  interval: 30m
+  chart:
+    spec:
+      chart: kubernetes-mcp-server
+      version: "0.1.0"
+      sourceRef:
+        kind: HelmRepository
+        name: kubernetes-mcp-server
+        namespace: flux-system
+  # First install, not a takeover: the OCI chart pull, cold image pulls, and
+  # any ESO lag on grafana-mcp-token all count against the timeout. The
+  # helm-controller defaults are 5m and no install retries, so one slow first
+  # pull would fail the release for good.
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
+  # The chart's Service template has no clusterIP field. Coder's SSRF guard
+  # allowlists exact /32 addresses, so pin the address with a patch.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Service
+              name: kubernetes-mcp
+            patch: |
+              - op: add
+                path: /spec/clusterIP
+                value: 10.43.0.201
+  values:
+    fullnameOverride: kubernetes-mcp
+    # The chart enables an Ingress by default. This server is cluster-internal.
+    ingress:
+      enabled: false
+    # The chart's image.version defaults to `latest`.
+    image:
+      version: v0.0.67
+    nodeSelector:
+      kubernetes.io/hostname: gandalf
+    serviceAccount:
+      name: claude-mcp
+    rbac:
+      extraClusterRoleBindings:
+        - name: view
+          roleRef:
+            name: view
+            external: true
+    config:
+      port: "{{ .Values.service.port }}"
+      read_only: true
+      stateless: true
+      toolsets:
+        - core
+      denied_resources:
+        - group: ""
+          version: v1
+          kind: Secret
+---
+# Read-only Grafana MCP for Coder Agents and Claude Code (#184).
+# Reached only from the coder namespace (netpol-allow-coder.yaml). It calls
+# Grafana in-cluster with a Viewer service-account token, so it bypasses
+# Traefik's Authentik forward-auth and the token is the only credential.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana-mcp
+  namespace: claude-mcp
+spec:
+  releaseName: grafana-mcp
+  targetNamespace: claude-mcp
+  interval: 30m
+  chart:
+    spec:
+      chart: grafana-mcp
+      version: "0.24.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-community
+        namespace: flux-system
+  # First install, not a takeover: the chart pull, cold image pulls, and ESO
+  # lag on grafana-mcp-token all count against the timeout. The helm-controller
+  # defaults are 5m and no install retries, so one slow first pull would fail
+  # the release for good.
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
+  values:
+    fullnameOverride: grafana-mcp
+    nodeSelector:
+      kubernetes.io/hostname: gandalf
+    # The chart mounts a ServiceAccount token at pod level by default, and this
+    # server never talks to the Kubernetes API.
+    automountServiceAccountToken: false
+    service:
+      clusterIP: 10.43.0.200
+    grafana:
+      url: http://kps-grafana.monitoring.svc.cluster.local
+      apiKeySecret:
+        name: grafana-mcp-token
+        key: token
+    disableWrite: true
+    # The image entrypoint defaults to `--transport sse`, and the chart appends
+    # extraArgs after it, so the later flag wins. Host validation is on for
+    # every route, so list every name a caller can use: the in-cluster names,
+    # the fixed ClusterIP, and loopback for the break-glass port-forward.
+    extraArgs:
+      - --transport=streamable-http
+      - --allowed-hosts=grafana-mcp.claude-mcp.svc.cluster.local:8000,grafana-mcp.claude-mcp.svc:8000,10.43.0.200:8000,localhost:8000,127.0.0.1:8000
+    # The chart ships no probes. Host validation would reject an HTTP probe.
+    readinessProbe:
+      tcpSocket:
+        port: mcp-http
+    livenessProbe:
+      tcpSocket:
+        port: mcp-http
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+    # The chart's pod securityContext has no seccomp profile. Overriding it
+    # replaces the whole map, so its other defaults are repeated here.
+    securityContext:
+      fsGroup: 1000
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault

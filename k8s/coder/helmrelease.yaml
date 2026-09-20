@@ -85,14 +85,21 @@ spec:
         # Every `*.vigihome.net` name resolves to one of gandalf's two
         # addresses -- LAN and tailnet, per Pi-hole's dnsmasq wildcard
         # -- and Traefik fronts the services behind them, so allowing
-        # exactly those two /32s covers Outline and Home Assistant
-        # without opening the pod or service CIDRs. Both are needed
-        # because the resolver may return either one first. Changing
-        # this restarts the coder pod; running workspaces are
-        # unaffected. The MCP servers themselves are registered from
-        # the infrastructure repo's `coder/` context (#204).
+        # exactly those two /32s covers Outline and Home Assistant.
+        # Both are needed because the resolver may return either one
+        # first. Two more exact /32s allow the in-cluster MCP servers
+        # (below), and none of this opens the pod or service CIDRs as
+        # a whole. Changing this restarts the coder pod; running
+        # workspaces are unaffected. The MCP servers themselves are
+        # registered from the infrastructure repo's `coder/` context
+        # (#204).
+        # The last two entries in the list are the fixed ClusterIPs of
+        # the in-cluster Grafana and Kubernetes MCP servers
+        # (k8s/claude-mcp/), reached over plain HTTP by service DNS
+        # name. Only exact /32s are listed so the rest of the service
+        # CIDR stays blocked.
         - name: CODER_MCP_ALLOWED_PRIVATE_CIDRS
-          value: 192.168.50.135/32,100.92.2.25/32
+          value: 192.168.50.135/32,100.92.2.25/32,10.43.0.200/32,10.43.0.201/32
 
         # OIDC via Authentik. Local password auth stays enabled by
         # default so you can fall back to the bootstrap owner account
