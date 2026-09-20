@@ -1,0 +1,15 @@
+# The script ships to the pod as a ConfigMap generated from scripts/, so
+# there is no custom image and the script has a single source. The
+# generated name carries a content hash, so editing the script rolls the
+# next CronJob run onto the new version. The cross-directory file reference
+# needs LoadRestrictionsNone, which Flux uses by default.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - external-secret.yaml
+  - requesty-sync-cronjob.yaml
+configMapGenerator:
+  - name: requesty-sync-script
+    namespace: coder
+    files:
+      - requesty-coder-sync.py=../../scripts/requesty-coder-sync.py
