@@ -256,6 +256,21 @@ def test_price_conversion(sync):
     assert sync.micro(None) is None
 
 
+def test_known_output_limits_override_the_catalog(sync):
+    # Hosts reject Coder's default (or the catalog's too-large) max_tokens for
+    # these; the limits come from the upstream error text seen by verify.
+    desired = sync.build_desired(
+        [
+            make_entry("alibaba/qwen-max", lab="alibaba", maxout=0),
+            make_entry("vertex/kimi-k2", lab="moonshot", maxout=262_144, ctx=262_144),
+            make_entry("acme/other", maxout=8_000),
+        ]
+    )
+    assert desired.models["alibaba/qwen-max"].max_output_tokens == 8_192
+    assert desired.models["vertex/kimi-k2"].max_output_tokens == 102_400
+    assert desired.models["acme/other"].max_output_tokens == 8_000
+
+
 def test_zero_max_output_tokens_means_unknown(sync):
     desired = sync.build_desired([make_entry("a/x", maxout=0)])
     assert desired.models["a/x"].max_output_tokens is None

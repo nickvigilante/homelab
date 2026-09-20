@@ -142,4 +142,6 @@ If you rotated the Requesty API key at Requesty, run `apply --rotate-key` so eve
 - **The monitor is DOWN and the job log says 401 or "signed out"** means the token expired or was revoked, so rotate it.
 - **A Coder API failure with status 404 or 405 after a Coder upgrade** usually means an experimental endpoint moved, because model prices live under `/api/experimental`.
 - **The monitor is DOWN but the job succeeded** means drift, so read the job log.
+- **A model fails `verify` with "Range of max_tokens" or "exceeds the maximum output tokens"** means the catalog's output limit is wrong for that host.
+  Add the limit the error names to `MAX_OUTPUT_OVERRIDES` in the script, then run `apply` and `verify --model <id>`.
 - **Icons do not load** means Requesty moved its logo files, so refresh the `LAB_LOGOS` table in the script from `https://www.requesty.ai/provider_logos/v2/`.

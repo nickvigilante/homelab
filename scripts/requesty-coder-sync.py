@@ -63,6 +63,16 @@ BASE_URL_BY_TYPE: dict[str, str] = {"anthropic": "https://router.requesty.ai"}
 
 LAB_ALIASES = {"moonshotai": "moonshot", "qwen": "alibaba"}
 
+# Output limits the catalog gets wrong (missing, or larger than the host
+# allows). The values are the limits the hosts themselves named when
+# `verify` sent a chat through Coder, so add an entry only from such an error.
+MAX_OUTPUT_OVERRIDES = {
+    "alibaba/qwen-max": 8192,
+    "alibaba/qwen-turbo": 16384,
+    "alibaba/qwen3-30b-a3b-instruct-2507": 32768,
+    "vertex/kimi-k2": 102400,
+}
+
 # Snapshot of https://www.requesty.ai/provider_logos/v2/<logo>.png
 LAB_LOGOS = {
     "alibaba": "alibaba",
@@ -316,7 +326,9 @@ def build_desired(entries: list[dict[str, Any]]) -> Desired:
                 model=entry["id"],
                 display_name=canonical_of(entry),
                 context_limit=int(entry["context_window"]),
-                max_output_tokens=int(entry.get("max_output_tokens") or 0) or None,
+                max_output_tokens=MAX_OUTPUT_OVERRIDES.get(entry["id"])
+                or int(entry.get("max_output_tokens") or 0)
+                or None,
                 prices=prices,
             )
     registered = {m.display_name.casefold() for m in desired.models.values()}
