@@ -39,16 +39,21 @@ Exit codes: 0 finished, 2 usage or setup error, 130 interrupted.
 
 from __future__ import annotations
 
+import argparse
 import base64
 import binascii
 import contextlib
 import importlib.util
 import json
+import os
+import re
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_OUT = "chat-debug"
@@ -559,3 +564,359 @@ class Toggles:
             else:
                 self.log(f"put back {what.split(' (PUT')[0]}")
         return problems
+
+
+# ---- capturing one model ---------------------------------------------------------------
+
+CHAT_FIELDS = ("status", "last_error", "created_at", "updated_at", "model_config_id")
+
+
+def output_name(model_id: str) -> str:
+    """A file name for a model ID that cannot escape the output directory."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", model_id).strip("._") + ".json"
+
+
+def wait_for_chat(
+    client: Any,
+    chat_id: str,
+    timeout: float,
+    poll: float,
+    sleep: Callable[[float], None],
+    clock: Callable[[], float],
+    notes: list[str],
+) -> dict[str, Any]:
+    """Polls until the chat leaves running (or pending) or the timeout passes."""
+    deadline = clock() + timeout
+    while True:
+        try:
+            chat = client.get_chat(chat_id)
+        except sync.ApiError as err:
+            notes.append(f"could not read the chat: {err}")
+            return {}
+        if chat.get("status") in SETTLED:
+            return chat
+        if clock() >= deadline:
+            notes.append(
+                f"the chat had not settled after {timeout:g}s (last status: "
+                f"{chat.get('status')}); this is what Coder had recorded by then"
+            )
+            return chat
+        sleep(poll)
+
+
+def fetch_runs(
+    client: Any,
+    chat_id: str,
+    settled: bool,
+    poll: float,
+    sleep: Callable[[float], None],
+    notes: list[str],
+) -> list[dict[str, Any]]:
+    """The chat's debug runs with their steps. Coder can lag the chat status, so an empty list
+    (or a run still in progress after the chat settled) is read again a few times."""
+    runs: list[dict[str, Any]] = []
+    for attempt in range(RUN_RETRIES + 1):
+        try:
+            summaries = client.list_debug_runs(chat_id)
+            runs = [client.get_debug_run(chat_id, summary["id"]) for summary in summaries]
+        except sync.ApiError as err:
+            notes.append(f"could not read the debug runs: {err}")
+            return []
+        pending = not runs or (settled and any(r.get("status") == "in_progress" for r in runs))
+        if not pending or attempt == RUN_RETRIES:
+            break
+        sleep(poll)
+    if not runs:
+        notes.append(
+            "no debug runs were recorded for this chat: check that debug logging was on when "
+            "the chat started (Coder decides at the start of each turn)"
+        )
+    return runs
+
+
+def capture_model(
+    client: Any,
+    org_id: str,
+    model_id: str,
+    row: dict[str, Any],
+    provider_name: str,
+    timeout: float,
+    poll: float,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
+    """Sends one probe chat through the model and reads back what Coder recorded for it.
+    The chat is archived on every path (and an archive failure changes nothing)."""
+    notes: list[str] = []
+    result: dict[str, Any] = {
+        "model": model_id,
+        "provider": provider_name,
+        "model_config_id": row["id"],
+        "chat_id": None,
+        "captured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "chat": {},
+        "runs": [],
+        "notes": notes,
+    }
+    try:
+        chat = client.create_chat(
+            {
+                "organization_id": org_id,
+                "model_config_id": row["id"],
+                "client_type": "api",
+                "labels": dict(LABELS),
+                "content": [{"type": "text", "text": sync.PROBE_PROMPT}],
+            }
+        )
+    except sync.ApiError as err:
+        notes.append(f"could not create the chat: {err}")
+        return result
+    chat_id = chat.get("id") if isinstance(chat, dict) else None
+    if not chat_id:
+        notes.append("could not create the chat: Coder returned no chat id")
+        return result
+    result["chat_id"] = chat_id
+    try:
+        final = wait_for_chat(client, chat_id, timeout, poll, sleep, clock, notes)
+        result["chat"] = {k: final[k] for k in CHAT_FIELDS if k in final}
+        result["runs"] = fetch_runs(
+            client, chat_id, bool(final.get("status") in SETTLED), poll, sleep, notes
+        )
+    finally:
+        with contextlib.suppress(Exception):  # best effort: never changes the outcome
+            client.archive_chat(chat_id)
+    return result
+
+
+def scrub_tree(node: Any, secret: str) -> Any:
+    """A copy of `node` without the secret, also inside base64 bodies (Coder stores bodies
+    as base64, so a plain text replace would miss it there)."""
+    if isinstance(node, dict):
+        return {key: scrub_tree(value, secret) for key, value in node.items()}
+    if isinstance(node, list):
+        return [scrub_tree(value, secret) for value in node]
+    if not isinstance(node, str) or not secret:
+        return node
+    if secret in node:
+        return node.replace(secret, "<token>")
+    with contextlib.suppress(ValueError, binascii.Error):
+        decoded = base64.b64decode(node, validate=True).decode("utf-8")
+        if secret in decoded:
+            return base64.b64encode(decoded.replace(secret, "<token>").encode()).decode()
+    return node
+
+
+def add_decoded_bodies(result: dict[str, Any]) -> None:
+    """Puts a readable copy of each recorded body next to the raw base64 one."""
+    for run in result.get("runs") or []:
+        for step in run.get("steps") or []:
+            for attempt in step.get("attempts") or []:
+                for key in ("request_body", "response_body"):
+                    if attempt.get(key):
+                        attempt[f"{key}_decoded"] = decode_body(attempt[key])
+
+
+def write_capture(out_dir: Path, result: dict[str, Any], token: str) -> Path:
+    """Writes the capture as JSON, readable only by you (it can hold prompt text). It is what
+    Coder returned, plus a decoded copy of each request and response body."""
+    path = out_dir / output_name(result["model"])
+    clean = scrub_tree(result, token)
+    add_decoded_bodies(clean)
+    text = json.dumps(clean, indent=2, ensure_ascii=False) + "\n"
+    if token:
+        text = text.replace(token, "<token>")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    path.chmod(0o600)
+    return path
+
+
+# ---- the command line ------------------------------------------------------------------
+
+
+class Scrubbed:
+    """A stream that never lets a secret through, whatever the server echoes back."""
+
+    def __init__(self, stream: TextIO, secret: str) -> None:
+        self.stream = stream
+        self.secret = secret
+
+    def write(self, text: str) -> int:
+        self.stream.write(text.replace(self.secret, "<token>") if self.secret else text)
+        return len(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+
+def resolve_models(
+    live: Any, ids: list[str]
+) -> tuple[list[tuple[str, dict[str, Any], str]], list[str]]:
+    """The enabled managed models to capture, and a report line for each one that cannot be."""
+    runnable: list[tuple[str, dict[str, Any], str]] = []
+    skipped: list[str] = []
+    for model_id in ids:
+        chosen = sync.select_models_to_verify(live, model=model_id)
+        if chosen:
+            row, provider = chosen[0]
+            runnable.append((model_id, row, provider))
+        elif any(m.get("model") == model_id for m in live.models):
+            skipped.append(f"{model_id}: disabled in Coder; enable it in the model admin first")
+        else:
+            skipped.append(
+                f"{model_id}: unknown to Coder (no managed provider has this model); register it "
+                "with `requesty-coder-sync.py apply` if it is in the Requesty catalog, then "
+                "enable it in the model admin first"
+            )
+    return runnable, skipped
+
+
+def model_ids(args: argparse.Namespace) -> list[str]:
+    ids = list(args.models)
+    if args.file:
+        try:
+            lines = Path(args.file).read_text().splitlines()
+        except OSError as err:
+            raise sync.SyncError(f"cannot read --file {args.file}: {err}") from err
+        ids += [line.strip() for line in lines if line.strip()]
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        raise sync.SyncError("give at least one MODEL_ID (or --file)")
+    return ids
+
+
+def run(
+    args: argparse.Namespace,
+    env: Any,
+    client_factory: Callable[[str, str], Any],
+    out: TextIO,
+    err: TextIO,
+    sleep: Callable[[float], None],
+    clock: Callable[[], float],
+) -> int:
+    token = env.get("CODER_SESSION_TOKEN")
+    if not token:
+        raise sync.SyncError("CODER_SESSION_TOKEN is not set")
+    ids = model_ids(args)
+    out_dir = Path(args.out)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise sync.SyncError(f"cannot use --out {out_dir}: {error}") from error
+
+    client = client_factory(env.get("CODER_URL", sync.DEFAULT_CODER_URL), token)
+    live = sync.load_live(client)
+    runnable, skipped = resolve_models(live, ids)
+    for line in skipped:
+        out.write(f"skipped {line}\n")
+    if not runnable:
+        raise sync.SyncError("nothing to capture: none of the models can be used")
+
+    state = read_state(client)
+    if not state.on and not args.enable:
+        err.write("\n".join(enable_hint(state)) + "\n")
+        return EXIT_ERROR
+
+    def log(line: str) -> None:
+        out.write(line + "\n")
+        out.flush()
+
+    toggles = Toggles(client, log)
+    captured = 0
+    try:
+        if args.enable:
+            toggles.enable(state)
+        for model_id, row, provider in runnable:
+            log(f"capturing {model_id} (provider {provider}) ...")
+            try:
+                result = capture_model(
+                    client,
+                    live.org_id,
+                    model_id,
+                    row,
+                    provider,
+                    args.timeout,
+                    args.poll,
+                    sleep,
+                    clock,
+                )
+                path = write_capture(out_dir, result, token)
+            except Exception as error:  # one model must not stop the rest
+                log(f"capture failed for {model_id}: {type(error).__name__}: {error}")
+                continue
+            captured += 1
+            out.write("\n".join(digest_capture(result)) + "\n")
+            log(f"saved: {path}\n")
+    finally:
+        if args.keep_enabled:
+            for what, _ in toggles.undo:
+                log(f"left on (--keep-enabled); to undo it: {what}")
+        else:
+            for problem in toggles.restore():
+                err.write(f"WARNING: {problem}\n")
+    log(f"captured {captured} of {len(runnable)} model(s) into {out_dir}")
+    return EXIT_OK
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="requesty-debug-chat.py", description=__doc__.split("\n\n")[0]
+    )
+    parser.add_argument("models", nargs="*", metavar="MODEL_ID", help="a model to capture")
+    parser.add_argument("--file", help="a file with one model ID per line")
+    parser.add_argument(
+        "--out", default=DEFAULT_OUT, help="directory for the JSON files (default ./chat-debug)"
+    )
+    parser.add_argument(
+        "--timeout",
+        type=sync.non_negative_float,
+        default=200,
+        help="seconds to wait for each chat to settle (default 200)",
+    )
+    parser.add_argument(
+        "--poll",
+        type=sync.non_negative_float,
+        default=2,
+        help="seconds between checks (default 2)",
+    )
+    parser.add_argument(
+        "--enable",
+        action="store_true",
+        help="turn debug logging on (the admin gate and your own toggle) and put it back after",
+    )
+    parser.add_argument(
+        "--keep-enabled", action="store_true", help="with --enable, leave debug logging on"
+    )
+    return parser
+
+
+def main(
+    argv: list[str] | None = None,
+    env: Any = None,
+    *,
+    client_factory: Callable[[str, str], Any] = DebugClient,
+    out: TextIO | None = None,
+    err: TextIO | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> int:
+    env = os.environ if env is None else env
+    token = env.get("CODER_SESSION_TOKEN") or ""
+    out = Scrubbed(sys.stdout if out is None else out, token)
+    err = Scrubbed(sys.stderr if err is None else err, token)
+    args = build_parser().parse_args(argv)
+    try:
+        return run(args, env, client_factory, out, err, sleep, clock)
+    except KeyboardInterrupt:
+        err.write("Interrupted; the chat was archived and the settings were put back.\n")
+        return EXIT_INTERRUPTED
+    except sync.SyncError as error:
+        err.write(f"error: {error}\n")
+    except Exception as error:
+        err.write(f"error: unexpected {type(error).__name__}: {error}\n")
+    return EXIT_ERROR
+
+
+if __name__ == "__main__":
+    sys.exit(main())
