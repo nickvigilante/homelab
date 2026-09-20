@@ -13,6 +13,9 @@ or a timeout):
   minimal  one user message
   agent    a system prompt, a user message, and one tool, no max_tokens
   capped   the agent request with max_tokens set to the registered limit
+With --extra-shapes it adds:
+  multi-system  two system messages before the user message (Coder may send
+                more than one, and some host chat templates reject that)
 
 Verdicts:
   WORKS_DIRECTLY   every request succeeded, so the Coder failure is specific
@@ -112,7 +115,7 @@ def call_with_retry(key, body, timeout):
     return result
 
 
-def requests_for(model_id, max_output):
+def requests_for(model_id, max_output, extra=False):
     user = {"role": "user", "content": "Reply with the single word OK."}
     agent = {
         "model": model_id,
@@ -126,12 +129,21 @@ def requests_for(model_id, max_output):
     }
     if max_output:
         shapes["capped"] = {**agent, "max_tokens": max_output}
+    if extra:
+        shapes["multi-system"] = {
+            **agent,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": "The workspace is a Linux container."},
+                user,
+            ],
+        }
     return shapes
 
 
-def probe_model(key, model_id, max_output, timeout):
+def probe_model(key, model_id, max_output, timeout, extra=False):
     results = {}
-    for name, body in requests_for(model_id, max_output).items():
+    for name, body in requests_for(model_id, max_output, extra).items():
         ok, status, seconds, message = call_with_retry(key, body, timeout)
         results[name] = {
             "ok": ok,
@@ -183,6 +195,9 @@ def parse_args(argv):
     parser.add_argument("--file", help="a file with one model ID per line")
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument(
+        "--extra-shapes", action="store_true", help="also send the multi-system request"
+    )
     parser.add_argument("--out", help="write the full report here as JSON")
     return parser.parse_args(argv)
 
@@ -224,11 +239,15 @@ def main(argv=None):
         )
 
     def work(model_id):
-        result = probe_model(key, model_id, max_output_of(model_id), args.timeout)
+        result = probe_model(
+            key, model_id, max_output_of(model_id), args.timeout, args.extra_shapes
+        )
         result["alternates"] = []
         if result["verdict"] != "WORKS_DIRECTLY":
             for alt in alternates(sync, catalog, model_id, by_id):
-                probed = probe_model(key, alt["id"], max_output_of(alt["id"]), args.timeout)
+                probed = probe_model(
+                    key, alt["id"], max_output_of(alt["id"]), args.timeout, args.extra_shapes
+                )
                 probed["price"] = (
                     f"${alt['input_price'] * 1e6:g}/${alt['output_price'] * 1e6:g} per M tokens"
                 )

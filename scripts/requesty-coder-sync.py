@@ -76,6 +76,34 @@ MAX_OUTPUT_OVERRIDES = {
     "vertex/kimi-k2": 102400,
 }
 
+# Models the catalog lists but that fail when a chat is really sent, found by
+# `verify` (through Coder) and `scripts/requesty-probe.py` (straight to
+# Requesty). Excluding one lets its canonical model fall back to the next-best
+# host, and `apply --disable-orphans` disables the copy already in Coder.
+# Add an entry only with the observed error as the reason, and re-test the
+# entries now and then, because most of these are Requesty or host outages.
+EXCLUDED_MODELS = {
+    "deepinfra/Qwen/Qwen2.5-Coder-32B-Instruct": "16k context is too small for Agents requests",
+    "fireworks/muse-glimmer-30b": "max output equals the context window, so requests overflow",
+    "moonshot/kimi-k2.5": "404 model not found or permission denied for this Requesty account",
+    "nebius/meta-llama/Llama-3.3-70B-Instruct": "403 forbidden",
+    "nebius/nousresearch/hermes-4-70b": "the router returns 404",
+    "nebius/nvidia/nemotron-3-nano-omni": "the router returns 404",
+    "nebius/qwen/qwen3-next-80b-a3b-thinking": "the router returns 404",
+    "novita/deepseek/deepseek-v3-0324": "the router returns 404",
+    "novita/deepseek/deepseek-v3-turbo": "the router returns 404",
+    "novita/gryphe/mythomax-l2-13b": "rejects requests that carry tools",
+    "novita/inclusionai/ling-2.6-1t": "the router returns 404",
+    "novita/inclusionai/ling-2.6-flash": "the router returns 404",
+    "novita/inclusionai/ling-3.0-tiny": "the router returns 404",
+    "novita/inclusionai/ring-2.6-1t": "the router returns 404",
+    "novita/kwaipilot/kat-coder-pro": "the router returns 404",
+    "nvidia/nemotron-3-nano-30b-a3b": "410 gone",
+    "parasail/gemma3-27b-it": "the host has no tool-call parser",
+    "vertex/claude-opus-4": "429 quota exceeded on Requesty's Vertex project",
+    "vertex/claude-opus-4-1": "500 internal error on every host",
+}
+
 # Snapshot of https://www.requesty.ai/provider_logos/v2/<logo>.png
 LAB_LOGOS = {
     "alibaba": "alibaba",
@@ -170,6 +198,7 @@ def is_eligible(entry: dict[str, Any]) -> bool:
     return (
         entry.get("api") == "chat"
         and entry.get("supports_tool_calling") is True
+        and entry.get("supports_image_generation") is not True
         and entry.get("input_price") is not None
         and entry.get("output_price") is not None
         and (entry.get("context_window") or 0) > 0
@@ -288,7 +317,8 @@ def free_provider() -> DesiredProvider:
 
 
 def build_desired(entries: list[dict[str, Any]]) -> Desired:
-    candidates = [e for e in entries if is_eligible(e)]
+    eligible_all = [e for e in entries if is_eligible(e)]
+    candidates = [e for e in eligible_all if e["id"] not in EXCLUDED_MODELS]
     eligible = [e for e in candidates if not is_retiring(e)]
     if len(eligible) < MIN_ELIGIBLE_MODELS:
         raise SyncError(
@@ -300,6 +330,20 @@ def build_desired(entries: list[dict[str, Any]]) -> Desired:
         for e in entries
         if e.get("api") == "chat" and e.get("supports_tool_calling") is not True and is_free(e)
     )
+    info.extend(
+        f"excluded ({EXCLUDED_MODELS[e['id']]}): {e['id']}"
+        for e in eligible_all
+        if e["id"] in EXCLUDED_MODELS and not is_retiring(e)
+    )
+    info.extend(
+        f"skipped (image generation): {e['id']}"
+        for e in entries
+        if e.get("api") == "chat"
+        and e.get("supports_tool_calling") is True
+        and e.get("supports_image_generation") is True
+        and not is_retiring(e)
+    )
+    info.sort()
     desired = Desired(providers={}, models={}, info=info)
     pools = (
         (True, [e for e in eligible if is_free(e)]),
@@ -761,25 +805,33 @@ def bitwarden_field(item: str, field: str, env: Any) -> str:
             raise SyncError("bw timed out") from err
 
     for attempt in range(2):
-        done = bw("get", "item", item)
+        # `bw get item NAME` matches by substring and refuses when several items match
+        # (Homelab Requesty Sync also contains "Requesty"), so list and match the name.
+        done = bw("list", "items", "--search", item)
         if done.returncode != 0:
             detail = " ".join(done.stderr.split())[:120]
             raise SyncError(
-                f"Bitwarden could not read the item '{item}' ({detail or 'no detail'}); "
+                f"Bitwarden could not search for the item '{item}' ({detail or 'no detail'}); "
                 "is the vault unlocked for this BW_SESSION?"
             )
         try:
-            fields = json.loads(done.stdout).get("fields") or []
-        except (ValueError, AttributeError) as err:
+            found = [
+                i for i in json.loads(done.stdout) if isinstance(i, dict) and i.get("name") == item
+            ]
+        except (ValueError, TypeError) as err:
             raise SyncError(
-                f"Bitwarden returned something that is not an item for '{item}'"
+                f"Bitwarden returned something that is not a list of items for '{item}'"
             ) from err
-        for entry in fields:
+        if len(found) > 1:
+            raise SyncError(
+                f"more than one Bitwarden item is named exactly '{item}'; remove the extras"
+            )
+        for entry in (found[0].get("fields") or []) if found else []:
             if isinstance(entry, dict) and entry.get("name") == field and entry.get("value"):
                 return str(entry["value"])
         if attempt == 0:
             bw("sync")  # a stale local cache returns items without their new fields
-    raise SyncError(f"the Bitwarden item '{item}' has no non-empty field '{field}'")
+    raise SyncError(f"no Bitwarden item named exactly '{item}' has a non-empty field '{field}'")
 
 
 def apply_changes(

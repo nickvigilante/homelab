@@ -15,25 +15,42 @@ def fake_bw(tmp_path, monkeypatch, body, exit_code=0):
     script = tmp_path / "bw"
     script.write_text(
         f'#!/bin/sh\necho "$@" >> {log}\n'
-        f"if [ \"$1\" = get ]; then cat <<'EOF'\n{body}\nEOF\nexit {exit_code}\nfi\nexit 0\n"
+        f"if [ \"$1\" = list ]; then cat <<'EOF'\n{body}\nEOF\nexit {exit_code}\nfi\nexit 0\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{tmp_path}:/usr/bin:/bin")
     return log
 
 
-def item(*fields):
-    return json.dumps({"fields": [{"name": n, "value": v} for n, v in fields]})
+def item(*fields, name="Requesty"):
+    return {"name": name, "fields": [{"name": n, "value": v} for n, v in fields]}
+
+
+def items(*found):
+    return json.dumps(list(found))
 
 
 def test_the_key_is_read_from_the_requesty_item(sync, tmp_path, monkeypatch):
-    log = fake_bw(tmp_path, monkeypatch, item(("Other", "x"), ("Main API key", "sk-123")))
+    log = fake_bw(tmp_path, monkeypatch, items(item(("Other", "x"), ("Main API key", "sk-123"))))
     assert sync.bitwarden_field("Requesty", "Main API key", {"BW_SESSION": "sess"}) == "sk-123"
-    assert "get item Requesty" in log.read_text()
+    assert "list items --search Requesty" in log.read_text()
+
+
+def test_a_neighbour_whose_name_merely_contains_the_name_is_ignored(sync, tmp_path, monkeypatch):
+    # The real vault also has "Homelab Requesty Sync", which `bw get item` also matched.
+    neighbour = item(("Main API key", "wrong"), name="Homelab Requesty Sync")
+    fake_bw(tmp_path, monkeypatch, items(neighbour, item(("Main API key", "sk-right"))))
+    assert sync.bitwarden_field("Requesty", "Main API key", {"BW_SESSION": "sess"}) == "sk-right"
+
+
+def test_two_items_with_the_exact_name_are_an_error(sync, tmp_path, monkeypatch):
+    fake_bw(tmp_path, monkeypatch, items(item(("Main API key", "a")), item(("Main API key", "b"))))
+    with pytest.raises(sync.SyncError, match="more than one"):
+        sync.bitwarden_field("Requesty", "Main API key", {"BW_SESSION": "sess"})
 
 
 def test_a_missing_field_is_an_error_that_does_not_echo_values(sync, tmp_path, monkeypatch):
-    fake_bw(tmp_path, monkeypatch, item(("Other", "secret-value")))
+    fake_bw(tmp_path, monkeypatch, items(item(("Other", "secret-value"))))
     with pytest.raises(sync.SyncError, match="Main API key") as err:
         sync.bitwarden_field("Requesty", "Main API key", {"BW_SESSION": "sess"})
     assert "secret-value" not in str(err.value)

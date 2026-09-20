@@ -57,13 +57,14 @@ def test_snapshot_gives_free_models_their_own_provider(snap):
     assert free.type == "openai"
     assert free.display_name == "Free models via Requesty"
     assert free.icon == FALLBACK
-    for model_id in (
-        "google/gemma-4-31b-it",
-        "nvidia/nemotron-3-nano-30b-a3b",
-        "mistral/leanstral-1-5",
-    ):
+    for model_id in ("google/gemma-4-31b-it", "mistral/leanstral-1-5"):
         assert snap.models[model_id].provider == "free-via-requesty"
         assert snap.models[model_id].prices == (0, 0, 0, 0)
+
+
+def test_snapshot_excludes_the_free_nemotron_whose_route_is_gone(snap):
+    assert "nvidia/nemotron-3-nano-30b-a3b" not in snap.models
+    assert "excluded (410 gone): nvidia/nemotron-3-nano-30b-a3b" in snap.info
 
 
 def test_snapshot_keeps_the_paid_twin_of_a_free_model(snap):
@@ -254,6 +255,32 @@ def test_price_conversion(sync):
     assert sync.micro(3.3000000000000003e-06) == 3_300_000
     assert sync.micro(0) == 0
     assert sync.micro(None) is None
+
+
+def test_an_excluded_model_falls_back_to_the_next_host(sync, monkeypatch):
+    monkeypatch.setitem(sync.EXCLUDED_MODELS, "dead/foo", "the router returns 404")
+    desired = sync.build_desired(
+        [
+            make_entry("dead/foo", canonical="foo", inp=1e-7, out=1e-7),
+            make_entry("live/foo", canonical="foo", inp=5e-7, out=5e-7),
+        ]
+    )
+    assert list(desired.models) == ["live/foo"]
+    assert "excluded (the router returns 404): dead/foo" in desired.info
+
+
+def test_an_excluded_model_missing_from_the_catalog_is_not_reported(sync, monkeypatch):
+    monkeypatch.setitem(sync.EXCLUDED_MODELS, "gone/bar", "dead")
+    desired = sync.build_desired([make_entry("a/keep")])
+    assert not any("excluded" in line for line in desired.info)
+
+
+def test_image_generation_models_are_skipped_and_reported(sync):
+    image = make_entry("acme/pic")
+    image["supports_image_generation"] = True
+    desired = sync.build_desired([make_entry("a/keep"), image])
+    assert list(desired.models) == ["a/keep"]
+    assert "skipped (image generation): acme/pic" in desired.info
 
 
 def test_known_output_limits_override_the_catalog(sync):
