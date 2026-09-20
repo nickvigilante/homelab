@@ -853,7 +853,7 @@ kubectl -n kube-system get pods -o name | head -3
 
 Expected: `80`, then `both IPs free`.
 If `kps-grafana` does not exist, find the real name with `kubectl -n monitoring get svc | grep -i grafana` and fix `grafana.url` in `helmrelease.yaml`.
-If either IP is taken, pick two free addresses in `10.43.0.100` to `10.43.0.250`, and update the four places they appear: both HelmRelease blocks, the `--allowed-hosts` line, and the Coder allowlist.
+If either IP is taken, pick two free addresses in `10.43.0.100` to `10.43.0.250`, and update the six places they appear: both HelmRelease blocks, the `--allowed-hosts` line, the Coder allowlist in `k8s/coder/helmrelease.yaml`, and the address mentions in `k8s/claude-mcp/README.md` and `k8s/coder/README.md`.
 
 - [ ] **Step 2: Push and open the PR**
 
@@ -878,6 +878,8 @@ kubectl -n claude-mcp get helmrelease,externalsecret,pods,svc
 
 Expected: the Kustomization is `Ready=True`, both HelmReleases are `Ready=True`, the ExternalSecret shows `SecretSynced`, both pods are `Running 1/1`, and the two Services show the fixed ClusterIPs.
 Reconciliation can take up to ten minutes without the annotation.
+Both HelmReleases set `timeout: 10m` and `install.remediation.retries: 3`, so a slow first image pull should recover by itself.
+If a HelmRelease still shows `Ready=False` with retries exhausted, the GitRepository annotation will not revive it, so run `flux reconcile helmrelease -n claude-mcp kubernetes-mcp --force` and `flux reconcile helmrelease -n claude-mcp grafana-mcp --force`.
 
 - [ ] **Step 4: If the pods are not Ready, check the probes under default-deny**
 
