@@ -294,8 +294,10 @@ The causes seen, in order of how often they occurred:
 - The router returns 404, 403, 410 or 500 for a listed model, so the catalog is ahead of the hosts.
 - The host's chat template rejects the several consecutive system messages that Coder v2.37.0 sends (Qwen 3.5 and 3.8, Gemma 3).
   This is Coder's request shape, tracked upstream in coder/coder#27176, so those entries are retested after a Coder upgrade.
-- An Agents chat never completes although every direct request passes, seen twice each for two models.
-- Requests that carry tools or a large `max_tokens` are rejected by the host.
+- Coder sends `max_tokens: 32000` when a model has no max output configured, and some hosts reject anything above their limit.
+  That was the whole cause for three Novita models, and `MAX_OUTPUT_OVERRIDES` pins the limit the probe's `--max-tokens` sweep found.
+- A model that cannot follow the Agents tool protocol: Llama 3.1 8B emits malformed tool calls in a runaway loop (56+ steps, and it even created a workspace), and Coder has no loop guard.
+- A host that rejects requests carrying tools although the catalog says tools are supported (`mythomax`, `parasail/gemma3`).
+- A model that answers only in `reasoning_content` (GLM-4.6 on two hosts), so Agents shows an empty reply.
 
-Not yet confirmed: whether Coder's default `store: true` is what three Novita models reject.
-The probe's `--extra-shapes` sends that request.
+`store: true` was ruled out as the Novita cause: every request with it passed.
