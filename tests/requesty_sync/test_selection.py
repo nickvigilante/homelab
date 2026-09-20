@@ -283,6 +283,13 @@ def test_image_generation_models_are_skipped_and_reported(sync):
     assert "skipped (image generation): acme/pic" in desired.info
 
 
+def test_a_lab_override_keeps_a_host_from_becoming_a_provider(sync, monkeypatch):
+    monkeypatch.setitem(sync.LAB_OVERRIDES, "deepinfra/q", "alibaba")
+    desired = sync.build_desired([make_entry("deepinfra/q", lab="deepinfra", canonical="q")])
+    assert desired.models["deepinfra/q"].provider == "alibaba-via-requesty"
+    assert list(desired.providers) == ["alibaba-via-requesty"]
+
+
 def test_known_output_limits_override_the_catalog(sync):
     # Hosts reject Coder's default (or the catalog's too-large) max_tokens for
     # these; the limits come from the upstream error text seen by verify.

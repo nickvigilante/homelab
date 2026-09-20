@@ -66,6 +66,10 @@ BASE_URL_BY_TYPE: dict[str, str] = {"anthropic": "https://router.requesty.ai"}
 
 LAB_ALIASES = {"moonshotai": "moonshot", "qwen": "alibaba"}
 
+# Entries Requesty files under the host as their lab (model_lab "deepinfra"),
+# which would create a provider named after a host.
+LAB_OVERRIDES = {"deepinfra/qwen3.8": "alibaba"}
+
 # Output limits the catalog gets wrong (missing, or larger than the host
 # allows). The values are the limits the hosts themselves named when
 # `verify` sent a chat through Coder, so add an entry only from such an error.
@@ -82,7 +86,26 @@ MAX_OUTPUT_OVERRIDES = {
 # host, and `apply --disable-orphans` disables the copy already in Coder.
 # Add an entry only with the observed error as the reason, and re-test the
 # entries now and then, because most of these are Requesty or host outages.
+MULTI_SYSTEM = "host template rejects the several system messages Coder sends"
+NOVITA_400 = "HTTP 400 from Novita on Coder's request, though plain requests pass"
 EXCLUDED_MODELS = {
+    "deepinfra/Qwen/Qwen3.5-2B": MULTI_SYSTEM,
+    "deepinfra/Qwen/Qwen3.5-27B": MULTI_SYSTEM,
+    "deepinfra/Qwen/Qwen3.5-27B:flex": MULTI_SYSTEM,
+    "deepinfra/Qwen/Qwen3.5-35B-A3B": MULTI_SYSTEM,
+    "deepinfra/Qwen/Qwen3.5-35B-A3B:flex": MULTI_SYSTEM,
+    "deepinfra/Qwen/Qwen3.5-397B-A17B": MULTI_SYSTEM,
+    "deepinfra/Qwen/Qwen3.5-397B-A17B:flex": MULTI_SYSTEM,
+    "nebius/google/gemma-3-27b-it": MULTI_SYSTEM,
+    "nebius/qwen/qwen3.5-397b-a17b": MULTI_SYSTEM,
+    "novita/deepseek/deepseek-r1-turbo": NOVITA_400,
+    "novita/deepseek/deepseek_v3": NOVITA_400,
+    "novita/qwen/qwen-2.5-72b-instruct": NOVITA_400,
+    "runware/qwen3.5-4b": MULTI_SYSTEM,
+    "runware/qwen3.5-9b": MULTI_SYSTEM,
+    "tensorx/qwen3.8": MULTI_SYSTEM,
+    "tensorx/qwen3.8-2.4t-a95b": MULTI_SYSTEM,
+    "tensorx/qwen3.8-flash-next": MULTI_SYSTEM,
     "deepinfra/Qwen/Qwen2.5-Coder-32B-Instruct": "16k context is too small for Agents requests",
     "fireworks/muse-glimmer-30b": "max output equals the context window, so requests overflow",
     "moonshot/kimi-k2.5": "404 model not found or permission denied for this Requesty account",
@@ -225,7 +248,7 @@ def is_free(entry: dict[str, Any]) -> bool:
 
 
 def lab_of(entry: dict[str, Any]) -> str:
-    lab = entry.get("model_lab") or "unknown"
+    lab = LAB_OVERRIDES.get(entry["id"]) or entry.get("model_lab") or "unknown"
     return LAB_ALIASES.get(lab, lab)
 
 

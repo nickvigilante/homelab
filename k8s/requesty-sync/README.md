@@ -108,6 +108,17 @@ python3 scripts/requesty-coder-sync.py verify --disable-failures
   Re-enable one by hand to test it again.
 - Other options: `--provider NAME`, `--model ID`, `--limit N`, `--concurrency N`, and `--timeout SECONDS`.
 
+## Excluded models
+
+The catalog lists models that fail when a chat is actually sent.
+`EXCLUDED_MODELS` in the script names them, each with the observed error as its reason.
+An excluded model is not registered, its canonical model falls back to the next-best host, and `apply --disable-orphans` disables the copy already in Coder.
+`check` lists each one as an `excluded (...)` INFO line.
+
+Most reasons are Requesty or host outages, so retest now and then with `scripts/requesty-probe.py MODEL_ID`, which calls Requesty without Coder.
+The "several system messages" entries are Coder's request shape, so retest them after a Coder upgrade (`--extra-shapes` sends that request).
+To remove an entry, delete it from the table, then run `apply` and `verify --model MODEL_ID`.
+
 ## Reading a report
 
 | Category                            | Meaning                                                                                                                     | Fixed by                                 |
