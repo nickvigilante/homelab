@@ -1,4 +1,5 @@
 import pytest
+from fakes import small_catalog
 
 
 def client_for(sync, stub):
@@ -96,3 +97,45 @@ def test_a_json_object_from_a_list_endpoint_is_an_api_error(sync, stub, method, 
     stub.responses[("GET", path)] = (200, {})
     with pytest.raises(sync.ApiError, match="expected a JSON list"):
         getattr(client_for(sync, stub), method)()
+
+
+MODELS_PATH = "/api/v2/organizations/org-1/chats/models"
+
+
+def test_null_models_and_providers_become_empty_lists(sync, stub):
+    stub.responses[("GET", MODELS_PATH)] = (200, {"models": None, "providers": None})
+    response = client_for(sync, stub).list_models_response("org-1")
+    assert response["models"] == []
+    assert response["providers"] == []
+
+
+def test_a_null_unsupported_providers_becomes_an_empty_list(sync, stub):
+    stub.responses[("GET", MODELS_PATH)] = (
+        200,
+        {"models": [], "providers": None, "unsupported_providers": None},
+    )
+    response = client_for(sync, stub).list_models_response("org-1")
+    assert response == {"models": [], "providers": [], "unsupported_providers": []}
+    assert client_for(sync, stub).list_models("org-1") == []
+
+
+def test_a_non_list_models_value_is_still_rejected(sync, stub):
+    stub.responses[("GET", MODELS_PATH)] = (200, {"models": "x", "providers": []})
+    with pytest.raises(sync.ApiError, match="expected a JSON object"):
+        client_for(sync, stub).list_models_response("org-1")
+
+
+def test_load_live_and_load_live_limited_accept_null_lists(sync, stub):
+    stub.responses[("GET", "/api/v2/organizations")] = (200, [{"id": "org-1", "is_default": True}])
+    stub.responses[("GET", "/api/v2/ai/providers")] = (200, [])
+    stub.responses[("GET", MODELS_PATH)] = (
+        200,
+        {"models": None, "providers": None, "unsupported_providers": None},
+    )
+    stub.responses[("GET", "/api/experimental/ai/model-prices")] = (200, [])
+    client = client_for(sync, stub)
+    live = sync.load_live(client)
+    assert (live.providers, live.models, live.prices) == ({}, [], {})
+    limited = sync.load_live_limited(client, sync.build_desired(small_catalog()))
+    assert (limited.providers, limited.models, limited.prices) == ({}, [], {})
+    assert limited.limited is True

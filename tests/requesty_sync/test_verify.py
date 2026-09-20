@@ -2,6 +2,7 @@
 
 import io
 import json
+import threading
 
 import pytest
 from fakes import FakeCoder, seed_in_sync, small_catalog
@@ -34,8 +35,8 @@ def never_load(args):
     raise AssertionError("verify must not load the Requesty catalog")
 
 
-def verify(sync, fake, *args, answer="y", prompts=None, env=ENV):
-    out = io.StringIO()
+def verify(sync, fake, *args, answer="y", prompts=None, env=ENV, out=None):
+    out = io.StringIO() if out is None else out
 
     def confirm(prompt):
         if prompts is not None:
@@ -308,6 +309,90 @@ def test_a_concurrency_below_one_is_rejected(sync, fake):
     assert excinfo.value.code == 2
 
 
+def test_the_help_says_a_disabled_model_is_not_retested(sync, capsys, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "200")  # keep argparse from wrapping inside a phrase
+    with pytest.raises(SystemExit) as excinfo:
+        sync.main(["verify", "--help"], {})
+    assert excinfo.value.code == 0
+    text = " ".join(capsys.readouterr().out.split())
+    assert "skipped by later verify runs" in text
+    assert "re-enable" in text
+
+
+class Interrupter:
+    """An output stream whose write raises KeyboardInterrupt once, on the nth write.
+    Before the interrupt every write is a result line, so nth=2 is the second result."""
+
+    def __init__(self, nth, on_write=None):
+        self.nth = nth
+        self.on_write = on_write
+        self.writes = 0
+        self.parts = []
+
+    def write(self, text):
+        self.writes += 1
+        if self.writes == self.nth:
+            raise KeyboardInterrupt
+        self.parts.append(text)
+        if self.on_write:
+            self.on_write(text)
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def flush(self):
+        pass
+
+    def getvalue(self):
+        return "".join(self.parts)
+
+
+def test_an_interrupted_verify_ends_cleanly_with_exit_130(sync, fake, capsys):
+    out = Interrupter(2)
+    code, output = verify(sync, fake, out=out)
+    assert code == 130
+    assert "Interrupted after 2 result(s); waiting up to 180s for" in output
+    assert " running chat(s) to finish and archive." in output
+    assert "verified 2 models:" in output
+    assert "Traceback" not in output + capsys.readouterr().err
+    assert len(fake.chats) >= 2
+    assert all(chat["archived"] for chat in fake.chats.values())
+
+
+def test_an_interrupt_stops_the_queued_chats_and_archives_the_rest(sync):
+    class Gated(FakeCoder):
+        """Holds every chat after the first until the interrupt has been handled."""
+
+        def __init__(self):
+            super().__init__()
+            self.release = threading.Event()
+            self.creates = 0
+
+        def create_chat(self, payload):
+            with self._lock:
+                self.creates += 1
+                later = self.creates >= 2
+            if later:
+                self.release.wait(timeout=10)
+            return super().create_chat(payload)
+
+    gated = Gated()
+    seed_in_sync(gated, sync.build_desired(small_catalog()))
+    provider_id = next(iter(gated.providers))
+    for n in range(2):
+        add_model(gated, provider_id, f"extra/model-{n}")
+    assert len(gated.models) == 5
+    out = Interrupter(
+        1, on_write=lambda text: gated.release.set() if text.startswith("Interrupted") else None
+    )
+    code, output = verify(sync, gated, "--concurrency", "1", out=out)
+    assert code == 130
+    assert "Interrupted after 1 result(s)" in output
+    assert 1 <= len(gated.chats) <= 2
+    assert all(chat["archived"] for chat in gated.chats.values())
+
+
 def test_a_missing_token_is_an_error(sync, fake, capsys):
     code, _ = verify(sync, fake, env={})
     assert code == 2
@@ -452,6 +537,63 @@ def test_verify_model_formats_an_error_without_a_detail_or_status(sync):
     result = probe(sync, client)
     assert result.outcome == "failed"
     assert result.detail == "Bad thing. (upstream HTTP ?, ?)"
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"status": "error"},
+        {"status": "error", "last_error": None},
+        {"status": "error", "last_error": "upstream exploded"},
+    ],
+)
+def test_an_error_without_an_error_object_is_inconclusive(sync, state):
+    client = Scripted([state])
+    result = probe(sync, client)
+    assert result.outcome == "inconclusive"
+    assert result.detail == "the chat errored without an error object"
+    assert client.archived == ["chat-1"]
+
+
+def test_disable_failures_leaves_a_model_that_errored_without_an_object_enabled(sync, fake):
+    fake.chat_behaviors["openai/gpt-x"] = "error_no_object"
+    prompts = []
+    code, output = verify(sync, fake, "--disable-failures", "--yes", prompts=prompts)
+    assert code == 1
+    assert line_for(output, "openai/gpt-x").startswith("INCONCLUSIVE")
+    assert "the chat errored without an error object" in output
+    assert "Disabled" not in output
+    assert model_named(fake, "openai/gpt-x")["enabled"] is True
+    assert not [call for call in fake.calls if call[0] == "update_model"]
+
+
+def test_a_long_multi_line_upstream_detail_is_bounded_to_one_line(sync):
+    html = "<html>\n  <body>\n" + "    <p>gateway timeout</p>\n" * 100 + "</body>\n</html>"
+    assert len(html) > 2000
+    error = {
+        "message": "Provider gateway failed.\n\nTry again later.",
+        "detail": html,
+        "provider": "google",
+        "retryable": False,
+        "status_code": 502,
+    }
+    client = Scripted([{"status": "error", "last_error": error}])
+    result = probe(sync, client)
+    assert result.outcome == "failed"
+    assert "\n" not in result.detail
+    assert "  " not in result.detail
+    assert len(result.detail) <= 300 + 300 + 80
+    assert result.detail.startswith("Provider gateway failed. Try again later. - <html> <body>")
+    assert "... (upstream HTTP 502, google)" in result.detail
+    assert result.detail.endswith("(upstream HTTP 502, google)")
+
+
+def test_a_short_upstream_message_is_not_truncated(sync):
+    text = sync.describe_chat_error(
+        {"message": "x" * 300, "detail": "y" * 300, "provider": "p", "status_code": 500}
+    )
+    assert "..." not in text
+    assert text == f"{'x' * 300} - {'y' * 300} (upstream HTTP 500, p)"
 
 
 def test_verify_model_archives_even_when_polling_fails(sync):

@@ -15,7 +15,7 @@ Environment:
   UPTIME_KUMA_PUSH_URL  optional push monitor URL, pinged after check
 
 Exit codes: 0 in sync (or every model verified), 1 drift (or a model failed or
-was inconclusive), 2 error.
+was inconclusive), 2 error, 130 verify interrupted.
 """
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ PROBE_LABELS = {"probe": "requesty-sync-verify"}
 PROBE_PROMPT = "Reply with the single word ok."
 
 EXIT_OK, EXIT_DRIFT, EXIT_ERROR = 0, 1, 2
+EXIT_INTERRUPTED = 130  # verify stopped by Ctrl-C
 
 # Smoke-test outcomes live here, so a fallback is a one-line edit.
 # NATIVE_TYPES maps a lab to the Coder provider type that speaks its protocol;
@@ -415,6 +416,10 @@ class CoderClient:
         """The whole models response: models, plus a descriptor for each provider."""
         path = f"/api/v2/organizations/{org_id}/chats/models"
         result = self.request("GET", path)
+        if isinstance(result, dict):
+            for key in ("models", "providers", "unsupported_providers"):
+                if key in result and result[key] is None:  # a Go nil slice marshals as null
+                    result[key] = []
         if (
             not isinstance(result, dict)
             or not isinstance(result.get("models"), list)
@@ -810,11 +815,22 @@ class VerifyResult:
     cost_micros: int = 0
 
 
+MAX_ERROR_TEXT = 300
+
+
+def bounded(value: Any) -> str:
+    """One line of at most MAX_ERROR_TEXT characters, ending in "..." when cut."""
+    text = " ".join(str(value).split())
+    if len(text) > MAX_ERROR_TEXT:
+        return text[: MAX_ERROR_TEXT - 3] + "..."
+    return text
+
+
 def describe_chat_error(last_error: Any) -> str:
     error = last_error if isinstance(last_error, dict) else {}
-    text = str(error.get("message") or "unknown error")
+    text = bounded(error.get("message") or "unknown error")
     if error.get("detail"):
-        text += f" - {error['detail']}"
+        text += f" - {bounded(error['detail'])}"
     return (
         f"{text} (upstream HTTP {error.get('status_code') or '?'}, {error.get('provider') or '?'})"
     )
@@ -874,9 +890,11 @@ def verify_model(
             status = chat.get("status")
             if status == "error":
                 last_error = chat.get("last_error")
+                if not isinstance(last_error, dict):
+                    # Failure needs retryable to be false, which only the object can show.
+                    return result(INCONCLUSIVE, "the chat errored without an error object")
                 detail = describe_chat_error(last_error)
-                retryable = isinstance(last_error, dict) and bool(last_error.get("retryable"))
-                return result(INCONCLUSIVE if retryable else FAILED, detail)
+                return result(INCONCLUSIVE if last_error.get("retryable") else FAILED, detail)
             if status == "requires_action" or (
                 status == "waiting" and has_assistant_reply(client, chat_id)
             ):
@@ -933,6 +951,7 @@ def run_verify(
         out.write("No models to verify.\n")
         return EXIT_OK
     results: list[VerifyResult] = []
+    interrupted = False
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = [
             pool.submit(verify_model, client, live.org_id, row, name, args.timeout, args.poll)
@@ -943,16 +962,28 @@ def run_verify(
                 results.append(future.result())
                 out.write(format_verify_line(results[-1]) + "\n")
                 out.flush()
-        except BaseException:
-            for future in futures:  # stop starting chats; running ones still archive theirs
+        except BaseException as err:
+            # Cancel the queued chats. One that a worker has already picked up may still
+            # start, so at most --concurrency more chats are created, not zero. Chats
+            # already running finish, and each archives itself, when the pool shuts down.
+            for future in futures:
                 future.cancel()
-            raise
+            if not isinstance(err, KeyboardInterrupt):
+                raise
+            interrupted = True
+            running = sum(1 for future in futures if not future.done())
+            out.write(
+                f"Interrupted after {len(results)} result(s); waiting up to {args.timeout:g}s "
+                f"for {running} running chat(s) to finish and archive.\n"
+            )
     counts = Counter(r.outcome for r in results)
     total = sum(r.cost_micros for r in results) / 1_000_000
     out.write(
         f"verified {len(results)} models: {counts[OK]} ok, {counts[FAILED]} failed, "
         f"{counts[INCONCLUSIVE]} inconclusive; total cost ${total:.4f}\n"
     )
+    if interrupted:
+        return EXIT_INTERRUPTED
     failed = sorted(
         (r for r in results if r.outcome == FAILED), key=lambda r: (r.provider, r.model)
     )
@@ -1044,7 +1075,10 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument(
         "--disable-failures",
         action="store_true",
-        help="disable the models that failed (never the inconclusive ones)",
+        help=(
+            "disable the models that failed (never the inconclusive ones); disabled models "
+            "are skipped by later verify runs, so re-enable one by hand to test it again"
+        ),
     )
     verify.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     return parser
@@ -1145,7 +1179,8 @@ def run(
 ) -> tuple[int, str]:
     if args.command == "verify":  # needs no catalog and no Requesty key
         code = run_verify(args, env, client_factory, confirm, out)
-        return code, "all models verified" if code == EXIT_OK else "verify found problems"
+        summary = {EXIT_OK: "all models verified", EXIT_INTERRUPTED: "verify interrupted"}
+        return code, summary.get(code, "verify found problems")
     token = env.get("CODER_SESSION_TOKEN")
     if not token:
         raise SyncError("CODER_SESSION_TOKEN is not set")

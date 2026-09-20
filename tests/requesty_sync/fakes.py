@@ -81,7 +81,8 @@ class FakeCoder:
         self.calls = []
         self.reads = []  # names of the read methods called, to prove which endpoints a mode used
         self.chats = {}  # chat id -> chat state, for verify
-        self.chat_behaviors = {}  # model string -> ok, error, retryable_error, tool or never
+        # model string -> ok, error, error_no_object, retryable_error, tool or never
+        self.chat_behaviors = {}
         self.chat_cost = 1500  # micro-dollars reported for every chat
         self._n = 0
         self._lock = threading.RLock()  # verify calls the chat methods from several threads
@@ -195,6 +196,8 @@ class FakeCoder:
             return {"id": chat_id, "status": "running"}
         if behavior == "error":
             return {"id": chat_id, "status": "error", "last_error": dict(_HOST_REJECTION)}
+        if behavior == "error_no_object":
+            return {"id": chat_id, "status": "error"}
         if behavior == "retryable_error":
             return {"id": chat_id, "status": "error", "last_error": dict(_RATE_LIMITED)}
         if behavior == "tool":
