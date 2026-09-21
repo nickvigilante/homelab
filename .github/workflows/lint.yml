@@ -22,8 +22,16 @@ jobs:
       # a stale binary.
       YAMLFMT_VERSION: v0.21.0
       SHFMT_VERSION: v3.13.1
+      # Release asset betterleaks_<version>_linux_x64.tar.gz, checked against
+      # this sha256 (from the release's published digest and checksums.txt).
+      BETTERLEAKS_VERSION: 1.3.1
+      BETTERLEAKS_SHA256: 7b241c80204538cbb210c94514dc7cdff86430938bd7d5b6e289207959530849
     steps:
+      # Full history: the PR secret scan below needs origin/<base> and the PR's
+      # commits, not only the merged tree.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
       # yamlfmt and shfmt are compiled from source by `go install`, which
       # dominates the setup time -- cache the built binaries instead.
@@ -60,7 +68,56 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ steps.py.outputs.hash }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      # The betterleaks hook scans staged changes only, so under `pre-commit
+      # run --all-files` on a clean checkout it scans nothing. The steps below
+      # are the real secret scan. The release tarball is cached and its sha256
+      # is verified on every run, so a stale or tampered cache entry fails
+      # loudly (a mismatching cached file is dropped and downloaded once more).
+      - name: Cache betterleaks release
+        uses: actions/cache@v4
+        with:
+          path: ~/.ci-tools/downloads
+          key: betterleaks-${{ runner.os }}-${{ runner.arch }}-${{ env.BETTERLEAKS_VERSION }}
+      - name: Install betterleaks ${{ env.BETTERLEAKS_VERSION }}
+        run: |
+          set -euo pipefail
+          asset="betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz"
+          downloads="$HOME/.ci-tools/downloads"
+          bin="$HOME/.ci-tools/betterleaks"
+          mkdir -p "$downloads" "$bin"
+          if [ -f "$downloads/$asset" ] && ! echo "${BETTERLEAKS_SHA256}  ${downloads}/${asset}" | sha256sum -c --quiet -; then
+            echo "cached ${asset} failed its checksum; downloading again"
+            rm -f -- "${downloads:?}/${asset}"
+          fi
+          if [ ! -f "$downloads/$asset" ]; then
+            curl -fsSL --retry 3 -o "$downloads/$asset" \
+              "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/${asset}"
+          fi
+          echo "${BETTERLEAKS_SHA256}  ${downloads}/${asset}" | sha256sum -c -
+          tar -xzf "$downloads/$asset" -C "$bin" betterleaks
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/betterleaks" --version
+      # Scans every file of the checkout (not just staged changes). -v prints
+      # each finding's file, line and rule; --redact keeps the secret itself
+      # out of this public log. Exits 1 when a leak is found.
+      - name: Secret scan (betterleaks)
+        run: betterleaks dir --no-banner --redact -v .
+      # The tree scan above cannot see a secret that one commit of a PR adds and
+      # a later commit removes. Scan the PR's commits too. The checkout is the
+      # PR merged into the base branch, so origin/<base>..HEAD is exactly the
+      # PR's commits (plus the synthetic merge commit). The base ref reaches the
+      # script through env, never through ${{ }} in run.
+      - name: Secret scan of PR history (betterleaks)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: betterleaks git --no-banner --redact -v --log-opts="origin/${BASE_REF}..HEAD" .
       - name: pre-commit run --all-files
+        # betterleaks is skipped here only: its hook scans staged changes, so
+        # on a clean checkout it scans nothing while still costing a Go build.
+        # The "Secret scan (betterleaks)" steps above are the real scan.
+        env:
+          SKIP: betterleaks
         run: pre-commit run --all-files --show-diff-on-failure
 
   kubeconform:
