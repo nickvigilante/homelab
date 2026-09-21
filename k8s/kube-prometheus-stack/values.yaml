@@ -135,12 +135,18 @@ alertmanager:
       repeat_interval: 4h
       receiver: email
       routes:
+        # InfoInhibitor only exists to mute severity=info alerts via
+        # inhibit_rules; it is never actionable. Overriding `routes` drops
+        # the chart's default null route for it, so restate it here.
+        - matchers: ['alertname = "InfoInhibitor"']
+          receiver: "null"
         # Watchdog is the chart's always-firing heartbeat — if it stops
         # arriving, the alerting pipeline itself is broken. Throttle to daily.
         - matchers: ['alertname = "Watchdog"']
           receiver: email
           repeat_interval: 24h
     receivers:
+      - name: "null"
       - name: email
         email_configs:
           - to: vigihome-admin@vigiemail.com
@@ -203,6 +209,9 @@ grafana:
       root_url: https://grafana.vigihome.net
     plugins:
       # Don't let Grafana auto-update preinstalled plugins at startup.
+      # The update unloads each bundled datasource (Prometheus, Loki, …)
+      # and then fails to replace it on the read-only root filesystem,
+      # leaving it unregistered. See README "Troubleshooting".
       preinstall_auto_update: false
     auth.generic_oauth:
       enabled: true

@@ -32,6 +32,13 @@ They come from the low static band of the service CIDR, which Kubernetes keeps c
   `view` still allows `pods/log`, so log contents can reach model context.
 - The Grafana server uses a Viewer service account and `--disable-write`.
 
+What that leaves an agent unable to do, and the workaround where one exists:
+
+- There is no exec, restart or apply, so hand any mutating step, such as `kubectl rollout restart`, to the operator.
+- `view` does not cover cluster-scoped PersistentVolumes, so PV details are out of reach, although PVCs are readable.
+- Secrets are denied, so read the live Alertmanager config through Grafana with `GET /api/datasources/proxy/uid/alertmanager/api/v2/status` (field `.config.original`), where Alertmanager redacts inline secrets as `<secret>` and the SMTP password appears only as its file path.
+- Container logs rotate within hours on busy pods like Grafana, so fetch startup logs soon after a restart, or use `previous: true` for the prior container.
+
 ## One-time setup
 
 1. In Grafana, create a Viewer service account `claude-mcp` and a token.
