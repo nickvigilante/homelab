@@ -195,6 +195,7 @@ populate with live data. A Watchdog email arrives at
   (Alertmanager can't do implicit TLS/465 the way the restic job does).
   Credentials come from the reflected `smtp-relay` Secret — the password via a
   mounted file, the username inline (it's the `noreply@` alias, not a secret).
+  `InfoInhibitor` goes to the `"null"` receiver and never reaches email (see "Troubleshooting").
 
 - **Upgrade the chart:** bump the `--version` and re-run `helm upgrade`; read
   the chart's upgrade notes (CRD changes sometimes need a manual
@@ -218,6 +219,18 @@ populate with live data. A Watchdog email arrives at
   embeds these with metrics bound to localhost, so they're not scrapeable —
   they're disabled in `values.yaml` (along with `kubeEtcd`, since k3s here uses
   sqlite). Re-enable only if you expose those endpoints.
+- **Grafana datasources vanish with `Plugin not registered` (2026-09-20).**
+  Grafana 13 bundles Prometheus, Loki, Tempo and nine other datasources as plugins under `/usr/share/grafana/data/plugins-bundled/`.
+  With `preinstall_auto_update` on, startup finds newer versions on grafana.com, unloads each bundled plugin, then fails to replace it with `unlinkat …: read-only file system` because the pod runs with `readOnlyRootFilesystem`.
+  Every datasource ends up unregistered and `/api/plugins/errors` stays empty, so the only evidence is the `plugin.backgroundinstaller` lines in the Grafana startup log.
+  Restarting doesn't help, because it happens on every boot.
+  Fixed by `preinstall_auto_update: false` in `values.yaml` (#216).
+  Keep `readOnlyRootFilesystem`, since relaxing it would only write the updates into the container layer, where each restart loses them.
+- **`InfoInhibitor` alerts are not a problem signal.**
+  The chart's `InfoInhibitor` fires whenever any `severity=info` alert (even a *pending* one) is active in a namespace, so the inhibit rules can mute those info alerts.
+  Our `alertmanager.config.route.routes` override drops the chart's default null route for it, so it used to arrive by email.
+  It now routes to the `"null"` receiver.
+  A 2026-09-21 review of the full 15-day retention matched every occurrence to brief `CPUThrottlingHigh` (`coder`, `claude-mcp`) or `NodeCPUHighUsage` (`monitoring`) spikes.
 
 ## What we don't back up
 

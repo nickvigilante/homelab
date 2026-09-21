@@ -244,6 +244,12 @@ Always pin the version explicitly in the HelmRelease — never leave it
 unbounded — per the homelab-wide pin discipline (an unpinned upgrade
 took the auth namespace down on 2026-05-23).
 
+**Adoption alert history (2026-09-16).**
+The Flux takeover in #191 was followed by about 24 hours of `FluxReconciliationFailure` on the `coder/coder` and `coder/postgres` HelmReleases and the `flux-system/coder-postgres` HelmChart, which is the postgres release's chart object and not a Kustomization.
+It cleared on its own when `coder/postgres` reached Ready at 2026-09-17 00:57 UTC, and `coder` followed because of its `dependsOn`.
+Why the first reconciles failed is lost, because controller logs rotated and the postgres Helm history keeps only the successful revision.
+If this window shows up in Prometheus alert history, it is this event and needs no follow-up.
+
 ### Postgres backup / restore
 
 The data dir at `/opt/coder/postgres` is captured by the nightly restic
