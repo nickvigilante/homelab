@@ -1,4 +1,4 @@
-# kube-prometheus-stack v85.3.3 (appVersion v0.90.1). Metrics + alerting for
+# kube-prometheus-stack v89.1.0 (appVersion v0.93.1). Metrics + alerting for
 # the homelab (#76). Installed into the existing `monitoring` namespace
 # (alongside Uptime Kuma). Heavy pods pin to gandalf; node-exporter is a
 # DaemonSet on every node. See README.md for the apply runbook.

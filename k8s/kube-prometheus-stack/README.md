@@ -11,8 +11,8 @@ This is sub-project **A — metrics only**.
 Logs (Loki) are #116; per-app ServiceMonitors and long-term storage are future work.
 Prometheus and Alertmanager are exposed behind Authentik forward-auth (#137, #117).
 
-Chart: `prometheus-community/kube-prometheus-stack` v`85.3.3`
-(appVersion `v0.90.1`). Release name `kps`, namespace `monitoring`
+Chart: `prometheus-community/kube-prometheus-stack` v`89.1.0`
+(appVersion `v0.93.1`). Release name `kps`, namespace `monitoring`
 (shared with Uptime Kuma).
 
 ## Architecture
@@ -129,7 +129,7 @@ prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
 6. **Install the stack** (CRDs + operator + workloads):
 
    ```sh
-   helm install kps prometheus-community/kube-prometheus-stack --version 85.3.3 \
+   helm install kps prometheus-community/kube-prometheus-stack --version 89.1.0 \
      -n monitoring -f k8s/kube-prometheus-stack/values.yaml
    kubectl -n monitoring rollout status statefulset/prometheus-kps-kube-prometheus-stack-prometheus --timeout=300s
    ```
@@ -168,7 +168,7 @@ populate with live data. A Watchdog email arrives at
 ## Day-to-day ops
 
 - **Change config:** edit `values.yaml`, then
-  `helm upgrade kps prometheus-community/kube-prometheus-stack -n monitoring --version 85.3.3 -f k8s/kube-prometheus-stack/values.yaml`.
+  `helm upgrade kps prometheus-community/kube-prometheus-stack -n monitoring --version 89.1.0 -f k8s/kube-prometheus-stack/values.yaml`.
   Always pin `--version` (drift discipline).
 
 - **Prometheus is at `https://prometheus.vigihome.net`;
