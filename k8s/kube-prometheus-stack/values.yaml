@@ -201,6 +201,9 @@ grafana:
   grafana.ini:
     server:
       root_url: https://grafana.vigihome.net
+    plugins:
+      # Don't let Grafana auto-update preinstalled plugins at startup.
+      preinstall_auto_update: false
     auth.generic_oauth:
       enabled: true
       name: Authentik
