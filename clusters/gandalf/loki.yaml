@@ -13,6 +13,8 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # The Grafana this registers a datasource with belongs to kps.
+  # kps is a hard dependency, not just ordering: the three ServiceMonitors
+  # (loki, alloy, alloy-events) need the ServiceMonitor CRD kps installs,
+  # and the datasource ConfigMap needs the Grafana kps deploys.
   dependsOn:
     - name: kps

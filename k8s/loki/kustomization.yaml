@@ -6,3 +6,4 @@ resources:
   - rbac.yaml
   - helmrelease.yaml
   - datasource.yaml
+  - netpol-loki.yaml

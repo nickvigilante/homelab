@@ -929,5 +929,6 @@ Confirm #116 closed with the PR.
 
 - [ ] **Step 6: One week later, check sizing**
 
-Query `sum(rate(loki_distributor_bytes_received_total[7d])) * 86400` for bytes per day, and `kubelet_volume_stats_used_bytes{persistentvolumeclaim=~"storage-loki-0"}` for disk used.
-If projected 30-day usage exceeds 15Gi, open an issue to resize or filter.
+Query `sum(rate(loki_distributor_bytes_received_total[7d])) * 86400` for bytes per day.
+Check disk used with `du -sh` on the PV directory under `/var/lib/rancher/k3s/storage/` on gandalf, not `kubelet_volume_stats_used_bytes`: local-path PVCs report gandalf's whole filesystem in kubelet volume stats, so that metric doesn't reflect what Loki has actually used, and resizing the PVC wouldn't change anything since retention, not PVC size, is the real bound.
+If projected 30-day usage looks too large, open an issue to lower retention or filter noisy streams.

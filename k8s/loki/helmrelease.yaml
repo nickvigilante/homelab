@@ -299,6 +299,10 @@ spec:
       replicas: 1
       nodeSelector:
         kubernetes.io/hostname: gandalf
+      # Recreate, not RollingUpdate: two replicas would briefly share the
+      # /var/lib/alloy-events positions hostPath during a rollout.
+      updateStrategy:
+        type: Recreate
       volumes:
         extra:
           - name: alloy-data
