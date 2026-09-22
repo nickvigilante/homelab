@@ -155,6 +155,8 @@ jobs:
               -o -name clustersecretstore.yaml \
               -o -name prometheusrule.yaml \
               -o -name podmonitor.yaml \
+              -o -name datasource.yaml \
+              -o -name rbac.yaml \
               -o -name '*-cert.yaml' \
               -o -name '*-issuer.yaml' \
             \) -print0 \

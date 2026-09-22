@@ -1,0 +1,342 @@
+# Loki log store (#116), Monolithic mode on local disk with 30-day retention.
+# Design: docs/superpowers/specs/2026-09-21-loki-log-aggregation-design.md.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  releaseName: loki
+  targetNamespace: monitoring
+  interval: 30m
+  chart:
+    spec:
+      chart: loki
+      version: "18.13.4"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-community-loki
+        namespace: flux-system
+  # First install: cold image pull plus PVC provisioning.
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
+  values:
+    # "Monolithic" is the chart's current name for SingleBinary.
+    deploymentMode: Monolithic
+    fullnameOverride: loki
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      schemaConfig:
+        configs:
+          - from: "2026-09-21"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
+      compactor:
+        retention_enabled: true
+        delete_request_store: filesystem
+      limits_config:
+        retention_period: 720h
+      pattern_ingester:
+        enabled: false
+    singleBinary:
+      replicas: 1
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      persistence:
+        enabled: true
+        storageClass: local-path
+        size: 20Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    backend:
+      replicas: 0
+    # Extras a single-node homelab doesn't need.
+    gateway:
+      enabled: false
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+    minio:
+      enabled: false
+    # The rules sidecar reads ConfigMaps and Secrets cluster-wide. It only
+    # loads ruler rules, and the ruler is a follow-up, so keep it off.
+    sidecar:
+      rules:
+        enabled: false
+    monitoring:
+      serviceMonitor:
+        enabled: true
+---
+# Alloy on every node: pod logs from /var/log/pods and the systemd journal.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: monitoring
+spec:
+  releaseName: alloy
+  targetNamespace: monitoring
+  interval: 30m
+  chart:
+    spec:
+      chart: alloy
+      version: "1.12.1"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
+  values:
+    fullnameOverride: alloy
+    crds:
+      create: false
+    # The chart's default ClusterRole includes Secrets cluster-wide, and its
+    # template breaks when either rule list is empty. See rbac.yaml.
+    rbac:
+      create: false
+    serviceMonitor:
+      enabled: true
+    controller:
+      type: daemonset
+      volumes:
+        extra:
+          # Volatile journal, the default on some Pi images.
+          - name: run-journal
+            hostPath:
+              path: /run/log/journal
+              type: DirectoryOrCreate
+          - name: machine-id
+            hostPath:
+              path: /etc/machine-id
+              type: File
+          # Read positions survive restarts, so Alloy resumes instead of re-reading.
+          - name: alloy-data
+            hostPath:
+              path: /var/lib/alloy
+              type: DirectoryOrCreate
+    alloy:
+      storagePath: /var/lib/alloy
+      mounts:
+        # /var/log covers /var/log/pods and the persistent journal.
+        varlog: true
+        extra:
+          - name: run-journal
+            mountPath: /run/log/journal
+            readOnly: true
+          - name: machine-id
+            mountPath: /etc/machine-id
+            readOnly: true
+          - name: alloy-data
+            mountPath: /var/lib/alloy
+      # Root to read root-owned log files; no capabilities beyond ownership.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+      configMap:
+        content: |
+          // Pods on this node only; the chart sets HOSTNAME to the node name.
+          discovery.kubernetes "pods" {
+            role = "pod"
+            selectors {
+              role  = "pod"
+              field = "spec.nodeName=" + sys.env("HOSTNAME")
+            }
+          }
+
+          discovery.relabel "pods" {
+            targets = discovery.kubernetes.pods.targets
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app"]
+              target_label  = "app"
+            }
+            // app.kubernetes.io/name wins over app when present.
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+              regex         = "(.+)"
+              target_label  = "app"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_node_name"]
+              target_label  = "node"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+              separator     = "/"
+              target_label  = "__path__"
+              replacement   = "/var/log/pods/*$1/*.log"
+            }
+            rule {
+              target_label = "job"
+              replacement  = "pods"
+            }
+          }
+
+          local.file_match "pods" {
+            path_targets = discovery.relabel.pods.output
+          }
+
+          loki.source.file "pods" {
+            targets    = local.file_match.pods.targets
+            forward_to = [loki.process.pods.receiver]
+          }
+
+          loki.process "pods" {
+            stage.cri {}
+            // Pod names churn (Coder workspaces), so keep pod out of the index.
+            stage.structured_metadata {
+              values = {pod = ""}
+            }
+            stage.label_drop {
+              values = ["pod", "filename"]
+            }
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.relabel "journal" {
+            forward_to = []
+            rule {
+              source_labels = ["__journal__systemd_unit"]
+              target_label  = "unit"
+            }
+            rule {
+              source_labels = ["__journal_priority_keyword"]
+              target_label  = "level"
+            }
+          }
+
+          loki.source.journal "node" {
+            max_age       = "12h"
+            relabel_rules = loki.relabel.journal.rules
+            labels        = {job = "journal", node = sys.env("HOSTNAME")}
+            forward_to    = [loki.write.default.receiver]
+          }
+
+          loki.write "default" {
+            endpoint {
+              url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+            }
+          }
+---
+# One Alloy for Kubernetes events; a DaemonSet would store each event per node.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy-events
+  namespace: monitoring
+spec:
+  releaseName: alloy-events
+  targetNamespace: monitoring
+  interval: 30m
+  chart:
+    spec:
+      chart: alloy
+      version: "1.12.1"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
+  values:
+    fullnameOverride: alloy-events
+    crds:
+      create: false
+    rbac:
+      create: false
+    serviceMonitor:
+      enabled: true
+    controller:
+      type: deployment
+      replicas: 1
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      # Recreate, not RollingUpdate: two replicas would briefly share the
+      # /var/lib/alloy-events positions hostPath during a rollout.
+      updateStrategy:
+        type: Recreate
+      volumes:
+        extra:
+          - name: alloy-data
+            hostPath:
+              path: /var/lib/alloy-events
+              type: DirectoryOrCreate
+    alloy:
+      storagePath: /var/lib/alloy-events
+      mounts:
+        extra:
+          - name: alloy-data
+            mountPath: /var/lib/alloy-events
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+      configMap:
+        content: |
+          loki.source.kubernetes_events "cluster" {
+            job_name   = "events"
+            log_format = "logfmt"
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.write "default" {
+            endpoint {
+              url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+            }
+          }

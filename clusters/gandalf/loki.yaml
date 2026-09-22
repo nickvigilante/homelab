@@ -1,0 +1,20 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: loki
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./k8s/loki
+  # Flux owns everything in k8s/loki.
+  prune: true
+  wait: true
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # kps is a hard dependency, not just ordering: the three ServiceMonitors
+  # (loki, alloy, alloy-events) need the ServiceMonitor CRD kps installs,
+  # and the datasource ConfigMap needs the Grafana kps deploys.
+  dependsOn:
+    - name: kps
