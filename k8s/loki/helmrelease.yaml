@@ -1,0 +1,91 @@
+# Loki log store (#116), Monolithic mode on local disk with 30-day retention.
+# Design: docs/superpowers/specs/2026-09-21-loki-log-aggregation-design.md.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  releaseName: loki
+  targetNamespace: monitoring
+  interval: 30m
+  chart:
+    spec:
+      chart: loki
+      version: "18.13.4"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-community-loki
+        namespace: flux-system
+  # First install: cold image pull plus PVC provisioning.
+  timeout: 10m
+  install:
+    remediation:
+      retries: 3
+  values:
+    # "Monolithic" is the chart's current name for SingleBinary.
+    deploymentMode: Monolithic
+    fullnameOverride: loki
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      schemaConfig:
+        configs:
+          - from: "2026-09-21"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
+      compactor:
+        retention_enabled: true
+        delete_request_store: filesystem
+      limits_config:
+        retention_period: 720h
+      pattern_ingester:
+        enabled: false
+    singleBinary:
+      replicas: 1
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      persistence:
+        enabled: true
+        storageClass: local-path
+        size: 20Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    backend:
+      replicas: 0
+    # Extras a single-node homelab doesn't need.
+    gateway:
+      enabled: false
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+    minio:
+      enabled: false
+    # The rules sidecar reads ConfigMaps and Secrets cluster-wide. It only
+    # loads ruler rules, and the ruler is a follow-up, so keep it off.
+    sidecar:
+      rules:
+        enabled: false
+    monitoring:
+      serviceMonitor:
+        enabled: true

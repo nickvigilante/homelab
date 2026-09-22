@@ -30,7 +30,7 @@ gandalf
           all three push over in-cluster HTTP
                          │
                          ▼
-  loki (SingleBinary StatefulSet, gandalf) ── local-path PVC, 20Gi, 30d retention
+  loki (Monolithic StatefulSet, gandalf) ── local-path PVC, 20Gi, 30d retention
                          ▲
   kps-grafana ── datasource uid `loki` (sidecar-loaded ConfigMap)
 ```
@@ -39,12 +39,12 @@ Everything runs in the `monitoring` namespace, beside Prometheus and Grafana.
 
 ### Components
 
-| Component      | Chart and source                                                       | Shape                                        | Purpose                                |
-| -------------- | ---------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------- |
-| `loki`         | `loki` from `grafana-community` (18.13.4, Loki 3.7.8 as of 2026-09-21) | SingleBinary StatefulSet, 1 replica, gandalf | Log store and query API on port 3100   |
-| `alloy`        | `alloy` from `grafana` (1.12.1, Alloy v1.19.2 as of 2026-09-21)        | DaemonSet, all nodes                         | Pod-log and journald collection        |
-| `alloy-events` | same `alloy` chart, second release                                     | Deployment, 1 replica, gandalf               | Kubernetes event collection            |
-| datasource     | raw ConfigMap labeled `grafana_datasource: "1"`                        | —                                            | Registers Loki in the existing Grafana |
+| Component      | Chart and source                                                       | Shape                                      | Purpose                                |
+| -------------- | ---------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------- |
+| `loki`         | `loki` from `grafana-community` (18.13.4, Loki 3.7.8 as of 2026-09-21) | Monolithic StatefulSet, 1 replica, gandalf | Log store and query API on port 3100   |
+| `alloy`        | `alloy` from `grafana` (1.12.1, Alloy v1.19.2 as of 2026-09-21)        | DaemonSet, all nodes                       | Pod-log and journald collection        |
+| `alloy-events` | same `alloy` chart, second release                                     | Deployment, 1 replica, gandalf             | Kubernetes event collection            |
+| datasource     | raw ConfigMap labeled `grafana_datasource: "1"`                        | —                                          | Registers Loki in the existing Grafana |
 
 The `loki` chart moved to the `grafana-community` repository, which already backs `grafana-mcp`; the copy in the `grafana` repository stopped at 7.3.0 in August 2026.
 Alloy is only published in the `grafana` repository, which becomes a new source.
@@ -56,11 +56,13 @@ Flux, following the service directory convention.
 
 - `k8s/loki/helmrelease.yaml` holds the three `HelmRelease`s, with values and the Alloy configuration inline, as `k8s/claude-mcp/` does with two.
 - `k8s/loki/datasource.yaml` is the Grafana datasource ConfigMap.
-- `k8s/loki/kustomization.yaml` lists both, plus `../../sources/grafana-community.yaml` and the new `../../sources/grafana.yaml`.
+- `k8s/loki/rbac.yaml` is the raw least-privilege RBAC for both Alloy releases.
+- `k8s/loki/kustomization.yaml` lists both, plus `../../sources/grafana-community-loki.yaml` and the new `../../sources/grafana.yaml`.
+  A second name for the same repository keeps two pruning Kustomizations from owning one object.
 - `k8s/loki/README.md` is the runbook.
 - `clusters/gandalf/loki.yaml` is a new Flux `Kustomization` with `prune: true` (Flux owns the whole directory), `wait: true`, and `dependsOn: [{ name: kps }]`, because the Grafana it registers with belongs to kps.
 
-`.github/workflows/lint.yml`'s kubeconform filename filter gains `datasource.yaml`, so the ConfigMap is validated rather than silently skipped.
+`.github/workflows/lint.yml`'s kubeconform filename filter gains `datasource.yaml` and `rbac.yaml`, so the ConfigMap and RBAC manifest are validated rather than silently skipped.
 
 ## Collection (Alloy)
 
@@ -68,6 +70,7 @@ Flux, following the service directory convention.
 
 `discovery.kubernetes` finds pods scheduled on the local node (field selector on `spec.nodeName`), and `loki.source.file` tails their files under `/var/log/pods`, mounted read-only from the host.
 Reading files, rather than streaming through the API server with `loki.source.kubernetes`, keeps log collection off the control plane.
+Read positions live on a hostPath (/var/lib/alloy) so a restart resumes rather than re-reading.
 
 ### Node journald
 
@@ -79,7 +82,7 @@ Both `/var/log/journal` (persistent, as on Ubuntu) and `/run/log/journal` (volat
 
 `loki.source.kubernetes_events` watches events cluster-wide.
 It runs in the separate single-replica `alloy-events` release because a DaemonSet would ingest every event once per node.
-Its ServiceAccount needs `get`, `list` and `watch` on `events`; the plan confirms the chart's default ClusterRole grants them and adds a rule through values if it does not.
+The Alloy chart's default ClusterRole grants far more than needed, including Secrets cluster-wide, and its template breaks when either rule list is empty, so both Alloy releases set rbac.create: false and use a raw least-privilege rbac.yaml: pods for alloy, events for alloy-events.
 
 ### Labels
 
@@ -92,8 +95,10 @@ No streams are dropped in v1; filtering waits for measured volume (follow-up iss
 
 ## Storage and retention
 
-- Loki runs `deploymentMode: SingleBinary` with one replica, `auth_enabled: false`, replication factor 1, a TSDB index on schema v13, and filesystem object storage.
+- Loki runs `deploymentMode: Monolithic` with one replica, `auth_enabled: false`, replication factor 1, a TSDB index on schema v13, and filesystem object storage.
+  "Monolithic" is the chart's current name for what older versions called SingleBinary.
 - The chart's gateway, chunks and results caches, bundled MinIO, canary, test pod, and read/write/backend replicas are disabled.
+- The chart's rules sidecar is disabled: it reads ConfigMaps and Secrets cluster-wide and only exists to load ruler rules.
 - Data lives on a `local-path` PVC of 20Gi on gandalf, the same pattern as the Prometheus TSDB.
 - The compactor enforces retention: `retention_enabled: true`, `retention_period: 720h`, with a filesystem delete-request store.
 - Loki data is **deliberately not backed up** by restic, for the same reasons as the Prometheus TSDB: it is large, churny, and worthless after a rebuild.
