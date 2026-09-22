@@ -5,3 +5,4 @@ resources:
   - ../../sources/grafana.yaml
   - rbac.yaml
   - helmrelease.yaml
+  - datasource.yaml
