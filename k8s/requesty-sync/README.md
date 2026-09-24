@@ -49,6 +49,10 @@ The CronJob runs `check --limited` and pings the Uptime Kuma monitor itself.
 It pings `up` when everything matches, and `down` with a one-line summary on drift or on an error.
 If the job dies before it can ping, the monitor goes DOWN when its 25-hour heartbeat interval expires.
 
+The CronJob's own shell wrapper treats drift (script exit 1) as a k8s Job success, since Uptime Kuma already carries that signal.
+Only a real script error (exit 2) fails the Job and trips the cluster's `KubeJobFailed` alert.
+To get pinged on drift itself, attach a notification to the `requesty-sync` Uptime Kuma monitor.
+
 To run it by hand:
 
 ```bash
