@@ -14,6 +14,12 @@
 # `down` with a one-line summary on drift or error. If the job dies before
 # it can ping, the monitor goes DOWN when its heartbeat interval expires.
 #
+# Drift (script exit 1) is expected -- new Requesty models show up on their
+# own schedule -- and is already surfaced via the Uptime Kuma push above, so
+# the wrapper below turns it into a k8s Job success. Only a real script
+# error (exit 2, e.g. an expired token or an unreachable catalog) fails the
+# Job and trips the KubeJobFailed alert.
+#
 # Manual trigger (e.g. to test):
 #   kubectl -n coder create job --from=cronjob/requesty-sync test-sync-$(date +%s)
 apiVersion: batch/v1
@@ -40,10 +46,13 @@ spec:
             - name: sync
               image: python:3.14-alpine
               command:
-                - python
-                - /scripts/requesty-coder-sync.py
-                - check
-                - --limited
+                - sh
+                - -c
+                - |
+                  python /scripts/requesty-coder-sync.py check --limited
+                  code=$?
+                  [ "$code" -eq 1 ] && exit 0
+                  exit "$code"
               env:
                 # In-cluster service DNS: pods cannot resolve *.vigihome.net
                 # the way LAN clients do (see CLAUDE.md "DNS pattern").
