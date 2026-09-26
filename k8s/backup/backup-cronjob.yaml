@@ -36,6 +36,15 @@
 #      Recipient hardcoded in env below (SMTP_TO); change there if
 #      the homelab inbox moves.
 #
+# Output capture: every run's output is written to /opt/backup/logs/
+# on gandalf (hostPath, mounted at /backup-logs), so the actual error
+# survives even after the Job's pod is garbage collected — a failure
+# on 2026-09-25 was undiagnosable after the fact for exactly this
+# reason. `last-run.log` is truncated each run; `last-failure.log` is
+# only overwritten on the NEXT failure, so a later success doesn't
+# erase the evidence. The failure email also quotes the last 30 lines
+# directly, so a quick look doesn't require SSHing to gandalf at all.
+#
 # Schedule: 03:00 every day. Adjust via `spec.schedule` if 3am isn't quiet.
 #
 # Manual trigger (e.g. to test):
@@ -73,6 +82,12 @@ spec:
                   # if it fails (network, apk mirror down), send_email
                   # below no-ops and Uptime Kuma push remains the signal.
                   apk add --no-cache curl >/dev/null 2>&1 || true
+
+                  # Truncated at the start of every run; on_failure() mirrors
+                  # it to last-failure.log before the pod (and this file's
+                  # in-container path) disappears.
+                  LOG_FILE=/backup-logs/last-run.log
+                  : >"$LOG_FILE"
 
                   push() {
                     wget -q -O- "${UPTIME_KUMA_PUSH_BACKUP_URL}?status=${1:-up}&msg=${2:-OK}" >/dev/null 2>&1 || true
@@ -112,6 +127,10 @@ spec:
                   on_failure() {
                     exit_code=$?
                     push down "failed (exit=$exit_code)"
+                    # Kept until the NEXT failure, so a later success run
+                    # doesn't overwrite the one piece of evidence.
+                    cp "$LOG_FILE" /backup-logs/last-failure.log 2>/dev/null || true
+                    tail_output=$(tail -n 30 "$LOG_FILE" 2>/dev/null || echo "(log unavailable)")
                     # Body built line-by-line via printf so every line
                     # stays within the YAML block scalar's indentation.
                     # \$(...) becomes literal $(...) in the email body
@@ -122,6 +141,14 @@ spec:
                       "Exit code: $exit_code" \
                       "Job pod:   ${HOSTNAME:-unknown}" \
                       "Schedule:  daily 03:00 ET" \
+                      "" \
+                      "Last 30 lines of output:" \
+                      "-------------------------" \
+                      "$tail_output" \
+                      "-------------------------" \
+                      "" \
+                      "Full output of this run (on gandalf): /opt/backup/logs/last-run.log" \
+                      "Same, preserved until the next failure: /opt/backup/logs/last-failure.log" \
                       "" \
                       "Inspect via:" \
                       "  kubectl -n backup get jobs" \
@@ -135,44 +162,44 @@ spec:
                   }
 
                   trap on_failure ERR
-                  echo "=== Jellyfin config ==="
+                  echo "=== Jellyfin config ===" | tee -a "$LOG_FILE"
                   restic backup \
                     --host gandalf \
                     --tag jellyfin-config \
-                    /backup/jellyfin
+                    /backup/jellyfin 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Pi-hole config ==="
+                  echo "=== Pi-hole config ===" | tee -a "$LOG_FILE"
                   restic backup \
                     --host gandalf \
                     --tag pihole-config \
                     --exclude='pihole-FTL.db*' \
-                    /backup/pihole
+                    /backup/pihole 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Uptime Kuma data ==="
+                  echo "=== Uptime Kuma data ===" | tee -a "$LOG_FILE"
                   restic backup \
                     --host gandalf \
                     --tag uptime-kuma-data \
-                    /backup/uptime-kuma
+                    /backup/uptime-kuma 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Authentik postgres ==="
+                  echo "=== Authentik postgres ===" | tee -a "$LOG_FILE"
                   restic backup \
                     --host gandalf \
                     --tag authentik-postgres \
-                    /backup/authentik-postgres
+                    /backup/authentik-postgres 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Coder postgres ==="
+                  echo "=== Coder postgres ===" | tee -a "$LOG_FILE"
                   restic backup \
                     --host gandalf \
                     --tag coder-postgres \
-                    /backup/coder-postgres
+                    /backup/coder-postgres 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Outline postgres ==="
+                  echo "=== Outline postgres ===" | tee -a "$LOG_FILE"
                   restic backup \
                     --host gandalf \
                     --tag outline-postgres \
-                    /backup/outline-postgres
+                    /backup/outline-postgres 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Syncthing data ==="
+                  echo "=== Syncthing data ===" | tee -a "$LOG_FILE"
                   # Excludes Syncthing's database files — they're
                   # the index, which Syncthing rebuilds from the
                   # folder contents on first launch. Including them
@@ -186,16 +213,16 @@ spec:
                     --exclude='**/.stversions' \
                     --exclude='**/.syncthing.*.tmp' \
                     --exclude='**/~syncthing~*.tmp' \
-                    /backup/syncthing
+                    /backup/syncthing 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Grafana config ==="
+                  echo "=== Grafana config ===" | tee -a "$LOG_FILE"
                   restic backup \
                     --host gandalf \
                     --tag grafana \
-                    /backup/grafana
+                    /backup/grafana 2>&1 | tee -a "$LOG_FILE"
                   echo
-                  echo "=== Snapshot summary ==="
-                  restic snapshots --compact
+                  echo "=== Snapshot summary ===" | tee -a "$LOG_FILE"
+                  restic snapshots --compact 2>&1 | tee -a "$LOG_FILE"
                   push up OK
               envFrom:
                 - secretRef:
@@ -260,6 +287,8 @@ spec:
                 - name: grafana
                   mountPath: /backup/grafana
                   readOnly: true
+                - name: backup-logs
+                  mountPath: /backup-logs
           volumes:
             - name: jellyfin-config
               hostPath:
@@ -308,4 +337,10 @@ spec:
                 # && chown 472:472) — the snapshot for this tag stays empty
                 # until Grafana is deployed.
                 path: /opt/grafana
+                type: DirectoryOrCreate
+            - name: backup-logs
+              hostPath:
+                # Not covered by restic itself — deliberately not backed
+                # up, it's just this run's output for post-mortem.
+                path: /opt/backup/logs
                 type: DirectoryOrCreate

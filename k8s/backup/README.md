@@ -43,6 +43,17 @@ nightly job doesn't go unnoticed:
    Out-of-band channel for cases when Uptime Kuma is also unreachable
    or not being actively watched.
 
+**Output capture.** A failure investigated on 2026-09-26 turned out to
+be unrecoverable: by the time anyone looked, the failed pod had
+already been garbage collected, taking its logs with it, and this
+CronJob had no log retention of its own. Every run now writes its
+output to `/opt/backup/logs/last-run.log` on gandalf (hostPath,
+mounted at `/backup-logs`), truncated at the start of each run. On
+failure, `on_failure()` copies it to `/opt/backup/logs/last-failure.log`
+(kept until the *next* failure, so a later success doesn't erase the
+evidence) and quotes the last 30 lines directly in the failure email —
+often enough to diagnose without SSHing to gandalf at all.
+
 The SMTP creds come from a Secret `smtp-relay` in this namespace, which
 is **mirrored from `auth/smtp-relay`** by emberstack/reflector. The
 annotations live on the source Secret in the `auth` namespace — see
