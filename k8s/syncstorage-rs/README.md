@@ -52,30 +52,21 @@ until reconnected).
 
 ## One-time setup
 
-### 1. Generate secrets
+### 1. Secrets — done via `scripts/bws-bootstrap-secrets.sh`
 
-```bash
-openssl rand -hex 32   # master-secret
-openssl rand -hex 32   # fxa-metrics-hash-secret
-openssl rand -hex 24   # postgres-password
-openssl rand -hex 24   # postgres-superuser-password
-```
+The four BWS secrets are already wired into `external-secret.yaml` (created via
+`scripts/bws-bootstrap-secrets.sh` — see its usage in `CLAUDE.md`, or homelab#226 for how it
+works). Nothing to do here unless a secret needs rotating: delete the field from the
+**"Homelab syncstorage-rs"** vault item and re-run the same tuple through the script to
+regenerate just that one value.
 
-### 2. Create BWS entries and wire up `external-secret.yaml`
-
-Create four Bitwarden Secrets Manager secrets — `syncstorage-rs/master-secret`,
-`syncstorage-rs/fxa-metrics-hash-secret`, `syncstorage-rs/postgres-password`,
-`syncstorage-rs/postgres-superuser-password` — with the values from step 1. Replace the four
-`REPLACE_WITH_BWS_UUID` placeholders in `external-secret.yaml` with the resulting BWS secret IDs,
-matching the `secretKey` each is under.
-
-### 3. Publish the image (if not already built)
+### 2. Publish the image (if not already built)
 
 Confirm `ghcr.io/nickvigilante/syncstorage-rs:0.23.3-postgres` exists and is public — see
 `images/syncstorage-rs/README.md`. If the GHCR package is still private, either flip its
 visibility or add an `imagePullSecret` to `deployment.yaml`.
 
-### 4. Firefox client configuration
+### 3. Firefox client configuration
 
 Each device's Firefox needs `identity.sync.tokenserver.uri` set to
 `https://firefox-sync.vigihome.net/1.0/sync/1.5` in `about:config`. Automated for Linux desktop
@@ -83,7 +74,7 @@ machines via the dotfiles repo (`run_once_after_configure-firefox-sync.sh.tmpl`,
 `display = true`, runs on both personal and work profiles). Manual for anything else (phones,
 other OSes not yet covered).
 
-### 5. Verify
+### 4. Verify
 
 After `chezmoi apply` on a device and a Firefox restart, Settings → Sync should show it connecting.
 `kubectl -n syncstorage-rs logs -l app=syncstorage-rs` on first sync attempt should show a
