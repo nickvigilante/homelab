@@ -1,0 +1,48 @@
+# Lateral-movement hardening for the syncstorage-rs namespace (matches the
+# Outline/Authentik posture). k3s's bundled kube-router netpol controller
+# still whitelists local-node->Pod traffic, so kubelet probes keep working.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: syncstorage-rs-app-ingress
+  namespace: syncstorage-rs
+spec:
+  podSelector:
+    matchLabels:
+      app: syncstorage-rs
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: syncstorage-rs
+      ports:
+        - port: 8000
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: syncstorage-rs-postgres-ingress
+  namespace: syncstorage-rs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: syncstorage-rs
+      ports:
+        - port: 5432
+          protocol: TCP
