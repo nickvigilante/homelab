@@ -1,0 +1,68 @@
+name: build-syncstorage-rs
+
+# Builds mozilla-services/syncstorage-rs ourselves and publishes it to GHCR.
+# Upstream doesn't publish a Docker image for any backend (every build-push
+# step in their CI has push: false and uploads a short-lived e2e artifact),
+# so this is the source of the image k8s/syncstorage-rs/deployment.yaml runs.
+# See images/syncstorage-rs/README.md for the full rationale.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/syncstorage-rs/VERSION"
+      - ".github/workflows/build-syncstorage-rs.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: >-
+          syncstorage-rs git ref to build (tag/branch/SHA). Defaults to
+          images/syncstorage-rs/VERSION — set this to rebuild the same
+          version (e.g. after a base-image security patch) without bumping it.
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: build + push (postgres backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve upstream ref and image tag
+        id: ref
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          ref="$INPUT_REF"
+          if [ -z "$ref" ]; then
+            ref="$(cat images/syncstorage-rs/VERSION)"
+          fi
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          echo "tag=${ref}-postgres" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # context is a remote git URL, not `.` — nothing in this repo needs to
+      # track syncstorage-rs's Rust source. buildx clones the ref itself.
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: "https://github.com/mozilla-services/syncstorage-rs.git#${{ steps.ref.outputs.ref }}"
+          build-args: |
+            SYNCSTORAGE_DATABASE_BACKEND=postgres
+            TOKENSERVER_DATABASE_BACKEND=postgres
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/syncstorage-rs:${{ steps.ref.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
