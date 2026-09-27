@@ -107,7 +107,7 @@ prerequisites (secrets, PV, blueprint, reflected SMTP) must exist **before**
    is now managed by ESO (#161) via `k8s/authentik/external-secret.yaml`,
    so adding Grafana to the OIDC clients means: (a) populate
    `grafana-oidc-client-secret` in BWS (already done as part of #161;
-   `./scripts/bws-migrate.sh` handles the case), and (b) reference its
+   `./scripts/bws-bootstrap-secrets.sh` handles the case), and (b) reference its
    UUID from the `authentik-oidc-secrets` ExternalSecret's `data:` block.
    ESO syncs the in-cluster Secret on the next reconcile.
 

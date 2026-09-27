@@ -148,12 +148,12 @@ so forward-auth can't block the widget's API calls.
 1. Generate an OctoPrint API key (Settings → Application Keys), store it
    in Bitwarden vault item `Homelab OctoPrint` field `API key`, AND
    add it to BWS as secret `octoprint-api-key` in the `homelab` project.
-   The reusable `scripts/bws-migrate.sh` (#160) does both BW → BWS hops
+   The reusable `scripts/bws-bootstrap-secrets.sh` (#160) does both BW → BWS hops
    in one shot via the dedicated `homelab-bootstrap` machine account
    (Read/Write, kept separate from runtime `flux-eso` which stays
    Read-only). Pipe tuples on stdin:
    ```sh
-   ./scripts/bws-migrate.sh <<'EOF'
+   ./scripts/bws-bootstrap-secrets.sh <<'EOF'
    octoprint-api-key|Homelab OctoPrint|API key
    EOF
    ```
