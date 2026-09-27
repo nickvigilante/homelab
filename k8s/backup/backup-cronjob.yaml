@@ -8,6 +8,9 @@
 #   - /opt/authentik/postgres                       (Authentik PostgreSQL data; useless without AUTHENTIK_SECRET_KEY)
 #   - /opt/coder/postgres                           (Coder PostgreSQL data; workspace home dirs are NOT backed up)
 #   - /opt/outline/postgres                         (Outline PostgreSQL data; uploads live in Storj, not here)
+#   - /opt/syncstorage-rs/postgres                  (Firefox Sync data: history, tabs, addon
+#                                                    settings; passwords/forms are excluded
+#                                                    client-side, never reach this server)
 #   - /mnt/storage/syncthing                        (Syncthing config + Sync folders; the DCIM/Pixel-Downloads
 #                                                    folders are receiveonly from a phone and have no other replica
 #                                                    path, so this backup is the only off-host copy for those files)
@@ -199,6 +202,12 @@ spec:
                     --tag outline-postgres \
                     /backup/outline-postgres 2>&1 | tee -a "$LOG_FILE"
                   echo
+                  echo "=== syncstorage-rs postgres ===" | tee -a "$LOG_FILE"
+                  restic backup \
+                    --host gandalf \
+                    --tag syncstorage-rs-postgres \
+                    /backup/syncstorage-rs-postgres 2>&1 | tee -a "$LOG_FILE"
+                  echo
                   echo "=== Syncthing data ===" | tee -a "$LOG_FILE"
                   # Excludes Syncthing's database files — they're
                   # the index, which Syncthing rebuilds from the
@@ -281,6 +290,9 @@ spec:
                 - name: outline-postgres
                   mountPath: /backup/outline-postgres
                   readOnly: true
+                - name: syncstorage-rs-postgres
+                  mountPath: /backup/syncstorage-rs-postgres
+                  readOnly: true
                 - name: syncthing-data
                   mountPath: /backup/syncthing
                   readOnly: true
@@ -319,6 +331,13 @@ spec:
                 # DirectoryOrCreate so the backup doesn't fail if this
                 # change lands before the Outline deploy creates the dir.
                 path: /opt/outline/postgres
+                type: DirectoryOrCreate
+            - name: syncstorage-rs-postgres
+              hostPath:
+                # DirectoryOrCreate so the backup doesn't fail if this
+                # change lands before the syncstorage-rs deploy creates
+                # the dir.
+                path: /opt/syncstorage-rs/postgres
                 type: DirectoryOrCreate
             - name: syncthing-data
               hostPath:

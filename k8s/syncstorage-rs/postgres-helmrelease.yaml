@@ -1,0 +1,74 @@
+# Flux-managed bitnami/postgresql, backing syncstorage-rs's storage +
+# tokenserver databases.
+#
+# Why a separate release: syncstorage-rs ships no chart and no bundled
+# postgres, so it runs standalone here (same pattern as Coder/Outline).
+#
+# Why TWO databases on one instance: upstream's own docker-compose.postgres.yaml
+# (the reference postgres deployment they test in CI) uses distinct DSNs and
+# database names for the syncstorage service and the tokenserver service --
+# `syncstorage` and `tokenserver` -- rather than one shared database.
+# `auth.database` below creates the first; the initdb script creates the
+# second on first boot only (bitnami's postgres image runs everything under
+# /docker-entrypoint-initdb.d once, on an empty data directory).
+#
+# releaseName MUST be `postgres` so the bitnami StatefulSet auto-names
+# its PVC `data-postgres-postgresql-0`, matching pv-pvc.yaml.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: postgres
+  namespace: syncstorage-rs
+spec:
+  releaseName: postgres
+  targetNamespace: syncstorage-rs
+  interval: 30m
+  chart:
+    spec:
+      chart: postgresql
+      version: "18.8.17"
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+        namespace: flux-system
+  values:
+    # Same digest already vetted for coder/outline's postgres instances in
+    # this cluster (postgres 18.3.0). The bitnami/postgresql chart ships a
+    # rolling :latest tag (Bitnami's 2025-08 free-tier change), so pinning
+    # the chart --version alone does NOT pin the image.
+    image:
+      registry: docker.io
+      repository: bitnami/postgresql
+      digest: "sha256:b30a01e1cee6b2018eb86081dd13fef206f0997e705c53286af9eca7558affac"
+
+    auth:
+      username: syncstorage
+      database: syncstorage
+      existingSecret: syncstorage-rs-secrets
+      secretKeys:
+        adminPasswordKey: postgres-superuser-password
+        userPasswordKey: postgres-password
+
+    primary:
+      initdb:
+        scripts:
+          create-tokenserver-db.sql: |
+            CREATE DATABASE tokenserver OWNER syncstorage;
+      persistence:
+        enabled: true
+        storageClass: manual
+        existingClaim: data-postgres-postgresql-0
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+
+    # kubelet creates the hostPath dir as root:root, but bitnami postgres
+    # runs as uid 1001. Without this init container the pod CrashLoopBackOffs
+    # on "cannot create directory ... Permission denied" on first start.
+    volumePermissions:
+      enabled: true
