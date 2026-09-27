@@ -221,9 +221,11 @@ covers raw + Flux-era filenames: `namespace.yaml`, `pv-pvc.yaml`,
 `secret.example.yaml`, `deployment.yaml`, `*-job.yaml`, `*-cronjob.yaml`,
 `clusterissuer-*.yaml`, `certificate.yaml`, `ingress-*.yaml`,
 `middleware-*.yaml`, `netpol-*.yaml`, `redis.yaml`, `helmrelease.yaml`,
-`external-secret.yaml`, `clustersecretstore.yaml`, `prometheusrule.yaml`,
-`podmonitor.yaml`, `*-cert.yaml`, `*-issuer.yaml`, `datasource.yaml`,
-`rbac.yaml`. CRD schemas come from the datreeio CRDs-catalog fallback
+`*-helmrelease.yaml` (e.g. `postgres-helmrelease.yaml` — a HelmRelease that
+isn't the directory's main one), `external-secret.yaml`,
+`clustersecretstore.yaml`, `prometheusrule.yaml`, `podmonitor.yaml`,
+`*-cert.yaml`, `*-issuer.yaml`, `datasource.yaml`, `rbac.yaml`. CRD schemas
+come from the datreeio CRDs-catalog fallback
 so Flux/cert-manager/ESO/Prometheus-operator types validate out of
 the box. When a new service uses a filename outside that set, add
 it to the filter rather than letting it silently bypass validation.

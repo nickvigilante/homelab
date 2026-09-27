@@ -1,0 +1,126 @@
+# syncstorage-rs Deployment + Service. Raw manifests -- upstream ships no
+# Helm chart (same reasoning as syncthing). Storage-only Firefox Sync:
+# Mozilla's Firefox Accounts still handles login/auth (this tokenserver
+# validates FxA OAuth tokens against Mozilla's servers); only the actual
+# synced data (history, tabs, addon settings, a curated prefs subset --
+# see README) lives here. Passwords and autofill are excluded client-side
+# (each device's Firefox sync settings), never reach this server.
+#
+# Image: ghcr.io/nickvigilante/syncstorage-rs, built by
+# .github/workflows/build-syncstorage-rs.yml (upstream publishes no image
+# for any backend -- see images/syncstorage-rs/README.md). Postgres backend.
+#
+# `__heartbeat__` (used below for both probes) checks DB connectivity per
+# upstream's own docker-compose.postgres.yaml; `__lbheartbeat__` also
+# exists as a DB-agnostic liveness check but a broken DB connection is
+# exactly the failure mode worth restarting the pod for here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncstorage-rs
+  namespace: syncstorage-rs
+  labels:
+    app: syncstorage-rs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: syncstorage-rs
+  template:
+    metadata:
+      labels:
+        app: syncstorage-rs
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: gandalf
+      containers:
+        - name: syncstorage-rs
+          image: ghcr.io/nickvigilante/syncstorage-rs:0.23.3-postgres
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: SYNC_HOST
+              value: "0.0.0.0"
+            - name: SYNC_PORT
+              value: "8000"
+            - name: SYNC_HUMAN_LOGS
+              value: "0"
+            - name: SYNC_TOKENSERVER__ENABLED
+              value: "true"
+            - name: SYNC_TOKENSERVER__NODE_TYPE
+              value: "postgres"
+            # Run tokenserver DB migrations on startup. Safe to leave on
+            # permanently: idempotent against an already-migrated schema.
+            - name: SYNC_TOKENSERVER__RUN_MIGRATIONS
+              value: "true"
+            # Mozilla's PRODUCTION FxA, not the stage environment upstream's
+            # own example config defaults to. This is the "storage-only"
+            # self-host: Mozilla still handles login/auth; only sync data
+            # (not credentials) lands on this server.
+            - name: SYNC_TOKENSERVER__FXA_EMAIL_DOMAIN
+              value: "api.accounts.firefox.com"
+            - name: SYNC_TOKENSERVER__FXA_OAUTH_SERVER_URL
+              value: "https://oauth.accounts.firefox.com"
+            - name: SYNC_MASTER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: syncstorage-rs-secrets
+                  key: master-secret
+            - name: SYNC_TOKENSERVER__FXA_METRICS_HASH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: syncstorage-rs-secrets
+                  key: fxa-metrics-hash-secret
+            - name: SYNC_SYNCSTORAGE__DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: syncstorage-rs-secrets
+                  key: syncstorage-database-url
+            - name: SYNC_TOKENSERVER__DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: syncstorage-rs-secrets
+                  key: tokenserver-database-url
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /__heartbeat__
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /__heartbeat__
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncstorage-rs
+  namespace: syncstorage-rs
+  labels:
+    app: syncstorage-rs
+spec:
+  type: ClusterIP
+  selector:
+    app: syncstorage-rs
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP

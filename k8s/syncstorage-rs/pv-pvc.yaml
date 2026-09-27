@@ -1,0 +1,45 @@
+# Persistent storage for syncstorage-rs's PostgreSQL. The bitnami/postgresql
+# StatefulSet adopts the PVC named `data-postgres-postgresql-0` when
+# installed with release name `postgres` in the `syncstorage-rs` namespace.
+#
+# Lose this PV -> lose all synced Firefox data (history, tabs, addon
+# settings, a curated subset of prefs). Nothing here is a credential —
+# passwords/autofill are deliberately excluded from what's synced (see
+# README) — but it's still the only copy; snapshotted nightly under tag
+# `syncstorage-rs-postgres` (see k8s/backup/backup-cronjob.yaml).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: syncstorage-rs-postgres-data
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/syncstorage-rs/postgres
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - gandalf
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-postgres-postgresql-0
+  namespace: syncstorage-rs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 8Gi
+  volumeName: syncstorage-rs-postgres-data

@@ -151,6 +151,7 @@ jobs:
               -o -name 'netpol-*.yaml' \
               -o -name redis.yaml \
               -o -name helmrelease.yaml \
+              -o -name '*-helmrelease.yaml' \
               -o -name external-secret.yaml \
               -o -name clustersecretstore.yaml \
               -o -name prometheusrule.yaml \

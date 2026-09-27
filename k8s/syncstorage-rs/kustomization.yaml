@@ -1,0 +1,14 @@
+# Full Flux takeover from day one (same treatment Loki/#116 and
+# uptime-kuma/#147 got) -- no legacy manually-installed release to
+# transition off of for a brand-new service.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - pv-pvc.yaml
+  - postgres-helmrelease.yaml
+  - external-secret.yaml
+  - deployment.yaml
+  - ingress-vigihome.yaml
+  - netpol-syncstorage-rs.yaml
+  - ../../sources/bitnami.yaml
