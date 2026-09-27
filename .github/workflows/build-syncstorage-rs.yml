@@ -15,10 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: >-
-          syncstorage-rs git ref to build (tag/branch/SHA). Defaults to
-          images/syncstorage-rs/VERSION — set this to rebuild the same
-          version (e.g. after a base-image security patch) without bumping it.
+        description: "syncstorage-rs git ref to build (tag/branch/SHA). Defaults to images/syncstorage-rs/VERSION — set this to rebuild the same version (e.g. after a base-image security patch) without bumping it."
         required: false
 
 permissions:
