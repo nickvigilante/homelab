@@ -1,0 +1,13 @@
+# Same repository as grafana-community.yaml, under a second name on purpose.
+# grafana-community.yaml is owned by the claude-mcp Kustomization (prune: true).
+# If two pruning Kustomizations own one object, whichever stops listing it
+# first deletes it for both. Collapse into one shared source when a cluster
+# sources Kustomization exists (deferred in CLAUDE.md, "GitOps with Flux").
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana-community-loki
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://grafana-community.github.io/helm-charts

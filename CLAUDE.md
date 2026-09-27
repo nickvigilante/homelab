@@ -217,18 +217,17 @@ gotchas to remember:
   mismatches.
 
 **Lint:** the kubeconform CI filter at `.github/workflows/lint.yml`
-covers raw + Flux-era filenames:
-`namespace.yaml`, `pv-pvc.yaml`, `secret.example.yaml`,
-`deployment.yaml`, `*-job.yaml`, `*-cronjob.yaml`,
+covers raw + Flux-era filenames: `namespace.yaml`, `pv-pvc.yaml`,
+`secret.example.yaml`, `deployment.yaml`, `*-job.yaml`, `*-cronjob.yaml`,
 `clusterissuer-*.yaml`, `certificate.yaml`, `ingress-*.yaml`,
-`middleware-*.yaml`, `netpol-*.yaml`, `redis.yaml`,
-`helmrelease.yaml`, `external-secret.yaml`, `clustersecretstore.yaml`,
-`prometheusrule.yaml`, `podmonitor.yaml`, `*-cert.yaml`,
-`*-issuer.yaml`. CRD schemas come from the datreeio CRDs-catalog
-fallback so Flux/cert-manager/ESO/Prometheus-operator types validate
-out of the box. When a new service uses a filename outside that set,
-add it to the filter rather than letting it silently bypass
-validation. Flux's kustomize-controller still catches schema issues
+`middleware-*.yaml`, `netpol-*.yaml`, `redis.yaml`, `helmrelease.yaml`,
+`external-secret.yaml`, `clustersecretstore.yaml`, `prometheusrule.yaml`,
+`podmonitor.yaml`, `*-cert.yaml`, `*-issuer.yaml`, `datasource.yaml`,
+`rbac.yaml`. CRD schemas come from the datreeio CRDs-catalog fallback
+so Flux/cert-manager/ESO/Prometheus-operator types validate out of
+the box. When a new service uses a filename outside that set, add
+it to the filter rather than letting it silently bypass validation.
+Flux's kustomize-controller still catches schema issues
 server-side at reconcile time as a backstop.
 
 ## Secrets discipline
@@ -398,6 +397,9 @@ and on failure (via `trap ERR`). Push URLs live in Secret
   reconstructable (metrics re-scrape; silences are transient). Only Grafana's
   `/opt/grafana` (dashboards and settings) is in restic, tag `grafana`. See
   `k8s/kube-prometheus-stack/README.md`.
+- **Loki log data** (#116). Lives on a disposable `local-path` PVC and is
+  deliberately excluded, for the same reasons as the Prometheus TSDB. See
+  `k8s/loki/README.md`.
 
 ## Disaster recovery (full cluster rebuild)
 

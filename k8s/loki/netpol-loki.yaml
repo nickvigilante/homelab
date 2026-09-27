@@ -1,0 +1,39 @@
+# Restrict ingress to Loki. Loki runs with auth_enabled: false (#116), so
+# without this, any Pod in any namespace could reach its unauthenticated
+# API directly, including the delete endpoint used for retention. A
+# compromised pod elsewhere (e.g. a Coder workspace) could read or purge
+# logs across the whole cluster.
+#
+# Allowed ingress:
+#   - Any pod in the monitoring namespace on any port: Alloy pushes to
+#     3100 (both DaemonSet and alloy-events releases), kps-Grafana queries
+#     3100, kps-Prometheus scrapes the metrics port, and Loki's own
+#     single-binary pod needs the memberlist port (7946) to reach itself.
+#     Single-binary mode makes port-by-port rules more fragile than they're
+#     worth for a same-namespace allow, so this policy allows all ports
+#     from the namespace instead of enumerating them.
+#
+# Deliberately NOT allowed:
+#   - Any other namespace, including Coder workspaces. Nothing outside
+#     monitoring has a legitimate reason to call Loki's API directly.
+#
+# Kubelet probes are NOT explicitly allowed — k3s's bundled kube-router
+# netpol controller whitelists local-node→Pod traffic regardless of
+# policy, so liveness/readiness probes from the node continue to work.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-ingress
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/component: single-binary
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring

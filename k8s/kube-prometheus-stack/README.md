@@ -8,7 +8,7 @@ Alertmanager is exposed at `https://alertmanager.vigihome.net`,
 and Alertmanager emails alerts via the Forward Email relay.
 
 This is sub-project **A — metrics only**.
-Logs (Loki) are #116; per-app ServiceMonitors and long-term storage are future work.
+Logs live in Loki (see ../loki/); per-app ServiceMonitors and long-term storage are future work.
 Prometheus and Alertmanager are exposed behind Authentik forward-auth (#137, #117).
 
 Chart: `prometheus-community/kube-prometheus-stack` v`89.1.0`
