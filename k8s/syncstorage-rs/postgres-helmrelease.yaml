@@ -23,6 +23,13 @@ spec:
   releaseName: postgres
   targetNamespace: syncstorage-rs
   interval: 30m
+  # Default 5m was too short for the first install: volumePermissions'
+  # chown init container plus the create-tokenserver-db.sql initdb script
+  # pushed the StatefulSet past it, so helm-controller marked the release
+  # Failed even though the StatefulSet went Ready shortly after (2026-09-27).
+  # 10m matches the other slower-installing charts in this repo (loki,
+  # claude-mcp).
+  timeout: 10m
   chart:
     spec:
       chart: postgresql
