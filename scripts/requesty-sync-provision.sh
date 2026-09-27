@@ -23,7 +23,7 @@
 # Uptime Kuma push URL, and on a rerun offers to keep the stored one.
 #
 # Secrets are read without echo, never printed, and reach jq only through the
-# environment. bws takes secret values as arguments (same as bws-migrate.sh),
+# environment. bws takes secret values as arguments (same as bws-bootstrap-secrets.sh),
 # so they are visible to other local users of this host while it runs.
 set -uo pipefail
 

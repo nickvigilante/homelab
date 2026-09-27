@@ -253,7 +253,7 @@ server-side at reconcile time as a backstop.
     Token in BW vault `Homelab BWS Token`. Standing access is
     read-only; ESO never has standing write access.
   - `homelab-bootstrap` (Read/Write on `homelab`) — used **only** by
-    `scripts/bws-migrate.sh` to push new values from vault → BWS.
+    `scripts/bws-bootstrap-secrets.sh` to push new values from vault → BWS.
     Token in BW vault `Homelab BWS Bootstrap Token`. Never assigned
     to runtime workloads.
 
@@ -266,11 +266,20 @@ server-side at reconcile time as a backstop.
   pushed via:
 
   ```sh
-  ./scripts/bws-migrate.sh <<'EOF'
-  <bws-name>|<bw-vault-item>|<bw-field>
+  ./scripts/bws-bootstrap-secrets.sh <<'EOF'
+  <bws-name>|<bw-vault-item>|<bw-field>|<generate-spec>
   ...
   EOF
   ```
+
+  `generate-spec` is optional (4th column). Leave it blank for a
+  human-managed value that must already exist on the vault item (an API
+  key copied from a third-party dashboard). Set it to `hex:N` to have the
+  script generate `openssl rand -hex N` itself and create/update the
+  vault item — for a brand-new machine secret with no human-chosen value
+  (a Hawk signing key, a generated DB password), so you don't hand-run
+  `openssl` and paste into the vault UI first. Idempotent either way:
+  re-running never touches a field that already has a value.
 
 - **Bootstrap Secrets** that ESO itself needs
   (`external-secrets/bws-access-token`) and any chart-install creds
@@ -591,4 +600,4 @@ file on GitHub.
   Terraform provider could go in the sibling infrastructure repo and
   an Ansible collection could go in `ansible/`. For a single-operator
   homelab with two machine accounts and one project, the web-UI +
-  `scripts/bws-migrate.sh` flow is fine. Revisit if either count grows.
+  `scripts/bws-bootstrap-secrets.sh` flow is fine. Revisit if either count grows.

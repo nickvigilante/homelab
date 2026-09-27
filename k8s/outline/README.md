@@ -76,7 +76,7 @@ The other four (`s3-access-key` / `s3-secret-key` from step 1,
 
 ```bash
 # laptop
-./scripts/bws-migrate.sh <<'EOF'
+./scripts/bws-bootstrap-secrets.sh <<'EOF'
 outline-secret-key|Homelab Outline|secret-key
 outline-utils-secret|Homelab Outline|utils-secret
 outline-postgres-password|Homelab Outline|postgres-password

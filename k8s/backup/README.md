@@ -154,7 +154,7 @@ re-run manually after fixing.
    On a fresh cluster, populate the four BWS keys from BW (laptop):
 
    ```bash
-   ./scripts/bws-migrate.sh <<'EOF'
+   ./scripts/bws-bootstrap-secrets.sh <<'EOF'
    restic-password|Homelab Restic Repository|restic-password
    restic-repository|Homelab Restic Repository|restic-repository
    restic-s3-access-key|Homelab Restic Repository|access-key
@@ -167,7 +167,7 @@ re-run manually after fixing.
    custom fields before running the migration:
 
    - `restic-password` -- copy of the item's main password
-     (`bws-migrate.sh` reads only from `.fields[]`, not `.login.password`).
+     (`bws-bootstrap-secrets.sh` reads only from `.fields[]`, not `.login.password`).
    - `restic-repository` -- the literal
      `s3:https://gateway.storjshare.io/homelab/restic`.
 
