@@ -44,8 +44,9 @@ FTL spreads load across upstreams and favours the fastest,
 so most queries would bypass Unbound.
 
 **DNSSEC:** Unbound validates.
-Pi-hole's own `dns.dnssec` setting is redundant with it;
-leaving it on is harmless, turning it off keeps query-log noise down.
+Pi-hole's own `dns.dnssec` is turned off via `FTLCONF_dns_dnssec: "false"` in `values.yaml`
+(locked in the UI), since validating twice is redundant and only adds query-log noise.
+If the upstream ever moves back to a public resolver, turn it back on.
 
 **No backup needed.** Unbound keeps no persistent state:
 the cache is disposable,

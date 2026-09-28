@@ -98,9 +98,13 @@ extraVolumes:
     configMap:
       name: unbound-config
 
-# v6 FTL listening mode + timezone
+# v6 FTL listening mode, DNSSEC, timezone.
+# dns.dnssec is off because the Unbound sidecar validates DNSSEC
+# itself; validating again in Pi-hole is redundant and only adds
+# query-log noise. Set here (not the UI) so it's locked and in git.
 extraEnvVars:
   FTLCONF_dns_listeningMode: "all"
+  FTLCONF_dns_dnssec: "false"
   TZ: "America/New_York"
 
 # Pi-hole admin is served at https://pi-hole.vigihome.net. The chart's
