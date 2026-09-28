@@ -160,6 +160,7 @@ jobs:
               -o -name rbac.yaml \
               -o -name '*-cert.yaml' \
               -o -name '*-issuer.yaml' \
+              -o -name '*-configmap.yaml' \
             \) -print0 \
             | xargs -0 kubeconform \
                 -summary \
