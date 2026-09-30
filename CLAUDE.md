@@ -422,14 +422,13 @@ sequence to get back to a working cluster:
 
    ```sh
    # On gandalf, after a fresh OS + git clone:
-   cd ~/git/nickvigilante/homelab
-   ansible-playbook -i ansible/hosts ansible/provision-gandalf.yml \
-     -e ansible_connection=local
+   cd ~/git/nickvigilante/homelab/ansible
+   ansible-playbook provision-gandalf.yml -e ansible_connection=local -K
    ```
 
-   The `ansible_connection=local` override is required because the
-   playbook normally SSHes to gandalf, and self-SSH-without-key
-   fails on a fresh host.
+   Run from the `ansible/` directory itself, not the repo root: `ansible.cfg` (which points at the real inventory, `inventory.yml`) is only auto-discovered from the current directory, so running from the repo root leaves the inventory unparsed and every host unmatched.
+   The `ansible_connection=local` override is required because the playbook normally SSHes to gandalf, and self-SSH-without-key fails on a fresh host.
+   `-K` is required because the playbook has `become: true` tasks — without it, it fails partway through instead of prompting for the sudo password.
 
    The playbook provisions the host-side dirs the cluster depends on,
    including `/opt/grafana` owned `472:472` mode `0755` (Grafana's PV
