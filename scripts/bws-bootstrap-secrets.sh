@@ -53,6 +53,11 @@
 # migration would require bumping flux-eso to Read/Write in the BWS web
 # UI and reverting after -- prone to forgotten reverts.
 #
+# Target project: the `homelab` project by default. Set BWS_PROJECT_ID to push
+# into another BWS project instead (e.g. Homelab-IaC for operator/IaC
+# credentials -- see scripts/bw-import-env.sh). The machine account behind
+# 'Homelab BWS Bootstrap Token' must have Read/Write on that project.
+#
 # Requires: bw (Password Manager CLI), bws (Secrets Manager CLI), jq,
 # python3. Prompts for the BW master password.
 #
@@ -62,7 +67,11 @@
 
 set -uo pipefail
 
-PROJECT_ID="c167c5ba-9144-4b04-8a10-b45a01570e69"
+PROJECT_ID="${BWS_PROJECT_ID:-c167c5ba-9144-4b04-8a10-b45a01570e69}"
+if ! [[ "$PROJECT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+  echo "FATAL: BWS_PROJECT_ID is not a UUID" >&2
+  exit 2
+fi
 BOOTSTRAP_ITEM="Homelab BWS Bootstrap Token"
 
 if [ -t 0 ]; then
