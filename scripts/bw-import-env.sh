@@ -70,11 +70,21 @@
 # Anything that reads the whole Homelab-IaC project will see these
 # credentials too, including the Storj state grant and the GitHub App key.
 #
+# To type the master password once for a multi-script run, export an unlocked
+# session first; this script and bws-bootstrap-secrets.sh then reuse it:
+#   export BW_SESSION="$(bw unlock --raw)"
+# Without it, a mistyped password is retried up to 3 times.
+#
 # Requires: bw (Password Manager CLI), jq, python3. Always runs `bw sync`
 # after unlock -- a stale local cache returns an empty item list and would
 # make an existing item look absent.
 
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/bw-unlock.sh
+# shellcheck disable=SC1091  # the pre-commit hook runs without -x
+. "$SCRIPT_DIR/lib/bw-unlock.sh"
 
 usage() {
   cat >&2 <<USAGE
@@ -145,17 +155,9 @@ MERGE_SCRIPT="$(mktemp)"
 trap 'rm -f "$EXISTING_ITEM_FILE" "$MERGED_FILE" "$ENCODED_FILE" "$MERGE_SCRIPT"' EXIT
 
 # ---- bw unlock ----
-if [ -n "${BW_SESSION:-}" ] && bw status 2>/dev/null | jq -e '.status == "unlocked"' >/dev/null; then
-  : # Reuse the caller's already-unlocked session.
-else
-  # Read the master password from the TTY directly.
-  if ! BW_SESSION_VAL="$(bw unlock --raw </dev/tty)"; then
-    echo "FATAL: bw unlock failed (bad password or vault locked)" >&2
-    exit 1
-  fi
-  export BW_SESSION="$BW_SESSION_VAL"
-  unset BW_SESSION_VAL
-fi
+# A mistyped master password is retried; an already-unlocked BW_SESSION is
+# reused with no prompt. See scripts/lib/bw-unlock.sh.
+bw_ensure_unlocked || exit 1
 
 bw sync >/dev/null
 

@@ -59,13 +59,21 @@
 # 'Homelab BWS Bootstrap Token' must have Read/Write on that project.
 #
 # Requires: bw (Password Manager CLI), bws (Secrets Manager CLI), jq,
-# python3. Prompts for the BW master password.
+# python3. Prompts for the BW master password, retrying up to 3 times on a typo.
+# To type it once for a multi-script run, export an unlocked session first and
+# this script reuses it with no prompt:
+#   export BW_SESSION="$(bw unlock --raw)"
 #
 # Output: one '<bws-name>: <uuid>' line per successful create on stdout;
 # SKIP/ERROR lines on stderr. The UUIDs go into ExternalSecret manifests
 # as remoteRef.key values.
 
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/bw-unlock.sh
+# shellcheck disable=SC1091  # the pre-commit hook runs without -x
+. "$SCRIPT_DIR/lib/bw-unlock.sh"
 
 PROJECT_ID="${BWS_PROJECT_ID:-c167c5ba-9144-4b04-8a10-b45a01570e69}"
 if ! [[ "$PROJECT_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
@@ -136,21 +144,11 @@ if [ "$processed" -eq 0 ]; then
 fi
 
 # ---- bw unlock ----
-if [ -n "${BW_SESSION:-}" ] && bw status 2>/dev/null | jq -e '.status == "unlocked"' >/dev/null; then
-  : # Reuse the caller's already-unlocked session. This avoids a stdin
-  # conflict when tuples are piped in via heredoc: `bw unlock` would
-  # otherwise read the heredoc as the master password and fail. To
-  # use, the caller exports BW_SESSION before invoking the script.
-else
-  # Read the master password from the TTY directly, not the script's
-  # stdin (which may be a heredoc of tuples).
-  if ! BW_SESSION_VAL="$(bw unlock --raw </dev/tty)"; then
-    echo "FATAL: bw unlock failed (bad password or vault locked)" >&2
-    exit 1
-  fi
-  export BW_SESSION="$BW_SESSION_VAL"
-  unset BW_SESSION_VAL
-fi
+# The master password is read from the terminal, not this script's stdin (which
+# is a heredoc of tuples), and a mistyped password is retried. If the caller
+# already exported an unlocked BW_SESSION it is reused with no prompt. See
+# scripts/lib/bw-unlock.sh.
+bw_ensure_unlocked || exit 1
 
 bw sync >/dev/null
 
