@@ -36,6 +36,21 @@ spec:
           annotations:
             summary: "Container {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) was OOMKilled"
             description: "Container was OOMKilled and restarted in the last 10m. Consider raising its memory limit."
+        # The chart's KubeContainerWaiting waits `for: 1h`, and KubePodNotReady
+        # is generic, so a pod stuck in CreateContainerError went unflagged for
+        # ~17m-1h (samwise, 2026-09-27: a clock step left containerd's
+        # container-name reservations wedged and the kubelet retried ~20k
+        # times). The kubelet retries this state every few seconds, so 10m of
+        # it is never a transient blip.
+        - alert: ContainerCreateErrorStuck
+          expr: |
+            max by (namespace, pod, container) (kube_pod_container_status_waiting_reason{reason="CreateContainerError"}) == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) stuck in CreateContainerError"
+            description: "Container has been in CreateContainerError for >10m. Run `kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }}`. For 'failed to reserve container name', deleting the pod (new UID, new names) clears it; restarting k3s-agent alone does not."
         # certmanager_certificate_expiration_timestamp_seconds comes from the
         # cert-manager ServiceMonitor (enabled in Task 4). Renewal runs at 30d
         # before expiry, so <14d means DNS-01 renewal has been failing ~16+
