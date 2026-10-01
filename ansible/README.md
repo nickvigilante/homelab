@@ -112,6 +112,10 @@ ansible-playbook provision-gandalf.yml \
    #   * `gandalf` must be in --limit so play #1 can slurp the k3s join
    #     token via delegated slurp; without it play #2 fails on an
    #     undefined `hostvars['gandalf'].k3s_token`.
+   #   * `tailscale_authkey` is only required for a Pi that isn't on
+   #     Tailscale yet. On a Pi where `tailscale status` is Running,
+   #     the playbook skips the key check and `tailscale up`, so a
+   #     re-run can omit the `--extra-vars` line.
    #   * `--ask-become-pass` is required because sudo on cluster hosts
    #     isn't passwordless. Ansible will use the same password for
    #     both gandalf and the Pi — they need to match (set both up the
