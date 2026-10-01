@@ -315,9 +315,13 @@ server-side at reconcile time as a backstop.
   these, and the workspace never holds `homelab-bootstrap` (read/write).
   Anything that reads the whole `Homelab-IaC` project also sees the Storj
   state grant, the GitHub App key, and the CI credentials.
-  `scripts/bw-import-env.sh` and
-  `BWS_PROJECT_ID=... scripts/bws-bootstrap-secrets.sh` exist for the move;
-  the migration itself is still pending.
+  The move is done (2026-10-01, 12 secrets in `Homelab-IaC`).
+  `homelab-bootstrap` has no standing access to that project:
+  grant it read/write in the BWS web UI only while running
+  `BWS_PROJECT_ID=... scripts/bws-bootstrap-secrets.sh`
+  (after `scripts/bw-import-env.sh` adds the vault fields), then revoke it.
+  `scripts/bw-import-env.sh` never overwrites an existing field, so to rotate
+  one, delete the vault field and the BWS secret first, then re-run both.
 
 - `secret.example.yaml` files document each Secret's keys + roles
   with `REPLACE_WITH_*` placeholders. Never applied — documentation
