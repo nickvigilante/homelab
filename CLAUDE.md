@@ -305,6 +305,20 @@ server-side at reconcile time as a backstop.
   sweep on 2026-05-30 (#135 Task 4) found six leaked Secrets and
   stripped them; subsequent recipes always include the strip.
 
+- **Operator and IaC credentials** (the contents of
+  `~/.homelab-opentofu.env`) belong in vault item `Homelab OpenTofu` and in
+  the separate BWS project `Homelab-IaC`, under their env var names
+  (`TF_VAR_...`, `AWS_...`) so the project renders straight back into an env
+  file.
+  The dev workspace reads that project with the existing read-only `operator`
+  machine account; `flux-eso` has no access to it, so the cluster cannot read
+  these, and the workspace never holds `homelab-bootstrap` (read/write).
+  Anything that reads the whole `Homelab-IaC` project also sees the Storj
+  state grant, the GitHub App key, and the CI credentials.
+  `scripts/bw-import-env.sh` and
+  `BWS_PROJECT_ID=... scripts/bws-bootstrap-secrets.sh` exist for the move;
+  the migration itself is still pending.
+
 - `secret.example.yaml` files document each Secret's keys + roles
   with `REPLACE_WITH_*` placeholders. Never applied — documentation
   only.
@@ -322,7 +336,7 @@ server-side at reconcile time as a backstop.
 - Storj S3 access grants:
 
   - **OpenTofu state** grant lives in `~/.homelab-opentofu.env`
-    (root:root 0600) and in `/etc/rclone/rclone.conf` for the
+    (`nickv:nickv` 0600 on gandalf) and in `/etc/rclone/rclone.conf` for the
     `[vigilantube]` profile (unrelated bucket).
   - **Restic backup** grant lives in BW item `Homelab Restic Repository`
     (`access-key` / `secret-key` custom fields) and in BWS as
