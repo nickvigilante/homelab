@@ -45,13 +45,66 @@ persistentVolumeClaim:
   enabled: true
   existingClaim: pihole-config
 
-# Default upstreams — overridden once migrated pihole.toml takes effect.
-DNS1: "1.1.1.1"
-DNS2: "9.9.9.9"
+# Upstream resolver. The chart renders DNS1/DNS2 into the
+# FTLCONF_dns_upstreams env var, and in Pi-hole v6 env vars override
+# pihole.toml and lock the field read-only in the admin UI -- so this
+# block, not the UI, is the source of truth for upstreams.
+#
+# The only upstream is the recursive Unbound sidecar below (see
+# README.md for the rationale). DNS2 is explicitly blanked: FTL spreads
+# queries across all upstreams and favours the fastest, so leaving a
+# public resolver as a second upstream would route most queries around
+# Unbound. (Previously 1.1.1.1 + 9.9.9.9 over plain port 53.)
+DNS1: "127.0.0.1#5335"
+DNS2: ""
 
-# v6 FTL listening mode + timezone
+# Recursive Unbound resolver as a sidecar in the Pi-hole pod, listening
+# on loopback only. Config is the unbound-config ConfigMap
+# (unbound-configmap.yaml, applied by hand before helm upgrade).
+# Distroless image, so probes use the image's drill-hc wrapper; they
+# query Unbound's built-in `localhost.` zone so an ISP outage can't
+# fail them and restart-loop the pod.
+extraContainers:
+  - name: unbound
+    image: klutchell/unbound:v1.26.1
+    imagePullPolicy: IfNotPresent
+    args: ["-d", "-c", "/etc/unbound/unbound.conf"]
+    volumeMounts:
+      - name: unbound-config
+        mountPath: /etc/unbound/unbound.conf
+        subPath: unbound.conf
+        readOnly: true
+    livenessProbe:
+      exec:
+        command: ["drill-hc", "-p", "5335", "localhost", "@127.0.0.1"]
+      initialDelaySeconds: 10
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readinessProbe:
+      exec:
+        command: ["drill-hc", "-p", "5335", "localhost", "@127.0.0.1"]
+      periodSeconds: 10
+      timeoutSeconds: 5
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 256Mi
+
+extraVolumes:
+  unbound-config:
+    configMap:
+      name: unbound-config
+
+# v6 FTL listening mode, DNSSEC, timezone.
+# dns.dnssec is off because the Unbound sidecar validates DNSSEC
+# itself; validating again in Pi-hole is redundant and only adds
+# query-log noise. Set here (not the UI) so it's locked and in git.
 extraEnvVars:
   FTLCONF_dns_listeningMode: "all"
+  FTLCONF_dns_dnssec: "false"
   TZ: "America/New_York"
 
 # Pi-hole admin is served at https://pi-hole.vigihome.net. The chart's

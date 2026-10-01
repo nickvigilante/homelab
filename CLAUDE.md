@@ -224,7 +224,8 @@ covers raw + Flux-era filenames: `namespace.yaml`, `pv-pvc.yaml`,
 `*-helmrelease.yaml` (e.g. `postgres-helmrelease.yaml` — a HelmRelease that
 isn't the directory's main one), `external-secret.yaml`,
 `clustersecretstore.yaml`, `prometheusrule.yaml`, `podmonitor.yaml`,
-`*-cert.yaml`, `*-issuer.yaml`, `datasource.yaml`, `rbac.yaml`. CRD schemas
+`*-cert.yaml`, `*-issuer.yaml`, `*-configmap.yaml`, `datasource.yaml`,
+`rbac.yaml`. CRD schemas
 come from the datreeio CRDs-catalog fallback
 so Flux/cert-manager/ESO/Prometheus-operator types validate out of
 the box. When a new service uses a filename outside that set, add
@@ -354,6 +355,13 @@ restic backup — but **not** in this repo):
   don't fit a pattern (e.g. `pi.hole` itself, hardware on the LAN
   without its own DNS like a printer or NAS). Avoid for
   `*.vigihome.net` hosts — the wildcard above covers those.
+
+Everything Pi-hole can't answer locally goes to its **only upstream, a
+recursive Unbound sidecar** on `127.0.0.1#5335` in the same pod. The
+upstream is set by `DNS1`/`DNS2` in `k8s/pihole/values.yaml` (rendered
+into `FTLCONF_dns_upstreams`, which locks the field in the admin UI),
+not in `pihole.toml`. Don't add a public resolver alongside it. See
+`k8s/pihole/README.md`.
 
 The legacy `*.home` namespace (`jellyfin.home`, `uptime.home`,
 `coder.home`, etc.) has been **fully retired**. Any leftover

@@ -1,0 +1,92 @@
+# Unbound config for the recursive-resolver sidecar in the Pi-hole pod
+# (see `extraContainers` in values.yaml and README.md).
+#
+# Pi-hole forwards every query it can't answer locally to
+# 127.0.0.1#5335; Unbound resolves it by walking root -> TLD ->
+# authoritative itself, so no third-party resolver sees the full query
+# stream. Local answers (the *.vigihome.net wildcard in
+# misc.dnsmasq_lines, dns.hosts) never reach Unbound.
+#
+# This file replaces the image's default /etc/unbound/unbound.conf
+# rather than layering on custom.conf.d: the default binds 0.0.0.0:53,
+# which would collide with Pi-hole in the shared pod network namespace.
+#
+# Not a chart resource -- apply by hand before `helm upgrade`:
+#   kubectl apply -f k8s/pihole/unbound-configmap.yaml
+# Unbound reads its config only at start, so after changing this file:
+#   kubectl -n networking rollout restart deployment/pihole
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unbound-config
+  namespace: networking
+data:
+  unbound.conf: |
+    server:
+        do-daemonize: no
+        username: "unbound"
+        chroot: ""
+        logfile: ""
+        pidfile: ""
+        verbosity: 1
+
+        # Loopback only: Pi-hole is the only client.
+        interface: 127.0.0.1
+        port: 5335
+        access-control: 127.0.0.0/8 allow
+
+        # k3s pod networking here is IPv4-only; trying v6 authoritatives
+        # would just add timeouts.
+        do-ip4: yes
+        do-ip6: no
+        do-udp: yes
+        do-tcp: yes
+
+        # Root hints and DNSSEC trust anchor ship in the image; the
+        # anchor self-updates (RFC 5011) in the container's writable
+        # layer and is re-seeded from the image on every restart.
+        root-hints: /var/unbound/root.hints
+        auto-trust-anchor-file: /var/unbound/root.key
+
+        # Privacy: send each server only the labels it needs to see
+        # (QNAME minimisation), and don't identify ourselves.
+        qname-minimisation: yes
+        hide-identity: yes
+        hide-version: yes
+
+        # DNSSEC and hardening.
+        harden-glue: yes
+        harden-dnssec-stripped: yes
+        harden-below-nxdomain: yes
+        aggressive-nsec: yes
+        use-caps-for-id: no
+        edns-buffer-size: 1232
+
+        # DNS-rebinding protection: strip private addresses from public
+        # answers. vigihome.net is answered by Pi-hole locally and never
+        # reaches Unbound, but allow it anyway in case that ever changes.
+        private-address: 10.0.0.0/8
+        private-address: 172.16.0.0/12
+        private-address: 192.168.0.0/16
+        private-address: 169.254.0.0/16
+        private-address: fd00::/8
+        private-address: fe80::/10
+        private-domain: "vigihome.net"
+
+        # Latency: refresh popular records before they expire, and serve
+        # stale answers while refreshing so a slow authoritative server
+        # doesn't stall the client.
+        prefetch: yes
+        prefetch-key: yes
+        serve-expired: yes
+        serve-expired-ttl: 86400
+        serve-expired-client-timeout: 1800
+
+        # Small household: one thread, modest caches (Pi-hole caches in
+        # front of this too). Sized to sit well under the sidecar's
+        # memory limit in values.yaml.
+        num-threads: 1
+        msg-cache-size: 32m
+        rrset-cache-size: 64m
+        so-rcvbuf: 0
+        so-sndbuf: 0
