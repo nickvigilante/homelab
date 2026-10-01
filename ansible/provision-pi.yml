@@ -83,6 +83,7 @@
           - jq
           - vim
           - unattended-upgrades
+          - chrony
         state: present
         update_cache: true
         cache_valid_time: 3600
@@ -153,6 +154,36 @@
 
     # ---- k3s agent ------------------------------------------------------
 
+    # Pis have no RTC and boot with a stale clock; chrony steps it
+    # forward a few minutes in. k3s-agent starting before that step
+    # wedged containerd's container-name reservations on samwise
+    # (2026-09-27). chrony-wait makes time-sync.target block until
+    # chrony is synced, and the drop-in orders k3s-agent after it.
+    # See ../system/k3s-agent-wait-time-sync.conf.
+    - name: Enable chrony-wait so time-sync.target waits for a real sync
+      ansible.builtin.systemd:
+        name: chrony-wait
+        enabled: true
+
+    - name: Create k3s-agent drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/k3s-agent.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # Takes effect on the next boot. Deliberately no restart of a
+    # running k3s-agent: that would bounce every pod on the node.
+    - name: Order k3s-agent after time-sync.target
+      ansible.builtin.copy:
+        src: ../system/k3s-agent-wait-time-sync.conf
+        dest: /etc/systemd/system/k3s-agent.service.d/10-wait-time-sync.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
     # k3s install script is idempotent — re-runs are safe and pick up
     # config changes. INSTALL_K3S_VERSION pinning is intentionally left
     # to the env (or omitted to track stable) so gandalf and agents
@@ -188,3 +219,7 @@
       ansible.builtin.systemd:
         name: ssh
         state: reloaded
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
