@@ -261,6 +261,16 @@ done < <(cut -d'|' -f1 "$TUPLES_FILE" | sort -u)
 bw sync >/dev/null
 
 # ---- Step 2: push every field's (now-guaranteed-present) value into BWS ----
+# bws (clap) echoes a rejected argument verbatim in its error text, so strip
+# every line of the secret from anything we print on failure.
+redact() {
+  local out="$1" secret="$2" line
+  while IFS= read -r line; do
+    [ -n "$line" ] && out="${out//"$line"/<redacted>}"
+  done <<<"$secret"
+  printf '%s' "$out"
+}
+
 migrate_one() {
   local name="$1" item="$2" field="$3" value bws_out id
   value="$(bw get item "$item" | jq -r --arg f "$field" '.fields[]?|select(.name==$f)|.value')"
@@ -268,15 +278,17 @@ migrate_one() {
     echo "SKIP  $name  (empty value at '$item' / '$field' -- generation may have failed)" >&2
     return
   fi
-  if bws_out="$(bws secret create "$name" "$value" "$PROJECT_ID" 2>&1)"; then
+  # `--` ends option parsing: a value that starts with `-` (a PEM begins with
+  # `-----BEGIN`) would otherwise be rejected by bws as an unknown flag.
+  if bws_out="$(bws secret create -- "$name" "$value" "$PROJECT_ID" 2>&1)"; then
     id="$(echo "$bws_out" | jq -r '.id // empty' 2>/dev/null)"
     if [ -n "$id" ]; then
       printf '%-30s %s\n' "$name:" "$id"
     else
-      echo "WARN  $name  (created but couldn't parse id) raw: $bws_out" >&2
+      echo "WARN  $name  (created but couldn't parse id) raw: $(redact "$bws_out" "$value")" >&2
     fi
   else
-    echo "ERROR $name: $bws_out" >&2
+    echo "ERROR $name: $(redact "$bws_out" "$value")" >&2
   fi
 }
 
@@ -285,4 +297,4 @@ while IFS='|' read -r item field spec name; do
 done <"$TUPLES_FILE"
 
 unset BW_SESSION BWS_ACCESS_TOKEN
-unset -f migrate_one trim
+unset -f migrate_one redact trim
