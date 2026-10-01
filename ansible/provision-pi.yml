@@ -6,6 +6,9 @@
 #   #      https://login.tailscale.com/admin/settings/keys
 #   #    Pre-authorized, single-use, tag:homelab, ~1h expiry.
 #   #    Save to ~/.tailscale-authkey (chmod 600).
+#   #    Only needed for a Pi that isn't on Tailscale yet: a Pi whose
+#   #    `tailscale status` is Running skips the key check and
+#   #    `tailscale up`, so re-runs can omit tailscale_authkey.
 #
 #   # 2. With Pi Imager Advanced Options, the freshly imaged Pi
 #   #    already has the `nickv` user + your SSH pubkey on first
@@ -17,8 +20,8 @@
 #     --extra-vars "tailscale_authkey=$(cat ~/.tailscale-authkey)"
 #
 # --ask-become-pass (-K) is required: the k3s join token is slurped
-# from gandalf via `delegate_to`, and the file is root-only on
-# gandalf. The same prompt also covers `become: true` for the
+# from gandalf via `delegate_to` (only when k3s isn't installed on the
+# Pi yet), and the file is root-only on gandalf. The same prompt also covers `become: true` for the
 # pi-side tasks (apt, systemd, etc.) — Ansible caches the password
 # across hosts in the play, and `nickv` is the operator on every
 # host, so one prompt does both.
@@ -28,18 +31,49 @@
   become: true
 
   vars:
-    # Pre-flight check: the operator must pass tailscale_authkey via
-    # --extra-vars. Defaulting to empty so the assert below fires
-    # with a clear message instead of an opaque tailscale CLI error.
+    # Pre-flight check: for a Pi that isn't on Tailscale yet, the operator
+    # must pass tailscale_authkey via --extra-vars. Defaulting to empty so
+    # the assert below fires with a clear message instead of an opaque
+    # tailscale CLI error.
     tailscale_authkey: ""
 
   pre_tasks:
+    # An already-provisioned Pi is on the tailnet, so a re-run needs
+    # neither a fresh auth key nor the join token. Probe read-only
+    # (check_mode: false so --check sees the real state); a missing
+    # tailscale binary or a stopped daemon just means "not running".
+    - name: Probe Tailscale state
+      ansible.builtin.command:
+        cmd: tailscale status --json
+      register: tailscale_status
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Record whether Tailscale is already running
+      ansible.builtin.set_fact:
+        tailscale_running: >-
+          {{ (tailscale_status.rc | default(1) == 0
+              and (tailscale_status.stdout | default('') | trim).startswith('{')
+              and (tailscale_status.stdout | from_json).BackendState | default('') == 'Running') | bool }}
+
     - name: Require tailscale_authkey
       ansible.builtin.assert:
         that:
           - tailscale_authkey | length > 0
         fail_msg: >
           Set tailscale_authkey via --extra-vars. Generate a one-time pre-authorized key tagged tag:homelab at https://login.tailscale.com/admin/settings/keys. #magic___^_^___line
+      when: not tailscale_running
+
+    # The join token is only consumed by the k3s installer, which is
+    # skipped (`creates:`) once the binary exists, so only fetch it for
+    # a Pi that doesn't have k3s yet.
+    - name: Check whether k3s is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s
+      register: k3s_binary
+      check_mode: false
+
     # Read the k3s join token from gandalf via delegate_to so the
     # operator can `--limit <pi>` without also listing gandalf in
     # the limit. `become: true` from the play applies to the
@@ -51,11 +85,13 @@
         src: /var/lib/rancher/k3s/server/node-token
       register: k3s_token_slurped
       delegate_to: gandalf
+      when: not k3s_binary.stat.exists
 
     - name: Stash decoded k3s_token for downstream tasks
       ansible.builtin.set_fact:
         k3s_token: "{{ k3s_token_slurped.content | b64decode | trim }}"
         cacheable: false
+      when: not k3s_binary.stat.exists
 
   tasks:
     # ---- Base system ----------------------------------------------------
@@ -147,6 +183,7 @@
           tailscale up --authkey={{ tailscale_authkey }} --advertise-tags=tag:homelab --hostname={{ inventory_hostname }} --accept-dns=true
       register: tailscale_up
       changed_when: "'Success.' in tailscale_up.stdout or tailscale_up.stdout == ''"
+      when: not tailscale_running
       # If already authed, tailscale up is idempotent; suppress error noise.
       failed_when:
         - tailscale_up.rc != 0
@@ -193,7 +230,7 @@
         cmd: |
           curl -sfL https://get.k3s.io | \
             K3S_URL={{ k3s_url | quote }} \
-            K3S_TOKEN={{ k3s_token | quote }} \
+            K3S_TOKEN={{ k3s_token | default('') | quote }} \
             INSTALL_K3S_EXEC="agent" \
             sh -
         creates: /usr/local/bin/k3s
