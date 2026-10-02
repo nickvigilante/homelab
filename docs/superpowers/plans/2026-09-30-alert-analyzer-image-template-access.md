@@ -68,6 +68,26 @@ Task 7 amends the spec to match, so approving this plan approves the amendments.
    Task 9 adds a small extra read-only role for them.
    It is optional and separate, so skipping it changes nothing else.
 
+## Amendment after `homelab-dev-templates#45` (2026-10-02)
+
+This plan was written while a parallel thread built the same groundwork in `homelab-dev-templates`.
+That work has merged, so parts of this plan are already done:
+
+- **Multi-template CI exists.**
+  [`homelab-dev-templates#45`](https://github.com/nickvigilante/homelab-dev-templates/pull/45) made `lint`, `template-validate` and `template-push` run once per affected template.
+  `scripts/changed-templates.sh` picks the templates, and a change under `modules/workspace/` selects all of them.
+  Task 4 below is rewritten to build on that instead of repeating it.
+- **Every template needs a `template.json`.**
+  `template-push` reads the icon from it, and `scripts/template-matrix.sh` fails both the PR check and the push when an affected template has none.
+  Task 4 adds `templates/Analyzer/template.json`, which also carries the lifecycle flags that Step 4 used to hardcode.
+- **`Base` now calls a shared module, `modules/workspace/`**, which CI copies into every template directory before validating or pushing it.
+  The Analyzer stays standalone and does not call it: the module always includes the dotfiles script and the Claude Code module, both of which this plan forbids in the Analyzer.
+  The copy CI makes in `templates/Analyzer/modules/workspace/` is unused, so it uploads with the template but is never loaded.
+- **The cluster tools stay out of the base image.**
+  `homelab-dev-templates#46`, which added `kubectl`, `helm` and `flux` to the base image, was closed in favor of this plan's `images/analyzer/`.
+- **Correction to Task 3:** `templates/Base` does commit a `.terraform.lock.hcl`.
+  Not committing one for the Analyzer is still fine, because nothing in CI requires it.
+
 ## Review Focus
 
 The failure modes the spec implies and no happy-path test would catch, most likely first.
@@ -100,19 +120,20 @@ Also worth a line each:
 
 `homelab-dev-templates`:
 
-| File                                                                       | Responsibility                                                      |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `images/analyzer/Dockerfile`                                               | The base image plus the six tools.                                  |
-| `images/analyzer/tools.txt`                                                | `flux` and `promtool`, in the base image's installer format.        |
-| `images/analyzer/README.md`                                                | What is in the image, how to build and bump it, the tag scheme.     |
-| `.github/workflows/image-build-analyzer.yml`                               | Build and smoke-test on PRs, publish on `main`.                     |
-| `templates/Analyzer/main.tf`                                               | The workspace: agent, PVC, Deployment as ServiceAccount `analyzer`. |
-| `templates/Analyzer/clone-homelab.sh`                                      | Keeps `~/homelab` current.                                          |
-| `templates/Analyzer/test-clone-homelab.sh`                                 | Tests the clone script against a local repo.                        |
-| `templates/Analyzer/acceptance.sh`                                         | Checks run inside a live workspace.                                 |
-| `templates/Analyzer/README.md`                                             | What the template is, how it is confined, how it is operated.       |
-| `.github/workflows/lint.yml`, `template-validate.yml`, `template-push.yml` | Handle every template, not just `Base`.                             |
-| `README.md`                                                                | Layout list gains the two new directories.                          |
+| File                                              | Responsibility                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `images/analyzer/Dockerfile`                      | The base image plus the six tools.                                  |
+| `images/analyzer/tools.txt`                       | `flux` and `promtool`, in the base image's installer format.        |
+| `images/analyzer/README.md`                       | What is in the image, how to build and bump it, the tag scheme.     |
+| `.github/workflows/image-build-analyzer.yml`      | Build and smoke-test on PRs, publish on `main`.                     |
+| `templates/Analyzer/main.tf`                      | The workspace: agent, PVC, Deployment as ServiceAccount `analyzer`. |
+| `templates/Analyzer/clone-homelab.sh`             | Keeps `~/homelab` current.                                          |
+| `templates/Analyzer/test-clone-homelab.sh`        | Tests the clone script against a local repo.                        |
+| `templates/Analyzer/acceptance.sh`                | Checks run inside a live workspace.                                 |
+| `templates/Analyzer/README.md`                    | What the template is, how it is confined, how it is operated.       |
+| `templates/Analyzer/template.json`                | Icon and lifecycle flags, which `template-push.yml` applies.        |
+| `.github/workflows/lint.yml`, `template-push.yml` | Run the clone test, and apply `template.json`'s `edit_flags`.       |
+| `README.md`                                       | Layout list gains the two new directories.                          |
 
 `homelab`:
 
@@ -1080,107 +1101,111 @@ git commit -m "feat(analyzer): add the Analyzer workspace template" \
   -m "Assisted-by: AI"
 ```
 
-### Task 4: Teach CI about more than one template
+### Task 4: Wire the Analyzer into the multi-template CI
 
 **Files:**
 
+- Create: `templates/Analyzer/template.json`
 - Modify: `.github/workflows/lint.yml`
-- Modify: `.github/workflows/template-validate.yml`
 - Modify: `.github/workflows/template-push.yml`
 
 **Interfaces:**
 
-- Consumes: `templates/*/` directories, with the template name equal to the directory name.
-- Produces: validation and delivery of `Analyzer` alongside `Base`, and the Analyzer lifecycle settings re-applied on every push.
+- Consumes: `homelab-dev-templates#45`'s CI: `scripts/changed-templates.sh` and `scripts/template-matrix.sh`, which put each `template.json` key on the push job as `matrix.<key>`, and the `Set the template icon` step in `template-push.yml`.
+- Produces: `template.json` gains an optional `edit_flags` list, which `template-push.yml` passes to `coder templates edit` on every push. Templates without it, such as `Base`, are unaffected.
 
-These three files hardcode `Base`.
-Each edit below was applied to a copy of the real file and passed `yamllint` and `actionlint`, and every `coder templates edit` flag was confirmed against the installed CLI (v2.37.3).
+`lint.yml` already validates every template, and `template-validate.yml` and `template-push.yml` already validate and push every affected one, so neither of the latter needs a loop.
+What is left is the Analyzer's own clone test, its metadata, and a way for `template.json` to carry flags beyond the icon.
+Each edit below was applied to a copy of `main` after #45 and passed `actionlint`, `yamllint` and `yamlfmt -lint`.
+Every flag was checked against the installed CLI (v2.37.3).
 
-- [ ] **Step 1: `lint.yml`: validate every template and run the clone test**
+- [ ] **Step 1: Add `templates/Analyzer/template.json`**
 
-Replace this step:
+The flags set a 30-minute deadline moved on by activity, turn dormancy, auto-delete and failure cleanup off, and allow Coder Agents.
+Dormancy flags need the Premium license, which this deployment has.
 
-```yaml
-      - name: tofu validate (templates/Base)
-        working-directory: templates/Base
-        run: |
-          tofu init -input=false
-          tofu validate
+```json
+{
+  "icon": "/emojis/1f50d.png",
+  "edit_flags": [
+    "--description", "Read-only cluster analyzer. Holds no secrets; see templates/Analyzer/README.md.",
+    "--default-ttl", "30m",
+    "--activity-bump", "30m",
+    "--dormancy-threshold", "0s",
+    "--dormancy-auto-deletion", "0s",
+    "--failure-ttl", "0s",
+    "--agents-allowed=true"
+  ]
+}
 ```
 
-with:
+- [ ] **Step 2: `lint.yml`: run the clone test**
+
+Insert this step immediately before `- name: tofu test (modules/workspace)`:
 
 ```yaml
-      - name: tofu validate (every template)
-        run: |
-          set -euo pipefail
-          for dir in templates/*/; do
-            echo "== ${dir}"
-            (cd "${dir}" && tofu init -input=false && tofu validate)
-          done
       - name: Test the Analyzer clone script
         run: sh templates/Analyzer/test-clone-homelab.sh
 ```
 
-- [ ] **Step 2: `template-validate.yml`: push every template as a non-activated version**
+- [ ] **Step 3: `template-push.yml`: apply `edit_flags`**
 
-Replace the single `coder templates push Base ... --yes` command (the last statement of the `Push a non-activated version` step) with:
+The in-cluster runner has no `jq`, so the `changes` job shell-quotes each template's `edit_flags` with `jq`'s `@sh`, and the push job unquotes them with `eval "set -- ..."`.
+`template.json` comes from `main`, which is all this push-only workflow runs.
+Apply this diff:
+
+```diff
+@@ -52,7 +52,10 @@
+           BEFORE_SHA: ${{ github.event.before }}
+         run: |
+           set -euo pipefail
+-          templates="$(scripts/template-matrix.sh "$BEFORE_SHA" HEAD)"
++          # edit_args is template.json's optional edit_flags list, shell-quoted
++          # by jq here because the in-cluster runner has no jq to unpack it.
++          templates="$(scripts/template-matrix.sh "$BEFORE_SHA" HEAD \
++            | jq -c 'map(.edit_args = ((.edit_flags // []) | @sh))')"
+           echo "templates=${templates}" >> "$GITHUB_OUTPUT"
+           echo "Affected templates: ${templates}"
+
+@@ -108,13 +111,22 @@
+       # dashboard. Any /emojis/*.png or /icon/*.svg path ships with Coder;
+       # avoid the /icon/ ones named after a product, which read as that
+       # product's template.
+-      - name: Set the template icon
++      #
++      # Any other `coder templates edit` flags come from template.json's
++      # edit_flags list, such as lifecycle settings, which are template
++      # metadata too. The eval only unquotes what jq's @sh quoted: template.json
++      # comes from main, which is all this push-only workflow ever runs.
++      - name: Apply the template settings
+         env:
+           CODER_URL: ${{ secrets.CODER_URL }}
+           CODER_SESSION_TOKEN: ${{ secrets.CODER_SESSION_TOKEN }}
+           TEMPLATE: ${{ matrix.template }}
+           ICON: ${{ matrix.icon }}
+-        run: coder templates edit "$TEMPLATE" --icon "$ICON"
++          EDIT_ARGS: ${{ matrix.edit_args }}
++        run: |
++          set -euo pipefail
++          eval "set -- ${EDIT_ARGS}"
++          coder templates edit "$TEMPLATE" --icon "$ICON" "$@" --yes
+
+       - name: Report the active version
+         env:
+```
+
+- [ ] **Step 4: Check the flags survive the round trip**
+
+Run from the repo root:
 
 ```bash
-          for dir in templates/*/; do
-            name="$(basename "${dir}")"
-            coder templates push "${name}" \
-              --directory "${dir}" \
-              --name "pr-${PR_NUMBER}-$(git rev-parse --short HEAD)" \
-              --activate=false \
-              --yes
-          done
+scripts/template-matrix.sh "$(git merge-base origin/main HEAD)" HEAD \
+  | jq -c 'map(.edit_args = ((.edit_flags // []) | @sh))' \
+  | jq -r '.[] | select(.template == "Analyzer") | .edit_args' \
+  | EDIT_ARGS="$(cat)" bash -c 'eval "set -- ${EDIT_ARGS}"; printf "[%s]\n" "$@"'
 ```
 
-- [ ] **Step 3: `template-push.yml`: activate every template**
-
-In the `Activate the template` step, replace the `coder templates push Base ... --yes` command with:
-
-```bash
-          for dir in templates/*/; do
-            name="$(basename "${dir}")"
-            coder templates push "${name}" \
-              --directory "${dir}" \
-              --name "main-$(git rev-parse --short HEAD)" \
-              --yes
-          done
-```
-
-- [ ] **Step 4: `template-push.yml`: restate the Analyzer settings**
-
-Insert this step immediately before `- name: Report the active version`.
-The flags set a 30-minute deadline moved on by activity, turn dormancy and auto-delete off, and allow Coder Agents.
-Dormancy flags need the Premium license, which this deployment has.
-
-```yaml
-      # Lifecycle settings are template metadata too, so they are restated on
-      # every push. Autostop: the deadline is 30 minutes after start and each
-      # detected activity moves it 30 minutes on. Dormancy and auto-delete are
-      # set to 0, which turns them off: the analyzer workspace is persistent and
-      # must never be deleted for being idle. --agents-allowed lets Coder Agents
-      # chats use the template. Whether an agent's tool calls count as
-      # "activity" for the bump is checked in the plan's acceptance run.
-      - name: Set the Analyzer template settings
-        env:
-          CODER_URL: ${{ secrets.CODER_URL }}
-          CODER_SESSION_TOKEN: ${{ secrets.CODER_SESSION_TOKEN }}
-        run: |
-          coder templates edit Analyzer \
-            --icon /emojis/1f50d.png \
-            --description "Read-only cluster analyzer. Holds no secrets; see templates/Analyzer/README.md." \
-            --default-ttl 30m \
-            --activity-bump 30m \
-            --dormancy-threshold 0s \
-            --dormancy-auto-deletion 0s \
-            --failure-ttl 0s \
-            --agents-allowed=true \
-            --yes
-```
+Expected: 13 bracketed lines, one per flag or value, with the whole description on one line.
 
 - [ ] **Step 5: Lint**
 
@@ -1190,9 +1215,9 @@ Expected: `ok`.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add .github/workflows
-git commit -m "ci: validate, push and configure every template, not just Base" \
-  -m "lint, template-validate and template-push each hardcoded Base. Loop over templates/*/ so the Analyzer template is checked and delivered too, run its clone-script test in lint, and restate its lifecycle settings on every push the way Base's icon already is." \
+git add templates/Analyzer/template.json .github/workflows
+git commit -m "ci: deliver the Analyzer template with its settings" \
+  -m "Adds the Analyzer's template.json and lets template.json carry extra coder templates edit flags, so its lifecycle settings are restated on every push the way icons already are. lint also runs the Analyzer's clone-script test." \
   -m "Assisted-by: AI"
 ```
 
