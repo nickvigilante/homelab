@@ -129,6 +129,19 @@
         mode: "0644"
       notify: Reload sysctl
 
+    # ---- inotify instance limit ----------------------------------------
+    #
+    # See system/99-inotify-limits.conf. Without this, root's shared
+    # 128-instance budget runs out and pods like Jellyfin crash-loop.
+    - name: Install inotify limits sysctl drop-in
+      ansible.builtin.copy:
+        src: ../system/99-inotify-limits.conf
+        dest: /etc/sysctl.d/99-inotify-limits.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sysctl
+
     - name: Apply pending sysctl drop-ins before Traefik chart re-render
       ansible.builtin.meta: flush_handlers
 
