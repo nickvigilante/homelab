@@ -113,12 +113,20 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: betterleaks git --no-banner --redact -v --log-opts="origin/${BASE_REF}..HEAD" .
       - name: pre-commit run --all-files
-        # betterleaks is skipped here only: its hook scans staged changes, so
-        # on a clean checkout it scans nothing while still costing a Go build.
-        # The "Secret scan (betterleaks)" steps above are the real scan.
+        # betterleaks and sember-changed are skipped here only: both look at
+        # what's being committed, so on a clean checkout they check nothing
+        # while still costing a Go or Rust build. The "Secret scan
+        # (betterleaks)" steps above and the sember step below are the real
+        # checks.
         env:
-          SKIP: betterleaks
+          SKIP: betterleaks,sember-changed
         run: pre-commit run --all-files --show-diff-on-failure
+      # One sentence per line, checked only in the paragraphs this PR changes
+      # (see .sember.toml). Not on pushes to main: there the action would check
+      # every file, and older docs convert only as they're edited.
+      - name: sember (changed paragraphs)
+        if: github.event_name == 'pull_request'
+        uses: nickvigilante/sember@65253539033deb4eba64483debb77db2c32b3e5c # main
 
   kubeconform:
     name: kubeconform (raw manifests)
