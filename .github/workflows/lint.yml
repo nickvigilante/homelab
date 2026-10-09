@@ -143,6 +143,11 @@ jobs:
         # ansible/ tree (Ansible YAML, not k8s manifests). When a new
         # service uses a filename that isn't in this list, add it
         # rather than letting it silently bypass the CI check.
+        # The CRDs-catalog is pinned to a commit, like every other
+        # dependency here: its 2026-10-08 external-secrets update
+        # (datreeio/CRDs-catalog#988) ships a ClusterSecretStore schema
+        # kubeconform v0.6.7 can't load. Bump the pin deliberately, after
+        # checking that kubeconform passes against the new catalog.
         run: |
           set -euo pipefail
           find k8s -type f \( \
@@ -174,7 +179,7 @@ jobs:
                 -summary \
                 -strict \
                 -schema-location default \
-                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/35b5e9bf768a71b170601e4538140504a8829392/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
   python-tests:
     name: pytest (requesty-coder-sync)
