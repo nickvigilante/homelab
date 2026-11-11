@@ -5,9 +5,16 @@
   "dependencyDashboard": true,
   "labels": ["dependencies"],
   "prConcurrentLimit": 5,
-  "prHourlyLimit": 2,
+  "prHourlyLimit": 0,
   "automerge": false,
   "ignorePaths": ["clusters/gandalf/flux-system/**"],
+  "packageRules": [
+    {
+      "description": "Major updates are only created when ticked on the dependency dashboard",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ],
   "flux": {
     "managerFilePatterns": ["/^(k8s|clusters|sources)/.+\\.ya?ml$/"]
   },
