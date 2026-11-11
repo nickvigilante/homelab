@@ -10,6 +10,7 @@
 # Formatter/linter per file type:
 #   Markdown  -> mdformat (+ mdformat-tables; aligns tables, CommonMark-strict so
 #                it won't mangle snake_case prose or rewrite embedded code blocks)
+#                + sember (one sentence per line, in changed paragraphs only)
 #   YAML      -> yamlfmt (format, conservative — see .yamlfmt) + yamllint (lint)
 #   Shell     -> shfmt (format) + shellcheck (lint, -S info)
 #   Secrets   -> betterleaks (replaces gitleaks; #123)
@@ -41,6 +42,15 @@ repos:
         args: [--wrap, keep, --number]
         additional_dependencies:
           - mdformat-tables
+
+  # Markdown: sember puts one sentence per line (.sember.toml), but only in the
+  # paragraphs a commit changes, so older hard-wrapped docs convert as they're
+  # edited instead of in one huge diff. pre-commit builds it with cargo, and
+  # installs Rust itself if cargo isn't on PATH.
+  - repo: https://github.com/nickvigilante/sember
+    rev: 65253539033deb4eba64483debb77db2c32b3e5c # main; no tagged release yet
+    hooks:
+      - id: sember-changed
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8

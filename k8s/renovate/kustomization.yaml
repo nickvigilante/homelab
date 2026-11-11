@@ -1,0 +1,21 @@
+# The scripts and the Renovate config ship to the pod as generated ConfigMaps,
+# so there is no custom image and each file has a single source. The generated
+# names carry a content hash, so editing a file rolls the next run onto the new
+# version.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - external-secret.yaml
+  - cronjob.yaml
+  - prometheusrule.yaml
+configMapGenerator:
+  - name: renovate-scripts
+    namespace: renovate
+    files:
+      - get-token.sh
+      - run.sh
+  - name: renovate-config
+    namespace: renovate
+    files:
+      - config.js

@@ -1,0 +1,5 @@
+# sember (https://github.com/nickvigilante/sember): one sentence per line in
+# Markdown prose. The pre-commit hook and the lint workflow apply it only to
+# the paragraphs a change touches, so older hard-wrapped docs convert as
+# they're edited.
+style = "sentence"

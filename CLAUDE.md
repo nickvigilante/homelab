@@ -580,6 +580,10 @@ The Tailscale auth keys it needs are minted via
 - Markdown is formatted by **mdformat** (see `.pre-commit-config.yaml`), not
   prettier — prettier rewrites embedded code blocks and mangles
   snake_case-near-emphasis in these identifier-heavy docs.
+- **sember** enforces one sentence per line, but only in the paragraphs a change touches: the `sember-changed` pre-commit hook rewrites them on commit, and the lint workflow checks them on PRs.
+  Older hard-wrapped docs convert as they're edited.
+  Run `sember <file>` to convert a whole file on purpose.
+  Settings live in `.sember.toml`.
 
 ## Tracking open work
 
