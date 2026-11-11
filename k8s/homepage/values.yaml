@@ -15,7 +15,7 @@
 image:
   repository: ghcr.io/gethomepage/homepage
   # Pin to the chart's appVersion. Bump when bumping the chart version.
-  tag: v1.2.0
+  tag: v1.13.2
 
 # Kubernetes integration (cluster resource widgets, eventual Ingress
 # auto-discovery). enableRbac true → chart creates the ClusterRole +
