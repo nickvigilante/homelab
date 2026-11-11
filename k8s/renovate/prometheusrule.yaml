@@ -1,0 +1,53 @@
+# Lives in the monitoring namespace with the other rules: Prometheus only reads
+# rules from its own namespace unless told otherwise.
+#
+# The metrics come from the default kube-state-metrics collectors, which
+# k8s/kube-prometheus-stack/values.yaml keeps enabled next to the Flux CRS config.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: renovate
+  namespace: monitoring
+spec:
+  groups:
+    - name: renovate
+      rules:
+        - alert: RenovateRunFailed
+          # Counts failed pods of any Renovate Job still on the cluster. The
+          # CronJob's ttlSecondsAfterFinished removes a finished Job after two
+          # days, so this clears on its own once the failure ages out.
+          expr: |
+            max by (namespace, job_name) (
+              kube_job_status_failed{namespace="renovate"}
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Renovate run {{ $labels.job_name }} failed"
+            description: "Job {{ $labels.job_name }} in {{ $labels.namespace }} has a failed pod. Check `kubectl -n renovate logs job/{{ $labels.job_name }} --all-containers`."
+        - alert: RenovateNotSucceeding
+          # Catches what a failed-Job alert cannot: a suspended CronJob, runs
+          # that never schedule, or failures that outlast the Job TTL.
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{namespace="renovate", cronjob="renovate"} > 30 * 3600
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Renovate has not succeeded in over 30 hours"
+            description: "The renovate CronJob last succeeded {{ $value | humanizeDuration }} ago. It runs daily."
+        - alert: RenovateNeverSucceeded
+          # kube-state-metrics only exports last_successful_time after a first
+          # success, so a CronJob that never works has no series for the rule
+          # above. This one covers that, once the CronJob is over 30 hours old.
+          expr: |
+            (time() - kube_cronjob_created{namespace="renovate", cronjob="renovate"} > 30 * 3600)
+            unless on (namespace, cronjob)
+            kube_cronjob_status_last_successful_time{namespace="renovate", cronjob="renovate"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Renovate has never completed a successful run"
+            description: "The renovate CronJob is over 30 hours old and has no successful run."

@@ -1,0 +1,124 @@
+# Daily Renovate run. Opens dependency-update PRs against the repos listed in
+# config.js; it never merges anything.
+#
+# Two containers, in order:
+#   1. `token` (init): signs a JWT with the GitHub App's private key and
+#      exchanges it for a one-hour installation token. See get-token.sh.
+#   2. `renovate`: runs Renovate with that token, then pings Uptime Kuma. See run.sh.
+#
+# Failure signals: THREE independent channels.
+#   1. Uptime Kuma push monitor (`renovate`) -- pinged `up` on success and
+#      `down` on failure. A run that dies before reaching the ping, such as a
+#      failed token step, trips the monitor when its heartbeat expires.
+#   2. PrometheusRule `renovate` (prometheusrule.yaml) -- fires on a failed Job
+#      and on a CronJob with no successful run in 30 hours. Alertmanager mails it.
+#   3. The Flux Kustomization `renovate`, covered by the existing
+#      FluxReconciliationFailure alert.
+#
+# Schedule: 07:00 Eastern, after the 03:00 backup and after the 10:00 UTC
+# unattended-upgrades reboot window. If the heartbeat interval of the Uptime
+# Kuma monitor changes, change it to stay above 24 hours plus slack.
+#
+# Manual trigger (e.g. to test):
+#   kubectl -n renovate create job --from=cronjob/renovate test-renovate-$(date +%s)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: renovate
+  namespace: renovate
+spec:
+  schedule: "0 7 * * *"
+  timeZone: America/New_York
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # A failed Job disappears after two days, which also clears the
+      # RenovateRunFailed alert. RenovateNotSucceeding covers a failure that
+      # outlasts that.
+      ttlSecondsAfterFinished: 172800
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            kubernetes.io/hostname: gandalf
+          initContainers:
+            - name: token
+              image: alpine:3.22
+              command: ["/bin/sh", "/scripts/get-token.sh"]
+              env:
+                - name: GITHUB_APP_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: renovate-credentials
+                      key: GITHUB_APP_ID
+                - name: GITHUB_APP_INSTALLATION_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: renovate-credentials
+                      key: GITHUB_APP_INSTALLATION_ID
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: credentials
+                  mountPath: /credentials
+                  readOnly: true
+                - name: token
+                  mountPath: /token
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+          containers:
+            - name: renovate
+              image: ghcr.io/renovatebot/renovate:44.234.1
+              args: ["/bin/sh", "/scripts/run.sh"]
+              env:
+                - name: RENOVATE_CONFIG_FILE
+                  value: /config/config.js
+                - name: LOG_LEVEL
+                  value: info
+                - name: UPTIME_KUMA_PUSH_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: renovate-credentials
+                      key: UPTIME_KUMA_PUSH_URL
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: token
+                  mountPath: /token
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+          volumes:
+            - name: scripts
+              configMap:
+                name: renovate-scripts
+            - name: config
+              configMap:
+                name: renovate-config
+            - name: credentials
+              secret:
+                secretName: renovate-credentials
+                defaultMode: 0400
+                items:
+                  - key: GITHUB_APP_PRIVATE_KEY
+                    path: private-key.pem
+            - name: token
+              emptyDir:
+                medium: Memory
