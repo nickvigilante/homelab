@@ -28,6 +28,11 @@ spec:
   privateKey:
     algorithm: ECDSA
     size: 256
+    # Reuse the CA key on renewal. cert-manager >=1.18 defaults to Always,
+    # which mints a new key every renewal and makes every leaf cert issued
+    # under the old key fail verification until its holder reloads
+    # (2026-10-04: ESO could not verify bitwarden-sdk-server).
+    rotationPolicy: Never
   issuerRef:
     name: selfsigned
     kind: ClusterIssuer
