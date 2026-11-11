@@ -22,9 +22,9 @@ To add a repo, commit a `renovate.json` there, add the repo to `config.js`, and 
 Renovate's Flux and Kubernetes managers scan nothing by default, so `renovate.json` names the directories explicitly.
 A `HelmRelease` is only linked to its `HelmRepository` when both carry a `metadata.namespace`, so check that for new charts.
 
-## Before this can merge
+## One-time setup
 
-The manifests reference secrets that do not exist yet.
+The manifests read four secrets from BWS, which have to exist before the first run.
 
 1. **Create a GitHub App** at github.com/settings/apps with these repository permissions, and no webhook.
    - Administration: read
@@ -41,7 +41,7 @@ The manifests reference secrets that do not exist yet.
 3. **Generate a private key** on the app's settings page.
 4. **Create four BWS secrets**: the App ID, the installation id, the PEM private key, and the Uptime Kuma push URL.
 5. **Create a push monitor** named `renovate` in Uptime Kuma, with a heartbeat interval of 93600 seconds (26 hours).
-6. **Replace the four `REPLACE-WITH-BWS-SECRET-ID` values** in `external-secret.yaml` with the BWS secret ids.
+6. **Put the four BWS secret ids** in `external-secret.yaml`, next to each key.
 
 ## Monitoring
 
