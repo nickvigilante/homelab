@@ -1,17 +1,23 @@
 # Alert analyzer image, template and access Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:**
+> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
+> Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the read-only `Analyzer` Coder template, its image, and the cluster access controls that confine it (spec Phase 1).
+**Goal:**
+Build the read-only `Analyzer` Coder template, its image, and the cluster access controls that confine it (spec Phase 1).
 
-**Architecture:** A new `images/analyzer/` image layers six tools onto the existing base image.
+**Architecture:**
+A new `images/analyzer/` image layers six tools onto the existing base image.
 A new `templates/Analyzer/` template runs one persistent, secret-free workspace pod as the ServiceAccount `analyzer`.
 Cluster-side, that ServiceAccount is bound to the built-in `view` ClusterRole, and a NetworkPolicy keyed on a pod label limits the pod's egress.
 The work lands as three PRs: two in `homelab-dev-templates` (image, then template) and one in `homelab` (access).
 
-**Tech Stack:** Docker BuildKit, GitHub Actions, OpenTofu with the `coder/coder` and `hashicorp/kubernetes` providers, Coder CLI v2.37, Kubernetes RBAC and NetworkPolicy (k3s's bundled kube-router controller), Flux, POSIX shell.
+**Tech Stack:**
+Docker BuildKit, GitHub Actions, OpenTofu with the `coder/coder` and `hashicorp/kubernetes` providers, Coder CLI v2.37, Kubernetes RBAC and NetworkPolicy (k3s's bundled kube-router controller), Flux, POSIX shell.
 
-**Spec:** `docs/superpowers/specs/2026-09-30-alert-analyzer-design.md` in the `homelab` repo (merged, PR #239).
+**Spec:**
+`docs/superpowers/specs/2026-09-30-alert-analyzer-design.md` in the `homelab` repo (merged, PR #239).
 This plan covers its Phase 1 only.
 The orchestrator, the Alertmanager route and the Phase 0 spikes belong to other plans.
 
@@ -30,7 +36,8 @@ Copied from the spec, and implicit in every task:
 
 Repo rules that apply to every commit and PR:
 
-- No `Co-Authored-By` trailer. End each commit message with the trailer `Assisted-by: AI`, and each PR body with `---` and `🤖 Built with AI assistance.`
+- No `Co-Authored-By` trailer.
+  End each commit message with the trailer `Assisted-by: AI`, and each PR body with `---` and `🤖 Built with AI assistance.`
 - Markdown uses semantic line breaks (one clause per line) and "and" or "&", never "+", for "and".
 - Never put a secret in a file, a log line or a command line.
 - Do not change the live cluster except where a step says to: the first template creation (Task 5) and the acceptance workspace (Task 8).
@@ -63,10 +70,32 @@ Task 7 amends the spec to match, so approving this plan approves the amendments.
 5. **Not in this plan: restricting the `alert-analyzer` Coder user to the `Analyzer` template.**
    That is a Phase 0 spike and part of the orchestrator plan.
    This plan only sets `--agents-allowed=true` on `Analyzer`.
-6. **Decision gate, Task 9:** the `view` role cannot read nodes or PersistentVolumes.
+6. **Decision gate, Task 9:**
+   the `view` role cannot read nodes or PersistentVolumes.
    Node conditions matter for the failures this analyzer exists for (the 2026-09-27 incident was a node-level event).
    Task 9 adds a small extra read-only role for them.
    It is optional and separate, so skipping it changes nothing else.
+
+## Amendment after `homelab-dev-templates#45` (2026-10-02)
+
+This plan was written while a parallel thread built the same groundwork in `homelab-dev-templates`.
+That work has merged, so parts of this plan are already done:
+
+- **Multi-template CI exists.**
+  [`homelab-dev-templates#45`](https://github.com/nickvigilante/homelab-dev-templates/pull/45) made `lint`, `template-validate` and `template-push` run once per affected template.
+  `scripts/changed-templates.sh` picks the templates, and a change under `modules/workspace/` selects all of them.
+  Task 4 below is rewritten to build on that instead of repeating it.
+- **Every template needs a `template.json`.**
+  `template-push` reads the icon from it, and `scripts/template-matrix.sh` fails both the PR check and the push when an affected template has none.
+  Task 4 adds `templates/Analyzer/template.json`, which also carries the lifecycle flags that Step 4 used to hardcode.
+- **`Base` now calls a shared module, `modules/workspace/`**, which CI copies into every template directory before validating or pushing it.
+  The Analyzer stays standalone and does not call it: the module always includes the dotfiles script and the Claude Code module, both of which this plan forbids in the Analyzer.
+  The copy CI makes in `templates/Analyzer/modules/workspace/` is unused, so it uploads with the template but is never loaded.
+- **The cluster tools stay out of the base image.**
+  `homelab-dev-templates#46`, which added `kubectl`, `helm` and `flux` to the base image, was closed in favor of this plan's `images/analyzer/`.
+- **Correction to Task 3:**
+  `templates/Base` does commit a `.terraform.lock.hcl`.
+  Not committing one for the Analyzer is still fine, because nothing in CI requires it.
 
 ## Review Focus
 
@@ -100,19 +129,20 @@ Also worth a line each:
 
 `homelab-dev-templates`:
 
-| File                                                                       | Responsibility                                                      |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `images/analyzer/Dockerfile`                                               | The base image plus the six tools.                                  |
-| `images/analyzer/tools.txt`                                                | `flux` and `promtool`, in the base image's installer format.        |
-| `images/analyzer/README.md`                                                | What is in the image, how to build and bump it, the tag scheme.     |
-| `.github/workflows/image-build-analyzer.yml`                               | Build and smoke-test on PRs, publish on `main`.                     |
-| `templates/Analyzer/main.tf`                                               | The workspace: agent, PVC, Deployment as ServiceAccount `analyzer`. |
-| `templates/Analyzer/clone-homelab.sh`                                      | Keeps `~/homelab` current.                                          |
-| `templates/Analyzer/test-clone-homelab.sh`                                 | Tests the clone script against a local repo.                        |
-| `templates/Analyzer/acceptance.sh`                                         | Checks run inside a live workspace.                                 |
-| `templates/Analyzer/README.md`                                             | What the template is, how it is confined, how it is operated.       |
-| `.github/workflows/lint.yml`, `template-validate.yml`, `template-push.yml` | Handle every template, not just `Base`.                             |
-| `README.md`                                                                | Layout list gains the two new directories.                          |
+| File                                              | Responsibility                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `images/analyzer/Dockerfile`                      | The base image plus the six tools.                                  |
+| `images/analyzer/tools.txt`                       | `flux` and `promtool`, in the base image's installer format.        |
+| `images/analyzer/README.md`                       | What is in the image, how to build and bump it, the tag scheme.     |
+| `.github/workflows/image-build-analyzer.yml`      | Build and smoke-test on PRs, publish on `main`.                     |
+| `templates/Analyzer/main.tf`                      | The workspace: agent, PVC, Deployment as ServiceAccount `analyzer`. |
+| `templates/Analyzer/clone-homelab.sh`             | Keeps `~/homelab` current.                                          |
+| `templates/Analyzer/test-clone-homelab.sh`        | Tests the clone script against a local repo.                        |
+| `templates/Analyzer/acceptance.sh`                | Checks run inside a live workspace.                                 |
+| `templates/Analyzer/README.md`                    | What the template is, how it is confined, how it is operated.       |
+| `templates/Analyzer/template.json`                | Icon and lifecycle flags, which `template-push.yml` applies.        |
+| `.github/workflows/lint.yml`, `template-push.yml` | Run the clone test, and apply `template.json`'s `edit_flags`.       |
+| `README.md`                                       | Layout list gains the two new directories.                          |
 
 `homelab`:
 
@@ -171,8 +201,7 @@ cd .worktrees/analyzer-image
 - [ ] **Step 2: Write `images/analyzer/Dockerfile`**
 
 The upstream URLs and asset names below were checked against the live endpoints when this plan was written: `dl.k8s.io/release/stable-1.35.txt` and its `.sha256`, `get-helm-4`, the `yq_linux_<arch>` release assets, and the `flux2` and `prometheus` tarball names.
-`get-helm-4` and not `get-helm-3`, because the cluster is managed with Helm 4 and the `3` script installs Helm 3.
-The `openssl` package is needed because the helm installer refuses to verify its checksum without it.
+`get-helm-4` and not `get-helm-3`, because the cluster is managed with Helm 4 and the `3` script installs Helm 3. The `openssl` package is needed because the helm installer refuses to verify its checksum without it.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -263,8 +292,7 @@ promtool|prometheus/prometheus|prometheus-{VER}.linux-{ARCH_SHORT}.tar.gz
 
 - [ ] **Step 4: Lint the Dockerfile**
 
-Run: `hadolint images/analyzer/Dockerfile && echo ok`
-Expected: `ok`, with no findings.
+Run: `hadolint images/analyzer/Dockerfile && echo ok` Expected: `ok`, with no findings.
 The two `# hadolint ignore` comments carry over the base image's `DL3066` ignore and add `DL3022` for the named context.
 
 - [ ] **Step 5: Write `images/analyzer/README.md`**
@@ -326,13 +354,11 @@ In the `## Layout` list, after the `images/base/` bullet, add:
 
 - [ ] **Step 7: Run the repo's lint**
 
-Run: `pre-commit run --files images/analyzer/Dockerfile images/analyzer/tools.txt images/analyzer/README.md README.md`
-Expected: every hook passes (mdformat may rewrite the README table; re-run once).
+Run: `pre-commit run --files images/analyzer/Dockerfile images/analyzer/tools.txt images/analyzer/README.md README.md` Expected: every hook passes (mdformat may rewrite the README table; re-run once).
 
 - [ ] **Step 8: If Docker is available, build locally**
 
-Run: `cd images/analyzer && docker buildx build --build-context basectx=../base --secret id=github_token,env=GITHUB_TOKEN -t analyzer:local . && docker run --rm analyzer:local sh -c 'kubectl version --client && helm version --short && flux --version && promtool --version && yq --version && jq --version'`
-Expected: six version lines, with kubectl on the 1.35 line.
+Run: `cd images/analyzer && docker buildx build --build-context basectx=../base --secret id=github_token,env=GITHUB_TOKEN -t analyzer:local . && docker run --rm analyzer:local sh -c 'kubectl version --client && helm version --short && flux --version && promtool --version && yq --version && jq --version'` Expected: six version lines, with kubectl on the 1.35 line.
 If Docker is not available, skip this step; Task 2's CI does the same build.
 
 - [ ] **Step 9: Commit**
@@ -479,8 +505,7 @@ jobs:
 
 - [ ] **Step 2: Lint it**
 
-Run: `yamllint -c .github/yamllint.yml .github/workflows/image-build-analyzer.yml && actionlint -config-file .github/actionlint.yaml .github/workflows/image-build-analyzer.yml && echo ok`
-Expected: `ok`.
+Run: `yamllint -c .github/yamllint.yml .github/workflows/image-build-analyzer.yml && actionlint -config-file .github/actionlint.yaml .github/workflows/image-build-analyzer.yml && echo ok` Expected: `ok`.
 
 - [ ] **Step 3: Commit, push and open PR 1**
 
@@ -510,8 +535,7 @@ EOF
 
 - [ ] **Step 4: Verify the PR run, then merge**
 
-Run: `gh pr checks --watch`
-Expected: `validate (analyzer)` succeeds, along with `lint`.
+Run: `gh pr checks --watch` Expected: `validate (analyzer)` succeeds, along with `lint`.
 The first run builds without cache and is slow.
 If `validate (analyzer)` fails on a download, read the log: the likely culprits are a changed upstream asset name or the GitHub API rate limit.
 Merge the PR.
@@ -637,8 +661,7 @@ printf 'ok: clone-homelab.sh\n'
 
 - [ ] **Step 3: Run it to see it fail**
 
-Run: `sh templates/Analyzer/test-clone-homelab.sh`
-Expected: it fails, because `clone-homelab.sh` does not exist yet (`sh: ... clone-homelab.sh: No such file`).
+Run: `sh templates/Analyzer/test-clone-homelab.sh` Expected: it fails, because `clone-homelab.sh` does not exist yet (`sh: ... clone-homelab.sh: No such file`).
 
 - [ ] **Step 4: Write `templates/Analyzer/clone-homelab.sh`**
 
@@ -697,8 +720,7 @@ exit 1
 
 - [ ] **Step 5: Run the test to see it pass**
 
-Run: `sh templates/Analyzer/test-clone-homelab.sh`
-Expected: `ok: clone-homelab.sh`
+Run: `sh templates/Analyzer/test-clone-homelab.sh` Expected: `ok: clone-homelab.sh`
 
 - [ ] **Step 6: Prove the test bites**
 
@@ -1013,8 +1035,7 @@ printf '\n%s failure(s)\n' "${failures}"
 
 - [ ] **Step 11: Lint the scripts**
 
-Run: `shellcheck -S info templates/Analyzer/*.sh && shfmt -d -i 2 -ci templates/Analyzer/*.sh && echo ok`
-Expected: `ok`.
+Run: `shellcheck -S info templates/Analyzer/*.sh && shfmt -d -i 2 -ci templates/Analyzer/*.sh && echo ok` Expected: `ok`.
 
 - [ ] **Step 12: Write `templates/Analyzer/README.md`**
 
@@ -1080,125 +1101,130 @@ git commit -m "feat(analyzer): add the Analyzer workspace template" \
   -m "Assisted-by: AI"
 ```
 
-### Task 4: Teach CI about more than one template
+### Task 4: Wire the Analyzer into the multi-template CI
 
 **Files:**
 
+- Create: `templates/Analyzer/template.json`
 - Modify: `.github/workflows/lint.yml`
-- Modify: `.github/workflows/template-validate.yml`
 - Modify: `.github/workflows/template-push.yml`
 
 **Interfaces:**
 
-- Consumes: `templates/*/` directories, with the template name equal to the directory name.
-- Produces: validation and delivery of `Analyzer` alongside `Base`, and the Analyzer lifecycle settings re-applied on every push.
+- Consumes: `homelab-dev-templates#45`'s CI: `scripts/changed-templates.sh` and `scripts/template-matrix.sh`, which put each `template.json` key on the push job as `matrix.<key>`, and the `Set the template icon` step in `template-push.yml`.
+- Produces: `template.json` gains an optional `edit_flags` list, which `template-push.yml` passes to `coder templates edit` on every push.
+  Templates without it, such as `Base`, are unaffected.
 
-These three files hardcode `Base`.
-Each edit below was applied to a copy of the real file and passed `yamllint` and `actionlint`, and every `coder templates edit` flag was confirmed against the installed CLI (v2.37.3).
+`lint.yml` already validates every template, and `template-validate.yml` and `template-push.yml` already validate and push every affected one, so neither of the latter needs a loop.
+What is left is the Analyzer's own clone test, its metadata, and a way for `template.json` to carry flags beyond the icon.
+Each edit below was applied to a copy of `main` after #45 and passed `actionlint`, `yamllint` and `yamlfmt -lint`.
+Every flag was checked against the installed CLI (v2.37.3).
 
-- [ ] **Step 1: `lint.yml`: validate every template and run the clone test**
+- [ ] **Step 1: Add `templates/Analyzer/template.json`**
 
-Replace this step:
+The flags set a 30-minute deadline moved on by activity, turn dormancy, auto-delete and failure cleanup off, and allow Coder Agents.
+Dormancy flags need the Premium license, which this deployment has.
 
-```yaml
-      - name: tofu validate (templates/Base)
-        working-directory: templates/Base
-        run: |
-          tofu init -input=false
-          tofu validate
+```json
+{
+  "icon": "/emojis/1f50d.png",
+  "edit_flags": [
+    "--description", "Read-only cluster analyzer. Holds no secrets; see templates/Analyzer/README.md.",
+    "--default-ttl", "30m",
+    "--activity-bump", "30m",
+    "--dormancy-threshold", "0s",
+    "--dormancy-auto-deletion", "0s",
+    "--failure-ttl", "0s",
+    "--agents-allowed=true"
+  ]
+}
 ```
 
-with:
+- [ ] **Step 2: `lint.yml`: run the clone test**
+
+Insert this step immediately before `- name: tofu test (modules/workspace)`:
 
 ```yaml
-      - name: tofu validate (every template)
-        run: |
-          set -euo pipefail
-          for dir in templates/*/; do
-            echo "== ${dir}"
-            (cd "${dir}" && tofu init -input=false && tofu validate)
-          done
       - name: Test the Analyzer clone script
         run: sh templates/Analyzer/test-clone-homelab.sh
 ```
 
-- [ ] **Step 2: `template-validate.yml`: push every template as a non-activated version**
+- [ ] **Step 3: `template-push.yml`: apply `edit_flags`**
 
-Replace the single `coder templates push Base ... --yes` command (the last statement of the `Push a non-activated version` step) with:
+The in-cluster runner has no `jq`, so the `changes` job shell-quotes each template's `edit_flags` with `jq`'s `@sh`, and the push job unquotes them with `eval "set -- ..."`.
+`template.json` comes from `main`, which is all this push-only workflow runs.
+Apply this diff:
+
+```diff
+@@ -52,7 +52,10 @@
+           BEFORE_SHA: ${{ github.event.before }}
+         run: |
+           set -euo pipefail
+-          templates="$(scripts/template-matrix.sh "$BEFORE_SHA" HEAD)"
++          # edit_args is template.json's optional edit_flags list, shell-quoted
++          # by jq here because the in-cluster runner has no jq to unpack it.
++          templates="$(scripts/template-matrix.sh "$BEFORE_SHA" HEAD \
++            | jq -c 'map(.edit_args = ((.edit_flags // []) | @sh))')"
+           echo "templates=${templates}" >> "$GITHUB_OUTPUT"
+           echo "Affected templates: ${templates}"
+
+@@ -108,13 +111,22 @@
+       # dashboard. Any /emojis/*.png or /icon/*.svg path ships with Coder;
+       # avoid the /icon/ ones named after a product, which read as that
+       # product's template.
+-      - name: Set the template icon
++      #
++      # Any other `coder templates edit` flags come from template.json's
++      # edit_flags list, such as lifecycle settings, which are template
++      # metadata too. The eval only unquotes what jq's @sh quoted: template.json
++      # comes from main, which is all this push-only workflow ever runs.
++      - name: Apply the template settings
+         env:
+           CODER_URL: ${{ secrets.CODER_URL }}
+           CODER_SESSION_TOKEN: ${{ secrets.CODER_SESSION_TOKEN }}
+           TEMPLATE: ${{ matrix.template }}
+           ICON: ${{ matrix.icon }}
+-        run: coder templates edit "$TEMPLATE" --icon "$ICON"
++          EDIT_ARGS: ${{ matrix.edit_args }}
++        run: |
++          set -euo pipefail
++          eval "set -- ${EDIT_ARGS}"
++          coder templates edit "$TEMPLATE" --icon "$ICON" "$@" --yes
+
+       - name: Report the active version
+         env:
+```
+
+- [ ] **Step 4: Check the flags survive the round trip**
+
+Run from the repo root:
 
 ```bash
-          for dir in templates/*/; do
-            name="$(basename "${dir}")"
-            coder templates push "${name}" \
-              --directory "${dir}" \
-              --name "pr-${PR_NUMBER}-$(git rev-parse --short HEAD)" \
-              --activate=false \
-              --yes
-          done
+scripts/template-matrix.sh "$(git merge-base origin/main HEAD)" HEAD \
+  | jq -c 'map(.edit_args = ((.edit_flags // []) | @sh))' \
+  | jq -r '.[] | select(.template == "Analyzer") | .edit_args' \
+  | EDIT_ARGS="$(cat)" bash -c 'eval "set -- ${EDIT_ARGS}"; printf "[%s]\n" "$@"'
 ```
 
-- [ ] **Step 3: `template-push.yml`: activate every template**
-
-In the `Activate the template` step, replace the `coder templates push Base ... --yes` command with:
-
-```bash
-          for dir in templates/*/; do
-            name="$(basename "${dir}")"
-            coder templates push "${name}" \
-              --directory "${dir}" \
-              --name "main-$(git rev-parse --short HEAD)" \
-              --yes
-          done
-```
-
-- [ ] **Step 4: `template-push.yml`: restate the Analyzer settings**
-
-Insert this step immediately before `- name: Report the active version`.
-The flags set a 30-minute deadline moved on by activity, turn dormancy and auto-delete off, and allow Coder Agents.
-Dormancy flags need the Premium license, which this deployment has.
-
-```yaml
-      # Lifecycle settings are template metadata too, so they are restated on
-      # every push. Autostop: the deadline is 30 minutes after start and each
-      # detected activity moves it 30 minutes on. Dormancy and auto-delete are
-      # set to 0, which turns them off: the analyzer workspace is persistent and
-      # must never be deleted for being idle. --agents-allowed lets Coder Agents
-      # chats use the template. Whether an agent's tool calls count as
-      # "activity" for the bump is checked in the plan's acceptance run.
-      - name: Set the Analyzer template settings
-        env:
-          CODER_URL: ${{ secrets.CODER_URL }}
-          CODER_SESSION_TOKEN: ${{ secrets.CODER_SESSION_TOKEN }}
-        run: |
-          coder templates edit Analyzer \
-            --icon /emojis/1f50d.png \
-            --description "Read-only cluster analyzer. Holds no secrets; see templates/Analyzer/README.md." \
-            --default-ttl 30m \
-            --activity-bump 30m \
-            --dormancy-threshold 0s \
-            --dormancy-auto-deletion 0s \
-            --failure-ttl 0s \
-            --agents-allowed=true \
-            --yes
-```
+Expected: 13 bracketed lines, one per flag or value, with the whole description on one line.
 
 - [ ] **Step 5: Lint**
 
-Run: `yamllint -c .github/yamllint.yml .github/workflows/ && actionlint -config-file .github/actionlint.yaml .github/workflows/*.yml && echo ok`
-Expected: `ok`.
+Run: `yamllint -c .github/yamllint.yml .github/workflows/ && actionlint -config-file .github/actionlint.yaml .github/workflows/*.yml && echo ok` Expected: `ok`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add .github/workflows
-git commit -m "ci: validate, push and configure every template, not just Base" \
-  -m "lint, template-validate and template-push each hardcoded Base. Loop over templates/*/ so the Analyzer template is checked and delivered too, run its clone-script test in lint, and restate its lifecycle settings on every push the way Base's icon already is." \
+git add templates/Analyzer/template.json .github/workflows
+git commit -m "ci: deliver the Analyzer template with its settings" \
+  -m "Adds the Analyzer's template.json and lets template.json carry extra coder templates edit flags, so its lifecycle settings are restated on every push the way icons already are. lint also runs the Analyzer's clone-script test." \
   -m "Assisted-by: AI"
 ```
 
 ### Task 5: Create the template in Coder, then open PR 2
 
-**Files:** none (this task changes the live Coder deployment).
+**Files:**
+none (this task changes the live Coder deployment).
 
 **Interfaces:**
 
@@ -1209,8 +1235,7 @@ CI must not create the template: `coder templates push` creates a missing templa
 
 - [ ] **Step 1: Create it from the branch**
 
-Run: `coder templates push Analyzer --directory templates/Analyzer --yes`
-Expected: the provisioner imports and plans the template and prints that it was created.
+Run: `coder templates push Analyzer --directory templates/Analyzer --yes` Expected: the provisioner imports and plans the template and prints that it was created.
 A failure here is the server-side validation that `tofu validate` cannot do (for example a bad image string); fix it on the branch.
 
 - [ ] **Step 2: Apply the lifecycle settings**
@@ -1233,8 +1258,7 @@ If the icon path is rejected, use `/emojis/1f9f1.png` and note it; the icon is c
 
 - [ ] **Step 3: Confirm**
 
-Run: `coder templates list | rg -i analyzer`
-Expected: one row for `Analyzer`.
+Run: `coder templates list | rg -i analyzer` Expected: one row for `Analyzer`.
 
 - [ ] **Step 4: Push the branch and open PR 2**
 
@@ -1267,8 +1291,7 @@ EOF
 
 - [ ] **Step 5: Verify and merge**
 
-Run: `gh pr checks --watch`
-Expected: `lint` and `template-validate` succeed.
+Run: `gh pr checks --watch` Expected: `lint` and `template-validate` succeed.
 Merge, then confirm `gh run list --workflow template-push --limit 1` is `completed success` and `coder templates show Analyzer` lists the `main-<sha>` version as active.
 
 ______________________________________________________________________
@@ -1302,8 +1325,7 @@ Every name in the policy was read from the live cluster when this plan was writt
 | Grafana          | `monitoring`, `app.kubernetes.io/name=grafana`, `app.kubernetes.io/instance=kps`                                     | 3000 (the pod port behind Service port 80) |
 | Public HTTPS     | `0.0.0.0/0` except `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `169.254.0.0/16`                | 443                                        |
 
-Policies are evaluated after Service address translation, so ports are pod ports.
-k3s enforces NetworkPolicy with its bundled kube-router controller; `k8s/loki/netpol-loki.yaml` relies on the same thing.
+Policies are evaluated after Service address translation, so ports are pod ports. k3s enforces NetworkPolicy with its bundled kube-router controller; `k8s/loki/netpol-loki.yaml` relies on the same thing.
 
 - [ ] **Step 1: Make the worktree**
 
@@ -1496,7 +1518,8 @@ Do this together with Task 7 (one PR).
 - Modify: `k8s/coder/README.md` (append a section)
 - Modify: `docs/superpowers/specs/2026-09-30-alert-analyzer-design.md` (three edits)
 
-**Interfaces:** none.
+**Interfaces:**
+none.
 
 - [ ] **Step 1: Append to `k8s/coder/README.md`**
 
@@ -1568,8 +1591,7 @@ with:
 
 - [ ] **Step 5: Lint**
 
-Run: `pre-commit run --files k8s/coder/README.md docs/superpowers/specs/2026-09-30-alert-analyzer-design.md`
-Expected: every hook passes.
+Run: `pre-commit run --files k8s/coder/README.md docs/superpowers/specs/2026-09-30-alert-analyzer-design.md` Expected: every hook passes.
 
 - [ ] **Step 6: Commit and open PR 3**
 
@@ -1625,7 +1647,8 @@ ______________________________________________________________________
 
 ### Task 8: Prove it in a real workspace
 
-**Files:** none (this task creates and deletes a workspace).
+**Files:**
+none (this task creates and deletes a workspace).
 
 **Interfaces:**
 
@@ -1665,8 +1688,7 @@ Zero pods means the label in `main.tf` and the selector have diverged, and the p
 
 - [ ] **Step 4: Run the in-workspace checks**
 
-Run: `coder ssh analyzer-acceptance -- bash -s < templates/Analyzer/acceptance.sh`
-Expected: every `PASS`, no `FAIL`, and `0 failure(s)`.
+Run: `coder ssh analyzer-acceptance -- bash -s < templates/Analyzer/acceptance.sh` Expected: every `PASS`, no `FAIL`, and `0 failure(s)`.
 Record the three `INFO` lines (`can get nodes`, `can get persistentvolumes`).
 
 - [ ] **Step 5: The policy is scoped to Analyzer pods only (the negative control)**
@@ -1759,8 +1781,7 @@ subjects:
 
 - [ ] **Step 2: Validate**
 
-Run: `kubeconform -strict -summary k8s/coder/rbac.yaml && pre-commit run --files k8s/coder/rbac.yaml`
-Expected: `Valid: 4` (the account, the first binding, the new role and its binding), and every hook passing.
+Run: `kubeconform -strict -summary k8s/coder/rbac.yaml && pre-commit run --files k8s/coder/rbac.yaml` Expected: `Valid: 4` (the account, the first binding, the new role and its binding), and every hook passing.
 
 - [ ] **Step 3: Commit, open a PR, and verify after merge**
 
@@ -1778,15 +1799,11 @@ ______________________________________________________________________
 ## Self-review
 
 **Spec coverage.**
-Image with the six tools on the base image, published by CI: Tasks 1 and 2.
-Persistent amd64 workspace, 1 core, 2 GB, small volume, no parameters: Task 3 (`main.tf`).
+Image with the six tools on the base image, published by CI: Tasks 1 and 2. Persistent amd64 workspace, 1 core, 2 GB, small volume, no parameters: Task 3 (`main.tf`).
 Startup clone of the public repo: Task 3 (`clone-homelab.sh` and its test).
 Autostop backstop and auto-delete off: Tasks 4 and 5 (`coder templates edit`).
-ServiceAccount `analyzer` on `view`: Task 6.
-NetworkPolicy: Task 6, with the deviations stated and amended into the spec in Task 7.
-No secrets in the workspace: Task 1 (image checks in CI), Task 3 (no parameters, no dotfiles, no modules), Task 8 (`acceptance.sh`).
-`--agents-allowed`: Tasks 4 and 5.
-Not covered here by design: the `alert-analyzer` Coder user and its template restriction, the orchestrator, and the Alertmanager route.
+ServiceAccount `analyzer` on `view`: Task 6. NetworkPolicy: Task 6, with the deviations stated and amended into the spec in Task 7. No secrets in the workspace: Task 1 (image checks in CI), Task 3 (no parameters, no dotfiles, no modules), Task 8 (`acceptance.sh`).
+`--agents-allowed`: Tasks 4 and 5. Not covered here by design: the `alert-analyzer` Coder user and its template restriction, the orchestrator, and the Alertmanager route.
 
 **Placeholder scan.**
 The only substitution token is `analyzer-IMAGE_SHA` in `main.tf`, which Task 3 step 8 replaces with an exact command and then checks is gone.
@@ -1794,11 +1811,11 @@ No "TBD" or "similar to Task N".
 
 **Consistency.**
 The label `app.kubernetes.io/component=analyzer` is defined in Task 3 and selected in Task 6, and Task 8 step 3 checks they agree.
-The ServiceAccount name `analyzer` is set in Task 3 and created in Task 6.
-The tag `analyzer-<full SHA>` is produced in Task 2, pinned in Task 3, and described in the Task 1 README and the Task 7 spec edit.
+The ServiceAccount name `analyzer` is set in Task 3 and created in Task 6. The tag `analyzer-<full SHA>` is produced in Task 2, pinned in Task 3, and described in the Task 1 README and the Task 7 spec edit.
 `KUBECTL_MINOR` 1.35 appears in the Dockerfile and in the Task 2 minor check, and both say to change together.
 The settings flags are identical in Tasks 4 and 5.
 
-**Verified when this plan was written:** the Dockerfile lints with `hadolint`; the clone script and its test pass `shellcheck` and `shfmt`, the test passes, and it fails when the `set-url` line is removed; `main.tf` passes `tofu fmt` and `tofu validate` against the real providers; the manifests pass `kubeconform -strict`, `yamllint` and a client-side dry run; the workflows pass `yamllint` and `actionlint`; every Coder flag exists in the installed CLI; and all upstream URLs return 200.
+**Verified when this plan was written:**
+the Dockerfile lints with `hadolint`; the clone script and its test pass `shellcheck` and `shfmt`, the test passes, and it fails when the `set-url` line is removed; `main.tf` passes `tofu fmt` and `tofu validate` against the real providers; the manifests pass `kubeconform -strict`, `yamllint` and a client-side dry run; the workflows pass `yamllint` and `actionlint`; every Coder flag exists in the installed CLI; and all upstream URLs return 200.
 **Not verified, and why:** no Docker here, so the image was not built; the NetworkPolicy has not been enforced on a pod; and no workspace has been created.
 Tasks 2 and 8 exist to close exactly those gaps.

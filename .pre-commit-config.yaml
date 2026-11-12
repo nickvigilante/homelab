@@ -48,7 +48,7 @@ repos:
   # edited instead of in one huge diff. pre-commit builds it with cargo, and
   # installs Rust itself if cargo isn't on PATH.
   - repo: https://github.com/nickvigilante/sember
-    rev: 65253539033deb4eba64483debb77db2c32b3e5c # main; no tagged release yet
+    rev: 4db2307b12985960f74b86f47361ebc4cf92ec8c # main; no tagged release yet
     hooks:
       - id: sember-changed
 
