@@ -14,7 +14,7 @@ spec:
   chart:
     spec:
       chart: kubernetes-mcp-server
-      version: "0.1.0"
+      version: "0.1.2"
       sourceRef:
         kind: HelmRepository
         name: kubernetes-mcp-server
