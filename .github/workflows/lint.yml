@@ -126,7 +126,7 @@ jobs:
       # every file, and older docs convert only as they're edited.
       - name: sember (changed paragraphs)
         if: github.event_name == 'pull_request'
-        uses: nickvigilante/sember@65253539033deb4eba64483debb77db2c32b3e5c # main
+        uses: nickvigilante/sember@4db2307b12985960f74b86f47361ebc4cf92ec8c # main
 
   kubeconform:
     name: kubeconform (raw manifests)
