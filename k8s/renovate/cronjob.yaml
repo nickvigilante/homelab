@@ -15,7 +15,7 @@
 #   3. The Flux Kustomization `renovate`, covered by the existing
 #      FluxReconciliationFailure alert.
 #
-# Schedule: 07:00 Eastern, after the 03:00 backup and after the 10:00 UTC
+# Schedule: 07:00 Eastern, after the 03:00 backup and an hour before the 08:00
 # unattended-upgrades reboot window. If the heartbeat interval of the Uptime
 # Kuma monitor changes, change it to stay above 24 hours plus slack.
 #
