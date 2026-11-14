@@ -10,6 +10,7 @@
 #   - Baseline packages
 #   - Timezone (America/New_York)
 #   - Unattended-upgrades auto-reboot drop-in
+#   - containerd AppArmor profile override (containerd#14485)
 #   - k3s secrets-encryption at rest (hardening #6)
 #
 # Hardening #8 (k3s state snapshots) was deliberately dropped: gandalf
@@ -141,6 +142,23 @@
         group: root
         mode: "0644"
       notify: Reload sysctl
+
+    # ---- containerd AppArmor profile override ---------------------------
+    #
+    # See system/cri-containerd.apparmor.d. On kernel 7.0.0-42, the stock
+    # profile stops processes in the same container signalling each other,
+    # so Postgres hangs after crash recovery and gunicorn workers crash.
+    # In /etc/apparmor.d/ it's loaded at boot before k3s, so containerd
+    # skips generating its own copy. The handler replaces the loaded
+    # profile in place, which fixes running containers without a restart.
+    - name: Install containerd AppArmor profile override
+      ansible.builtin.copy:
+        src: ../system/cri-containerd.apparmor.d
+        dest: /etc/apparmor.d/cri-containerd.apparmor.d
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload containerd AppArmor profile
 
     - name: Apply pending sysctl drop-ins before Traefik chart re-render
       ansible.builtin.meta: flush_handlers
@@ -289,3 +307,9 @@
     - name: Reload sysctl
       ansible.builtin.command: sysctl --system
       changed_when: false
+
+    # -K skips the binary cache, like containerd's own load, so a stale
+    # cache entry can't shadow the new rules.
+    - name: Reload containerd AppArmor profile
+      ansible.builtin.command: apparmor_parser -r -K /etc/apparmor.d/cri-containerd.apparmor.d
+      changed_when: true
