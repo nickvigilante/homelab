@@ -82,3 +82,20 @@ spec:
           annotations:
             summary: "Weekly restic restore-verification drill has not succeeded in over 8d"
             description: "No successful restic-verify CronJob run in >8d -- the backups are currently unverified. Check `kubectl -n backup get jobs` and the most recent restic-verify job's logs."
+        # The ARC listener (homelab-dev-templates' self-hosted runner) crashed
+        # every ~4s from 2026-10-21 to 2026-11-11 on an expired GitHub PAT
+        # without alerting: the controller deletes and recreates the pod, so
+        # restartCount stays 0 and KubePodCrashLooping never fires. A pod that
+        # lives 4s is rarely caught at a 30s scrape, so Ready flickers and a
+        # plain `for:` keeps resetting. Average it instead: a healthy listener
+        # reads 1, the churning one read 0.03-0.27. The `or vector(0)` also
+        # fires when no listener exists at all.
+        - alert: ArcListenerNotReady
+          expr: |
+            avg_over_time((max(kube_pod_status_ready{namespace="arc-systems", pod=~".+-listener", condition="true"}) or vector(0))[30m:1m]) < 0.5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ARC runner listener has not stayed Ready for 30m"
+            description: "The arc-systems listener pod is crash-churning or missing, so homelab-dev-templates' template-push.yml cannot get a runner. Run `kubectl -n arc-systems logs -l app.kubernetes.io/component=runner-scale-set-listener --tail=5`. '401 Bad credentials' means the GitHub PAT expired: rotate it with scripts/install-arc-runner.sh in homelab-dev-templates."
