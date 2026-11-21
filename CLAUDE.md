@@ -179,13 +179,8 @@ and copies the Secret into every namespace listed in
    **Raw-managed service:** add `k8s/<service>/ingress-vigihome.yaml`
    with the same Traefik annotation + TLS block. See
    `k8s/syncthing/ingress-vigihome.yaml` for the canonical example.
-3. DNS: nothing per-service. Pi-hole's
-   `address=/vigihome.net/192.168.50.135` and
-   `address=/vigihome.net/100.92.2.25` wildcard directives in
-   `dns.dnsmasq_lines` (managed via the Pi-hole admin UI, see
-   `k8s/pihole/values.yaml`'s big DNS comment) resolve any new
-   `*.vigihome.net` host to gandalf automatically on both LAN and
-   tailnet.
+3. DNS: nothing per-service.
+   Pi-hole's `address=/vigihome.net/192.168.50.135` and `address=/vigihome.net/100.71.63.31` wildcard directives in `misc.dnsmasq_lines` (set with `pihole-FTL --config` inside the pod, because the admin UI rejects that key; see `k8s/pihole/values.yaml`'s big DNS comment) resolve any new `*.vigihome.net` host to gandalf automatically on both LAN and tailnet.
 4. Apply: `helm upgrade` for chart-managed, `kubectl apply -f ingress-vigihome.yaml` for raw. For chart-managed services that
    previously had both a raw `ingress-vigihome.yaml` *and* a chart
    Ingress on the legacy `*.home` host, the chart's Ingress takes
@@ -350,10 +345,7 @@ server-side at reconcile time as a backstop.
 
 ## DNS pattern (recurring gotcha)
 
-Pi-hole serves custom records to the LAN and tailnet via two
-mechanisms in `/opt/pihole/etc-pihole/pihole.toml` (managed by the
-Pi-hole admin UI, persisted on the PV, captured by the nightly
-restic backup — but **not** in this repo):
+Pi-hole serves custom records to the LAN and tailnet via two mechanisms in `/opt/pihole/etc-pihole/pihole.toml` (`dns.hosts` through the Pi-hole admin UI, `misc.dnsmasq_lines` through `pihole-FTL --config`; persisted on the PV, captured by the nightly restic backup — but **not** in this repo):
 
 - **`misc.dnsmasq_lines` wildcard** — the canonical source of
   truth for `*.vigihome.net`. Two lines (order matters for
@@ -362,7 +354,7 @@ restic backup — but **not** in this repo):
 
   ```
   address=/vigihome.net/192.168.50.135
-  address=/vigihome.net/100.92.2.25
+  address=/vigihome.net/100.71.63.31
   ```
 
   Any new `*.vigihome.net` host resolves automatically — no

@@ -136,7 +136,10 @@ ingress:
       secretName: vigihome-tls
 
 # Local DNS records and dnsmasq directives both live in pihole.toml on
-# the PV. Both are managed via the Pi-hole admin UI and persist via the
+# the PV. Local DNS records are managed via the Pi-hole admin UI; dnsmasq
+# lines are not (the UI rejects misc.dnsmasq_lines), so set them with
+# `kubectl -n networking exec deploy/pihole -c pihole -- pihole-FTL --config
+# misc.dnsmasq_lines '[...]'`. Both persist via the
 # nightly restic backup of the PV; a from-scratch rebuild from the repo
 # alone would not recover these. Two layers, used for different things:
 #
@@ -151,12 +154,12 @@ ingress:
 #    clients — LAN first so on-LAN requests don't pay tailnet overhead):
 #
 #       address=/vigihome.net/192.168.50.135
-#       address=/vigihome.net/100.92.2.25
+#       address=/vigihome.net/100.71.63.31
 #
 #    Returns both IPs in the DNS answer:
 #      - 192.168.50.135 → gandalf's LAN IP. Fast path for on-LAN clients
 #        (home Wi-Fi, gandalf itself, ethernet workstations).
-#      - 100.92.2.25 → gandalf's tailnet IP. Fallback for off-LAN tailnet
+#      - 100.71.63.31 → gandalf's tailnet IP. Fallback for off-LAN tailnet
 #        clients (e.g. cellular MacBook) when no exit node is selected.
 #        Happy-eyeballs clients race both; sequential clients fall through
 #        when LAN times out.
