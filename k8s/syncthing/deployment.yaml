@@ -13,7 +13,7 @@
 #     (22000/tcp+udp for data, 21027/udp for local discovery) bind
 #     directly to gandalf's interfaces. Peers reach gandalf at its
 #     LAN IP (192.168.50.135) and tailnet name
-#     (gandalf.tail395fc0.ts.net) on those same ports — no NodePort
+#     (gandalf.tail8982c5.ts.net) on those same ports — no NodePort
 #     translation gymnastics. Pi-hole uses the same pattern for its
 #     port-53 binding.
 #   - The web UI (port 8384) is exposed via the ClusterIP Service

@@ -47,8 +47,8 @@
     # k3s re-issues the serving cert with the new SANs on startup.
     # See homelab #132.
     k3s_tls_san:
-      - gandalf.tail395fc0.ts.net # tailnet MagicDNS — primary kubeconfig target
-      - 100.92.2.25 # gandalf tailnet IP
+      - gandalf.tail8982c5.ts.net # tailnet MagicDNS — primary kubeconfig target
+      - 100.71.63.31 # gandalf tailnet IP
       - 192.168.50.135 # gandalf LAN IP (already a default SAN; kept explicit)
 
   tasks:

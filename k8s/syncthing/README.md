@@ -11,10 +11,8 @@ C** from the \[[homelab service candidates]\] memory:
 - That PV is included in the nightly restic CronJob → encrypted
   off-site snapshots on Storj. Critical for the receiveonly folders
   (DCIM, Pixel Downloads) where the phone is the only other replica.
-- Peer-to-peer connections go through gandalf's host network
-  (hostNetwork: true on the pod). Peers reach `gandalf:22000` on the
-  LAN or `gandalf.tail395fc0.ts.net:22000` from anywhere on the
-  tailnet — no NodePort translation.
+- Peer-to-peer connections go through gandalf's host network (hostNetwork: true on the pod).
+  Peers reach `gandalf:22000` on the LAN or `gandalf.tail8982c5.ts.net:22000` from anywhere on the tailnet — no NodePort translation.
 
 ## Why /mnt/storage/syncthing instead of /opt/syncthing
 
